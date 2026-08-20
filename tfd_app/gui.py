@@ -1,21 +1,26 @@
 # -*- coding: utf-8 -*-
 """
-论文格式医生 · 原生 Tkinter 界面（学术文艺风）
+论文格式医生 · 原生 Tkinter 界面（客户安心版）
 ==============================================
-布局：顶部标题栏 → 左侧「壹·选择文件 / 贰·执行操作」→ 右侧「叁·运行结果」→ 底部离线提示。
+面向客户的简洁流程，不展示任何执行细节：
 
-功能按钮：
-  1. 论文格式检查        —— 不修改原文件，出检查报告(.md)
-  2. 一键修正论文        —— 导出地址由用户选择；修正后自动出具「检查报告(.md) + 修改报告(.docx)」
-  3. 参考文献重排        —— 按 GB/T 7714 重排参考文献，生成新文档
-  4. 学校模板格式提取    —— 从学校模板(.docx/.doc/.wps)生成格式画像(.json)，自动载入后续使用
+  壹 · 选择文件        —— 待处理论文（必选）+ 学校模板（可选）
+  贰 · 按步骤操作      —— ① 提取学校模板要求 → ② 论文格式检查 → ③ 按学校要求一键修正
+  叁 · 处理状态        —— 只显示友好状态与结果确认，无原始日志
 
-兼容性：.doc / WPS .wps 一律先自动转成 .docx 再处理（进程内调用本机 Word/WPS，无黑框），
-       原文件绝不被修改。
+交互约定：
+  - 「提取学校模板要求」完成后，弹出“学校模板要求”确认页（可修改关键项），
+    客户确认后才生效；放弃则本次不使用画像。
+  - 「按学校要求一键修正」导出地址由客户选择；完成后弹确认页，
+    并附检查报告 + 修改报告。
+  - .doc / WPS .wps 一律先自动转 .docx 再处理（进程内转换，无黑框、不弹窗），
+    原文件绝不被修改。
 """
 import os
 import sys
+import json
 import threading
+import subprocess
 
 # 把 tfd_app 加入搜索路径（打包成 exe 后 sys.path 已含，但开发态下保险）
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -53,7 +58,32 @@ F_HDR   = ("KaiTi", 13, "bold")
 F_BODY  = ("Microsoft YaHei UI", 10)
 F_SMALL = ("Microsoft YaHei UI", 9)
 F_BTN   = ("Microsoft YaHei UI", 11, "bold")
-F_LOG   = ("Microsoft YaHei UI", 9)
+F_STAT  = ("KaiTi", 13)
+
+# 模板要求确认页里可修改的关键项：(中文标签, profile 内路径)
+EDIT_FIELDS = [
+    ("正文字体",          ("spec", "body", "font")),
+    ("正文字号",          ("spec", "body", "size")),
+    ("正文行距(磅)",      ("spec", "body", "line_val")),
+    ("首行缩进(字符)",    ("spec", "body", "indent_chars")),
+    ("一级标题字体",      ("spec", "h1", "zh_font")),
+    ("一级标题字号",      ("spec", "h1", "size")),
+    ("二级标题字体",      ("spec", "h2", "zh_font")),
+    ("二级标题字号",      ("spec", "h2", "size")),
+    ("三级标题字体",      ("spec", "h3", "zh_font")),
+    ("三级标题字号",      ("spec", "h3", "size")),
+    ("页边距 上(厘米)",   ("spec", "page", "top_cm")),
+    ("页边距 下(厘米)",   ("spec", "page", "bottom_cm")),
+    ("页边距 左(厘米)",   ("spec", "page", "left_cm")),
+    ("页边距 右(厘米)",   ("spec", "page", "right_cm")),
+]
+# 页边距字段：编辑厘米值时同步写 twips（top/bottom/left/right），兼容两套读取方
+_MARGIN_TWIPS = {
+    ("spec", "page", "top_cm"): "top",
+    ("spec", "page", "bottom_cm"): "bottom",
+    ("spec", "page", "left_cm"): "left",
+    ("spec", "page", "right_cm"): "right",
+}
 
 
 def _base_no_ext(path):
@@ -61,12 +91,84 @@ def _base_no_ext(path):
     return os.path.splitext(path)[0]
 
 
+def _deep_get(d, path):
+    for k in path:
+        if not isinstance(d, dict) or k not in d:
+            return None
+        d = d[k]
+    return d
+
+
+def _deep_set(d, path, value):
+    for k in path[:-1]:
+        if not isinstance(d.get(k), dict):
+            d[k] = {}
+        d = d[k]
+    d[path[-1]] = value
+
+
+def _profile_summary(profile):
+    """把格式画像渲染成客户看得懂的“学校模板要求”文本行。"""
+    lines = []
+    spec = profile.get("spec") or {}
+    page = spec.get("page") or profile.get("page") or {}
+    if page.get("top_cm") is not None:
+        lines.append("· 页边距：上 %s 下 %s 左 %s 右 %s（厘米）" % (
+            page.get("top_cm"), page.get("bottom_cm"),
+            page.get("left_cm"), page.get("right_cm")))
+    elif page.get("top") is not None:
+        lines.append("· 页边距：上 %s 下 %s 左 %s 右 %s（已提取）" % (
+            page.get("top"), page.get("bottom"),
+            page.get("left"), page.get("right")))
+
+    body = spec.get("body") or {}
+    if body:
+        parts = []
+        if body.get("font"):
+            parts.append("字体 %s" % body["font"])
+        if body.get("size"):
+            parts.append("字号 %s" % body["size"])
+        if body.get("indent_chars"):
+            parts.append("首行缩进 %s 字符" % body["indent_chars"])
+        if body.get("line_val"):
+            parts.append("行距 %s 磅" % body["line_val"])
+        lines.append("· 正文：%s" % ("，".join(parts) if parts else "样式已提取"))
+
+    align_map = {"center": "居中", "left": "左对齐", "right": "右对齐", "both": "两端对齐"}
+    for lv, name in (("h1", "一级标题"), ("h2", "二级标题"), ("h3", "三级标题")):
+        h = spec.get(lv) or {}
+        if not h:
+            continue
+        parts = []
+        if h.get("zh_font"):
+            parts.append("字体 %s" % h["zh_font"])
+        if h.get("size"):
+            parts.append("字号 %s" % h["size"])
+        if h.get("align"):
+            parts.append("对齐 %s" % align_map.get(h["align"], h["align"]))
+        if h.get("bold"):
+            parts.append("加粗")
+        lines.append("· %s：%s" % (name, "，".join(parts) if parts else "样式已提取"))
+
+    for key, label in (("abstract", "摘要"), ("keywords", "关键词"), ("toc", "目录"),
+                       ("reference", "参考文献"), ("title", "论文题目"),
+                       ("table", "表格"), ("figure", "插图"), ("footnote", "脚注")):
+        v = spec.get(key)
+        if isinstance(v, dict) and v:
+            s = "，".join("%s %s" % (k, val) for k, val in list(v.items())[:4])
+            lines.append("· %s：%s" % (label, s))
+
+    if not lines:
+        lines.append("（未从模板提取到批注要求，将按模板样式定义进行匹配。）")
+    return lines
+
+
 class App:
     def __init__(self, root):
         self.root = root
         self.root.title("论文格式医生 · 桌面版")
         self.root.geometry("900x680")
-        self.root.minsize(780, 600)
+        self.root.minsize(800, 620)
         try:
             if os.path.isfile(ICON):
                 self.root.iconphoto(True, tk.PhotoImage(file=ICON))
@@ -75,9 +177,10 @@ class App:
 
         self.thesis_path = tk.StringVar()
         self.template_path = tk.StringVar()
-        self.profile_path = tk.StringVar()   # 已抽取/自动生成的格式画像 .json
-        self.status_var = tk.StringVar(value="静候指示…")
+        self.profile_path = tk.StringVar()   # 已确认的格式画像 .json
+        self.status_var = tk.StringVar(value="请按左侧步骤操作")
         self.running = False
+        self._msgs = []                      # 内部日志（不展示给客户）
 
         self._build_style()
         self._build_widgets()
@@ -92,11 +195,11 @@ class App:
         style.configure("TButton", font=F_BODY, padding=(12, 7),
                         background="#eae3d3", foreground=INK)
         style.map("TButton", background=[("active", "#ded6c2"), ("disabled", "#f0ece1")])
-        style.configure("Action.TButton", font=F_BTN, padding=(14, 13),
+        style.configure("Action.TButton", font=F_BTN, padding=(14, 12),
                         background="#eae3d3", foreground=INK)
         style.map("Action.TButton",
                   background=[("active", "#ded6c2"), ("disabled", "#f0ece1")])
-        style.configure("Primary.TButton", font=F_BTN, padding=(14, 13),
+        style.configure("Primary.TButton", font=F_BTN, padding=(14, 12),
                         background=CINNABAR, foreground="white")
         style.map("Primary.TButton",
                   background=[("active", CINNABAR_D), ("disabled", "#c8a79f")],
@@ -110,17 +213,14 @@ class App:
     def _build_widgets(self):
         self.root.configure(bg=PAPER)
 
-        # 顶部标题（学术封面式）
         header = tk.Frame(self.root, bg=PAPER)
         header.pack(fill="x", padx=24, pady=(18, 8))
         tk.Label(header, text="论 文 格 式 医 生", bg=PAPER, fg=INK,
                  font=F_TITLE).pack(anchor="center")
-        tk.Label(header, text="—— 格式体检 · 一键修正 · 完全离线 ——",
+        tk.Label(header, text="—— 按学校要求检查与修正 · 完全离线 ——",
                  bg=PAPER, fg=MUTED, font=F_SUB).pack(anchor="center", pady=(4, 0))
-        # 细朱线
         tk.Frame(self.root, bg=CINNABAR, height=2).pack(fill="x", padx=24)
 
-        # 主体：左右两栏
         main = tk.Frame(self.root, bg=PAPER)
         main.pack(fill="both", expand=True, padx=20, pady=14)
         main.columnconfigure(0, weight=3)
@@ -135,7 +235,6 @@ class App:
         self._build_left(left)
         self._build_right(right)
 
-        # 底部
         tk.Frame(self.root, bg=LINE, height=1).pack(fill="x", padx=24)
         tk.Label(self.root,
                  text="论文格式医生 · 桌面版 — 完全离线，文件不会上传任何服务器",
@@ -157,7 +256,6 @@ class App:
             "选择模板…", self._pick_template,
             placeholder="未选择 — 不选也能用通用规范处理")
 
-        # 已载入画像提示条
         self.profile_box = tk.Frame(parent, bg="#f0f3ec",
                                     highlightthickness=1, highlightbackground="#b7c6ae")
         tk.Label(self.profile_box, text="●", bg="#f0f3ec", fg=OKC,
@@ -168,30 +266,26 @@ class App:
         ttk.Button(self.profile_box, text="清除", width=6, style="Ghost.TButton",
                    command=self._clear_profile).pack(side="right", padx=8, pady=4)
 
-        self._section_title(parent, "贰 · 执行操作")
-        acts = tk.Frame(parent, bg=PAPER)
-        acts.pack(fill="x", pady=(2, 0))
-        acts.columnconfigure(0, weight=1)
-        acts.columnconfigure(1, weight=1)
-
+        self._section_title(parent, "贰 · 按步骤操作")
         self._btns = []
-        specs = [
-            (0, 0, "论文格式检查", "primary", "check"),
-            (0, 1, "一键修正论文", "normal", "fix"),
-            (1, 0, "参考文献重排", "normal", "ref"),
-            (1, 1, "学校模板格式提取", "normal", "profile"),
+        steps = [
+            ("①", "提取学校模板要求", "从学校模板生成格式要求，可确认 / 修改", "profile", False),
+            ("②", "论文格式检查", "按通用或学校要求检查，出检查报告", "check", False),
+            ("③", "按学校要求一键修正", "修正后自选保存位置，出具检查 + 修改报告", "fix", True),
         ]
-        for r, c, text, kind, mode in specs:
-            btn = ttk.Button(acts, text=text,
-                             style="Primary.TButton" if kind == "primary" else "Action.TButton",
+        for num, title, desc, mode, primary in steps:
+            tk.Label(parent, text=num + " " + title, bg=PAPER, fg=ACCENT,
+                     font=("KaiTi", 12, "bold")).pack(anchor="w", pady=(8, 0))
+            btn = ttk.Button(parent, text=desc,
+                             style="Primary.TButton" if primary else "Action.TButton",
                              command=lambda m=mode: self._run_mode(m))
-            btn.grid(row=r, column=c, sticky="ew", padx=3, pady=4)
+            btn.pack(fill="x", pady=3)
             self._btns.append(btn)
 
         tk.Label(parent,
-                 text="提示：可先「学校模板格式提取」生成格式画像，之后检查 / 修正会自动带上它，结果更贴合学校要求。",
+                 text="建议顺序：先「提取学校模板要求」（没有学校模板可跳过），再检查，最后修正。",
                  bg=PAPER, fg=MUTED, font=F_SMALL, justify="left",
-                 wraplength=380).pack(anchor="w", pady=(8, 0))
+                 wraplength=400).pack(anchor="w", pady=(8, 0))
 
     def _section_title(self, parent, text):
         row = tk.Frame(parent, bg=PAPER)
@@ -216,24 +310,29 @@ class App:
 
     # --------------------------------------------------------- right panel
     def _build_right(self, parent):
-        self._section_title(parent, "叁 · 运行结果")
+        self._section_title(parent, "叁 · 处理状态")
 
-        st = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=LINE)
-        st.pack(fill="x", pady=(0, 6))
-        self.status_dot = tk.Label(st, text="●", bg=PANEL, fg=MUTED, font=F_SMALL)
-        self.status_dot.pack(side="left", padx=(12, 4), pady=8)
-        self.status_lbl = tk.Label(st, textvariable=self.status_var, bg=PANEL, fg=INK,
-                                   font=F_BODY)
-        self.status_lbl.pack(side="left", pady=8)
+        card = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=LINE)
+        card.pack(fill="x", pady=(0, 8))
+        self.status_dot = tk.Label(card, text="●", bg=PANEL, fg=MUTED, font=F_BODY)
+        self.status_dot.pack(side="left", padx=(14, 6), pady=16)
+        self.status_lbl = tk.Label(card, textvariable=self.status_var, bg=PANEL, fg=INK,
+                                   font=F_STAT)
+        self.status_lbl.pack(side="left", pady=16)
 
-        logbox = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=LINE)
-        logbox.pack(fill="both", expand=True)
-        self.log = tk.Text(logbox, wrap="word", bg="#fbf8f1", fg=INK,
-                           font=F_LOG, relief="flat", padx=10, pady=8)
-        self.log.pack(side="left", fill="both", expand=True)
-        sb = ttk.Scrollbar(logbox, command=self.log.yview)
-        sb.pack(side="right", fill="y")
-        self.log.config(yscrollcommand=sb.set, state="disabled")
+        self.progress = ttk.Progressbar(parent, mode="indeterminate")
+        self.progress.pack(fill="x", pady=(0, 8))
+        self.progress.pack_forget()
+
+        tk.Label(parent,
+                 text="所有处理均在您本机完成，原文件绝不会被改动，请安心等待。",
+                 bg=PAPER, fg=MUTED, font=F_SMALL, justify="left",
+                 wraplength=300).pack(anchor="w")
+
+        self.result_lbl = tk.Label(parent, text="", bg=PAPER, fg=OKC,
+                                   font=F_BODY, justify="left", wraplength=300,
+                                   anchor="w")
+        self.result_lbl.pack(anchor="w", pady=(12, 0))
 
     # --------------------------------------------------------------- picks
     def _pick_input(self):
@@ -273,7 +372,6 @@ class App:
 
         dst = None
         if mode == "fix":
-            # 一键修正：导出地址由客户选择
             base = _base_no_ext(src)
             dst = filedialog.asksaveasfilename(
                 title="选择修正后论文的保存位置",
@@ -285,9 +383,11 @@ class App:
                 return
 
         self.running = True
-        for b in self._btns:
-            b.config(state="disabled")
-        self._set_status("处理中…", RUN)
+        self._set_running(True)
+        status = {"profile": "正在提取学校模板要求…",
+                  "check": "正在检查论文格式…",
+                  "fix": "正在按学校要求修正论文…"}[mode]
+        self._set_status(status, RUN)
         threading.Thread(target=self._worker, args=(mode, src, dst), daemon=True).start()
 
     def _worker(self, mode, src, dst=None):
@@ -297,94 +397,248 @@ class App:
             else:
                 docx_path, note = engine.normalize_input(src)
                 if note:
-                    self._append(note + "\n")
+                    self._debug(note)
                 if mode == "check":
                     self._do_check(src, docx_path)
                 elif mode == "fix":
                     self._do_fix(src, docx_path, dst)
-                elif mode == "ref":
-                    self._do_ref(src, docx_path)
-            self._append("\n===== 处理完成 =====\n")
-            self._set_status("完成", OKC)
+            self._set_status("已完成", OKC)
         except Exception as e:
-            self._append("\n[错误] " + str(e) + "\n")
-            self._set_status("出错", ERRC)
+            self._debug("[错误] " + str(e))
+            self._set_status("未能完成，请查看提示", ERRC)
             self.root.after(0, lambda: messagebox.showerror("处理出错", str(e)))
         finally:
             self.running = False
-            self.root.after(0, self._enable_buttons)
+            self._set_running(False)
 
-    def _enable_buttons(self):
-        for b in self._btns:
-            b.config(state="normal")
+    def _set_running(self, running):
+        def _apply():
+            state = "disabled" if running else "normal"
+            for b in self._btns:
+                b.config(state=state)
+            if running:
+                self.progress.pack(fill="x", pady=(0, 8))
+                self.progress.start(12)
+            else:
+                self.progress.stop()
+                self.progress.pack_forget()
+        self.root.after(0, _apply)
 
-    def _resolve_profile(self):
-        """检查 / 修正用的画像：优先已抽取的，其次用学校模板自动生成。
+    # --------------------------------------------------- profile 提取与确认
+    def _extract_profile(self, src):
+        """提取学校模板要求并弹确认页（客户可修改）。返回画像路径或 None（放弃）。"""
+        t_docx, note = engine.normalize_input(src)
+        if note:
+            self._debug(note)
+        out = _base_no_ext(src) + "_格式画像.json"
+        text = engine.run_build_profile(t_docx, out)
+        try:
+            profile = json.loads(text)
+        except Exception:
+            profile = None
+        if profile is None:
+            self.profile_path.set("")
+            return None
+        ok, edits = self._ask_profile_confirm(profile)
+        if not ok:
+            self.profile_path.set("")
+            return None
+        if edits:
+            for path_keys, value in edits:
+                _deep_set(profile, path_keys, value)
+                twips_key = _MARGIN_TWIPS.get(tuple(path_keys))
+                if twips_key:
+                    try:
+                        _deep_set(profile, ("spec", "page", twips_key),
+                                  str(int(float(value) * 567)))
+                    except (ValueError, TypeError):
+                        pass
+            with open(out, "w", encoding="utf-8") as f:
+                json.dump(profile, f, ensure_ascii=False, indent=2)
+        self.profile_path.set(out)
+        self.root.after(0, self._update_profile_box)
+        return out
 
-        注意：模板可能是 .doc/.wps，必须先转成 .docx 再生成画像，否则会报错。
-        """
+    def _ensure_profile_ready(self):
+        """检查 / 修正用的画像：优先已确认的，其次自动从学校模板提取（带确认页）。"""
         p = self.profile_path.get().strip()
         if p and os.path.isfile(p):
             return p
         t = self.template_path.get().strip()
         if t and os.path.isfile(t):
-            t_docx, note = engine.normalize_input(t)
-            if note:
-                self._append(note + "\n")
-            out = _base_no_ext(t) + "_格式画像.json"
-            engine.run_build_profile(t_docx, out)
-            self.profile_path.set(out)
-            self.root.after(0, self._update_profile_box)
-            self._append("已从学校模板自动生成格式画像，本次按“模板驱动”处理。\n")
-            return out
+            return self._extract_profile(t)
         return None
+
+    def _ask_profile_confirm(self, profile):
+        """在 worker 线程里等客户确认（弹窗在主线程）。返回 (ok, edits)。"""
+        ev = threading.Event()
+        box = {}
+
+        def show():
+            try:
+                ok, edits = self._profile_confirm_dialog(profile)
+                box["ok"] = ok
+                box["edits"] = edits
+            except Exception:
+                box["ok"] = False
+                box["edits"] = []
+            finally:
+                ev.set()
+
+        self.root.after(0, show)
+        ev.wait(timeout=600)
+        return box.get("ok", False), box.get("edits", [])
+
+    def _profile_confirm_dialog(self, profile):
+        """“学校模板要求 · 请确认”弹窗：只读摘要 + 可修改关键项。返回 (ok, edits)。"""
+        result = {"ok": False, "edits": []}
+        top = tk.Toplevel(self.root)
+        top.title("学校模板要求 · 请确认")
+        top.configure(bg=PAPER)
+        top.transient(self.root)
+        top.grab_set()
+        top.geometry("600x640+%d+%d" % (self.root.winfo_rootx() + 90,
+                                        self.root.winfo_rooty() + 30))
+
+        tk.Label(top, text="已提取出学校模板的格式要求", bg=PAPER, fg=INK,
+                 font=("KaiTi", 15, "bold")).pack(pady=(16, 2))
+        tk.Label(top, text="请核对是否与学校规定一致；如有不准，可直接修改后确认。",
+                 bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(0, 8))
+
+        sum_f = tk.Frame(top, bg=PANEL, highlightthickness=1, highlightbackground=LINE)
+        sum_f.pack(fill="x", padx=18, pady=4)
+        sum_txt = tk.Text(sum_f, height=6, wrap="word", bg="#fbf8f1", fg=INK,
+                          font=F_SMALL, relief="flat", padx=10, pady=6)
+        sum_txt.insert("1.0", "\n".join(_profile_summary(profile)))
+        sum_txt.config(state="disabled")
+        sum_txt.pack(fill="x")
+
+        tk.Label(top, text="如需修正，直接修改下列项目（留空表示保持提取结果）",
+                 bg=PAPER, fg=ACCENT, font=F_SMALL).pack(anchor="w", padx=20, pady=(10, 2))
+
+        # 可滚动表单
+        canvas = tk.Canvas(top, bg=PAPER, highlightthickness=0)
+        vbar = ttk.Scrollbar(top, orient="vertical", command=canvas.yview)
+        form = tk.Frame(canvas, bg=PAPER)
+        form.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=form, anchor="nw")
+        canvas.configure(yscrollcommand=vbar.set)
+        canvas.pack(fill="both", expand=True, padx=(20, 0), pady=4)
+        vbar.pack(side="right", fill="y")
+
+        entries = {}
+        for i, (label, path_keys) in enumerate(EDIT_FIELDS):
+            tk.Label(form, text=label, bg=PAPER, fg=INK, font=F_SMALL).grid(
+                row=i, column=0, sticky="e", padx=(0, 10), pady=3)
+            var = tk.StringVar(value=str(_deep_get(profile, path_keys) or ""))
+            tk.Entry(form, textvariable=var, width=24, font=F_SMALL,
+                     relief="solid", bd=1).grid(row=i, column=1, sticky="w", pady=3)
+            entries[path_keys] = var
+
+        def on_confirm():
+            edits = []
+            for path_keys, var in entries.items():
+                v = var.get().strip()
+                if v:
+                    edits.append((path_keys, v))
+            result["ok"] = True
+            result["edits"] = edits
+            top.destroy()
+
+        def on_cancel():
+            result["ok"] = False
+            top.destroy()
+
+        btns = tk.Frame(top, bg=PAPER)
+        btns.pack(pady=12)
+        ttk.Button(btns, text="确认，使用此要求", style="Primary.TButton",
+                   command=on_confirm).pack(side="left", padx=6)
+        ttk.Button(btns, text="放弃（不使用画像）", command=on_cancel).pack(side="left", padx=6)
+
+        top.wait_window()
+        return result["ok"], result["edits"]
+
+    # ------------------------------------------------------------ 各步骤
+    def _do_profile(self, src):
+        out = self._extract_profile(src)
+        if out:
+            self._debug("画像已保存：" + out)
+            self.root.after(0, lambda: self.result_lbl.config(
+                text="学校模板要求已确认并保存：\n" + out))
 
     def _do_check(self, src, docx_path):
         base = _base_no_ext(src)
         out_md = base + "_格式检查报告.md"
-        profile = self._resolve_profile()
+        profile = self._ensure_profile_ready()
         report = engine.run_check(docx_path, profile_path=profile, out_md=out_md)
-        self._append(report)
-        self._append("\n检查报告已保存：" + out_md + "\n")
+        self._debug(report)
+        self.root.after(0, lambda: self._show_check_done(out_md))
 
     def _do_fix(self, src, docx_path, dst):
-        """一键修正：导出到用户选择的位置，同时出具检查报告 + 修改报告。"""
         base_dst = _base_no_ext(dst)
         rep = base_dst + "_修改报告.docx"
         chk = base_dst + "_检查报告.md"
-        profile = self._resolve_profile()
+        profile = self._ensure_profile_ready()
         report = engine.run_fix_headings(
             docx_path, dst, profile_path=profile,
             report_docx=rep, add_comments=True)
-        self._append(report)
-        # 对修正后的文档再出一份检查报告
-        self._append("\n—— 修正后复检 ——\n")
+        self._debug(report)
         check_report = engine.run_check(dst, profile_path=profile, out_md=chk)
-        self._append(check_report)
-        self._append("\n修正后论文已保存：" + dst + "\n")
-        self._append("检查报告已保存：" + chk + "\n")
-        self._append("修改报告已保存：" + rep + "\n")
+        self._debug(check_report)
+        self.root.after(0, lambda: self._show_fix_done(dst, chk, rep))
 
-    def _do_ref(self, src, docx_path):
-        base = _base_no_ext(src)
-        dst = base + "_参考文献重排.docx"
-        report = engine.run_reformat_refs(docx_path, dst)
-        self._append(report)
-        self._append("\n新文档已保存：" + dst + "\n")
+    # ------------------------------------------------------------ 确认页
+    def _show_check_done(self, out_md):
+        self.result_lbl.config(text="检查报告已生成，保存在原文档旁。")
+        k = self._modal("格式检查完成",
+                        "检查报告已保存至：\n%s\n\n如需按学校要求修正论文，请继续第③步。" % out_md,
+                        [("open", "打开所在文件夹"), ("ok", "完成")])
+        if k == "open":
+            self._open_folder(out_md)
 
-    def _do_profile(self, src):
-        """学校模板格式提取：模板可能是 .doc/.wps，先转成 .docx 再生成画像。"""
-        t_docx, note = engine.normalize_input(src)
-        if note:
-            self._append(note + "\n")
-        base = _base_no_ext(src)
-        out = base + "_格式画像.json"
-        report = engine.run_build_profile(t_docx, out)
-        self.profile_path.set(out)
-        self._append(report)
-        self._append("\n画像已保存：" + out + "\n")
-        self._append("已自动载入该画像，后续检查 / 修正会自动使用它。\n")
-        self.root.after(0, self._update_profile_box)
+    def _show_fix_done(self, dst, chk, rep):
+        self.result_lbl.config(text="论文已修正并保存完毕。")
+        k = self._modal("修正完成",
+                        "已为您保存以下文件：\n\n"
+                        "① 修正后论文：%s\n② 检查报告：%s\n③ 修改报告：%s\n\n"
+                        "全程在本机完成，原文件未改动。" % (dst, chk, rep),
+                        [("open", "打开所在文件夹"), ("ok", "完成")])
+        if k == "open":
+            self._open_folder(dst)
+
+    def _modal(self, title, text, buttons):
+        """通用模态确认页，返回所选按钮 key。"""
+        result = {"v": None}
+        top = tk.Toplevel(self.root)
+        top.title(title)
+        top.configure(bg=PAPER)
+        top.transient(self.root)
+        top.grab_set()
+        top.geometry("+%d+%d" % (self.root.winfo_rootx() + 140,
+                                 self.root.winfo_rooty() + 120))
+        tk.Label(top, text=text, bg=PAPER, fg=INK, font=F_BODY, justify="left",
+                 wraplength=480).pack(padx=24, pady=(20, 14))
+        fr = tk.Frame(top, bg=PAPER)
+        fr.pack(pady=(0, 18))
+        for key, label in buttons:
+            style = "Primary.TButton" if key == "ok" else "TButton"
+            b = ttk.Button(fr, text=label, style=style,
+                           command=lambda k=key: (result.update(v=k), top.destroy()))
+            b.pack(side="left", padx=6)
+        top.wait_window()
+        return result["v"]
+
+    def _open_folder(self, path):
+        folder = os.path.dirname(os.path.abspath(path))
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(folder)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", folder])
+            else:
+                subprocess.Popen(["xdg-open", folder])
+        except Exception:
+            pass
 
     def _update_profile_box(self):
         p = self.profile_path.get().strip()
@@ -396,15 +650,11 @@ class App:
             if self.profile_box.winfo_ismapped():
                 self.profile_box.pack_forget()
 
-    # ----------------------------------------------------- thread-safe UI
-    def _append(self, text):
-        self.root.after(0, self._append_now, text)
-
-    def _append_now(self, text):
-        self.log.config(state="normal")
-        self.log.insert("end", text)
-        self.log.see("end")
-        self.log.config(state="disabled")
+    # ---------------------------------------------- 内部日志（不展示客户）
+    def _debug(self, text):
+        self._msgs.append(text)
+        if len(self._msgs) > 200:
+            self._msgs = self._msgs[-200:]
 
     def _set_status(self, s, color):
         self.root.after(0, lambda: (self.status_var.set(s),
