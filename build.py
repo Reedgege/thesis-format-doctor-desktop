@@ -36,6 +36,8 @@ HIDDEN = [
     "docxutils", "format_checker", "headings_fix",
     "ref_reformat", "format_profile", "report_docx", "format_check",
     "tfd_app.engine", "tfd_app.gui",
+    # Windows 专用：进程内调用本机 Word/WPS 转换 .doc/.wps（pywin32 COM）
+    "win32com", "win32com.client", "pythoncom", "pywintypes",
 ]
 
 # 需作为"数据文件"打包的目录: (源目录, 打包后目录名)

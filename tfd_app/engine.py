@@ -195,20 +195,89 @@ def _is_valid_docx(path):
         return False
 
 
-def _convert_doc_via_ms_app(path, workdir):
-    """用本机已装的 Word / WPS 把 .doc/.wps 转成 .docx（Windows 专用）。
+def _convert_doc_via_com_inproc(path, out_dir):
+    """在软件进程内直接调用本机 Word / WPS（pywin32 COM）把 .doc/.wps 转 .docx。
 
-    依次尝试多种保存策略，每次都在 Python 端校验产出的 .docx 是否合法，
-    直到得到含 word/document.xml 的合法文件。全部失败返回 None。
+    优点：没有外部进程、不弹任何窗口（本机办公软件也以隐藏方式运行）。
+    返回生成的 .docx 路径；未装 pywin32、本机无 Word/WPS 或转换失败时返回 None。
     """
-    if not sys.platform.startswith("win"):
+    try:
+        import win32com.client
+        import pythoncom
+    except Exception:
         return None
-    out_dir = tempfile.mkdtemp(prefix="tfd_conv_", dir=workdir or None)
+    dst = os.path.join(out_dir, "_converted.docx")
+    app = None
+    try:
+        pythoncom.CoInitialize()
+        for progid in ("Word.Application", "KWPS.Application", "WPS.Application"):
+            try:
+                app = win32com.client.Dispatch(progid)
+                break
+            except Exception:
+                app = None
+        if app is None:
+            return None
+        try:
+            app.Visible = False
+        except Exception:
+            pass
+        try:
+            app.DisplayAlerts = 0
+        except Exception:
+            pass
+        for strategy in (None, 12, 16):   # 扩展名驱动 → Word2007 docx → 默认 docx
+            if os.path.exists(dst):
+                try:
+                    os.remove(dst)
+                except OSError:
+                    pass
+            doc = None
+            try:
+                doc = app.Documents.Open(path, False, True)
+                try:
+                    if strategy is None:
+                        doc.SaveAs2(dst)
+                    else:
+                        doc.SaveAs2(dst, strategy)
+                except Exception:
+                    if strategy is None:
+                        doc.SaveAs(dst)
+                    else:
+                        doc.SaveAs(dst, strategy)
+                doc.Close(False)
+                doc = None
+            except Exception:
+                try:
+                    if doc is not None:
+                        doc.Close(False)
+                except Exception:
+                    pass
+            if _is_valid_docx(dst):
+                return dst
+        return None
+    finally:
+        try:
+            if app is not None:
+                app.Quit()
+        except Exception:
+            pass
+
+
+def _convert_doc_via_script_host(path, out_dir):
+    """经系统脚本宿主（隐藏控制台窗口）调用本机 Word / WPS 转换。
+
+    备用通道：仅当进程内 COM 不可用时才走这里。返回 docx 路径或 None。
+    """
     dst = os.path.join(out_dir, "_converted.docx")
     vbs = os.path.join(out_dir, "_convert.vbs")
     # 脚本宿主需 UTF-16（带 BOM）才能正确读含中文的脚本与路径
     with open(vbs, "w", encoding="utf-16", newline="\r\n") as f:
         f.write(_VBS_CONVERT)
+    kwargs = {}
+    if sys.platform.startswith("win"):
+        # 关键：不让子进程弹出黑色控制台窗口（cscript 默认会闪一下黑框）
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
     strategies = ["", "12", "16"]   # 扩展名驱动 → Word2007 docx → 默认 docx
     for ff in strategies:
         if os.path.exists(dst):
@@ -220,13 +289,29 @@ def _convert_doc_via_ms_app(path, workdir):
         if ff:
             cmd.append(ff)
         try:
-            r = subprocess.run(cmd, capture_output=True, timeout=240)
+            r = subprocess.run(cmd, capture_output=True, timeout=240, **kwargs)
         except Exception as e:
             raise RuntimeError("调用本机 Word/WPS 转换失败：" + str(e))
         out = r.stdout.decode("utf-8", errors="replace")
         if "OK" in out and os.path.isfile(dst) and _is_valid_docx(dst):
             return dst
     return None
+
+
+def _convert_doc_via_ms_app(path, workdir):
+    """用本机已装的 Word / WPS 把 .doc/.wps 转成 .docx（Windows 专用）。
+
+    优先在软件进程内直接调用（pywin32 COM，无任何弹窗、无外部进程）；
+    若进程内调用不可用，退回脚本宿主通道并强制隐藏控制台窗口。
+    全部失败返回 None。
+    """
+    if not sys.platform.startswith("win"):
+        return None
+    out_dir = tempfile.mkdtemp(prefix="tfd_conv_", dir=workdir or None)
+    conv = _convert_doc_via_com_inproc(path, out_dir)
+    if conv:
+        return conv
+    return _convert_doc_via_script_host(path, out_dir)
 
 
 def normalize_input(path):
