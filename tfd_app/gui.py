@@ -23,7 +23,7 @@ if HERE not in sys.path:
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-import engine
+from . import engine
 
 
 ICON = os.path.join(HERE, "assets", "icon.png")

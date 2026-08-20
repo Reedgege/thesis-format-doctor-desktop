@@ -30,9 +30,12 @@ APP_NAME = "thesis-format-doctor-desktop"
 ENTRY = os.path.join(HERE, "main.py")
 
 # 引擎模块（标准库，但用 importlib 动态加载，必须显式声明 hiddenimport）
+# 注意：tfd_app.engine / tfd_app.gui 必须显式列出，否则 PyInstaller 静态分析
+# 追踪不到"裸 import engine"这类运行时才解析的导入，打包后运行报 No module named 'engine'。
 HIDDEN = [
     "docxutils", "format_checker", "headings_fix",
     "ref_reformat", "format_profile", "report_docx", "format_check",
+    "tfd_app.engine", "tfd_app.gui",
 ]
 
 # 需作为"数据文件"打包的目录: (源目录, 打包后目录名)
