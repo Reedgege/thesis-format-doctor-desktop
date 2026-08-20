@@ -1,6 +1,7 @@
 # 构建产物
 build/
 dist/
+_bak/
 *.spec
 __pycache__/
 *.pyc

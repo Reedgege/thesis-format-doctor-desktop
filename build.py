@@ -11,7 +11,6 @@
 """
 import os
 import sys
-import shutil
 import subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -34,20 +33,9 @@ DATA_DIRS = [
 
 
 def build(clean=False):
-    pyinstaller = os.path.join(
-        os.path.dirname(sys.executable), "pyinstaller"
-    )
-    # 优先使用 venv 中的 pyinstaller
-    venv_scripts = os.path.join(
-        os.path.dirname(os.path.dirname(sys.executable)), "Scripts", "pyinstaller.exe"
-    )
-    if os.path.exists(venv_scripts):
-        pyinstaller = venv_scripts
-    elif not shutil.which("pyinstaller"):
-        # 回退：用 python -m PyInstaller
-        pyinstaller = None
-
-    cmd = [sys.executable, "-m", "PyInstaller"] if pyinstaller is None else [pyinstaller]
+    # 始终用 `python -m PyInstaller`，避免依赖 PATH 中的 pyinstaller 可执行文件
+    # （Windows CI 上 pyinstaller.exe 不在 PATH 时会触发 FileNotFoundError）
+    cmd = [sys.executable, "-m", "PyInstaller"]
     cmd += [
         "--name", APP_NAME,
         "--onefile",
