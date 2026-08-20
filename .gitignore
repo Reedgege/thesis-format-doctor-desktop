@@ -1,0 +1,17 @@
+# 构建产物
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+.DS_Store
+
+# 临时测试
+testdata/
+test_*.py
+make_test_docx.py
+
+# 本地环境
+.venv/
+venv/
+env/
