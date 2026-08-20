@@ -68,7 +68,11 @@ jobs:
       - name: Stage assets
         run: |
           mkdir -p release
-          find artifacts -type f -exec cp {} release/ \;
+          for plat in windows macos linux; do
+            src=$(find "artifacts/thesis-format-doctor-desktop-$plat" -type f | head -1)
+            ext=""; [ "$plat" = "windows" ] && ext=".exe"
+            cp "$src" "release/thesis-format-doctor-desktop-$plat$ext"
+          done
           ls -la release
 
       - name: Create GitHub Release
