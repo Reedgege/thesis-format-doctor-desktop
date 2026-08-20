@@ -19,6 +19,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CORE = os.path.join(HERE, "core")
@@ -127,12 +128,18 @@ def _convert_doc_to_docx(path, soffice, workdir):
     return produced
 
 
-# 用本机 Word / WPS（Windows COM，经 cscript 调 VBScript）把 .doc/.wps 转 .docx。
-# 纯标准库实现：cscript 是 Windows 自带，无需 pywin32；VBS 用 UTF-16 编码以支持中文路径。
+# 用本机 Word / WPS（Windows COM，经系统脚本宿主调 VBScript）把 .doc/.wps 转 .docx。
+# 纯标准库实现：脚本宿主是 Windows 自带，无需 pywin32；VBS 用 UTF-16 编码以支持中文路径。
+# 第三个参数为可选的保存格式：空 = 由 .docx 扩展名决定；12 = Word 2007 XML(.docx)；16 = 默认 docx。
 _VBS_CONVERT = r'''
 Option Explicit
-Dim app, doc, ok
+Dim app, doc, ok, dst, ff
 ok = False
+dst = WScript.Arguments(1)
+ff = ""
+If WScript.Arguments.Count > 2 Then
+    ff = WScript.Arguments(2)
+End If
 On Error Resume Next
 Set app = CreateObject("Word.Application")
 If Err.Number <> 0 Then
@@ -152,10 +159,18 @@ app.DisplayAlerts = 0
 Set doc = app.Documents.Open(WScript.Arguments(0), False, True)
 If Err.Number = 0 Then
     On Error Resume Next
-    doc.SaveAs2 WScript.Arguments(1), 16
-    If Err.Number <> 0 Then
-        Err.Clear
-        doc.SaveAs WScript.Arguments(1), 16
+    If ff = "" Then
+        doc.SaveAs2 dst
+        If Err.Number <> 0 Then
+            Err.Clear
+            doc.SaveAs dst
+        End If
+    Else
+        doc.SaveAs2 dst, CInt(ff)
+        If Err.Number <> 0 Then
+            Err.Clear
+            doc.SaveAs dst, CInt(ff)
+        End If
     End If
     If Err.Number = 0 Then
         ok = True
@@ -171,27 +186,46 @@ End If
 '''
 
 
+def _is_valid_docx(path):
+    """判断文件是否为合法 .docx：ZIP 包且含 word/document.xml。"""
+    try:
+        with zipfile.ZipFile(path) as z:
+            return "word/document.xml" in z.namelist()
+    except Exception:
+        return False
+
+
 def _convert_doc_via_ms_app(path, workdir):
     """用本机已装的 Word / WPS 把 .doc/.wps 转成 .docx（Windows 专用）。
 
-    返回生成的 .docx 路径；本机无 Word/WPS 或转换失败时返回 None。
+    依次尝试多种保存策略，每次都在 Python 端校验产出的 .docx 是否合法，
+    直到得到含 word/document.xml 的合法文件。全部失败返回 None。
     """
     if not sys.platform.startswith("win"):
         return None
     out_dir = tempfile.mkdtemp(prefix="tfd_conv_", dir=workdir or None)
     dst = os.path.join(out_dir, "_converted.docx")
     vbs = os.path.join(out_dir, "_convert.vbs")
-    # cscript 需 UTF-16（带 BOM）才能正确读含中文的脚本与路径
+    # 脚本宿主需 UTF-16（带 BOM）才能正确读含中文的脚本与路径
     with open(vbs, "w", encoding="utf-16", newline="\r\n") as f:
         f.write(_VBS_CONVERT)
-    cmd = ["cscript.exe", "//nologo", vbs, path, dst]
-    try:
-        r = subprocess.run(cmd, capture_output=True, timeout=240)
-    except Exception as e:
-        raise RuntimeError("调用本机 Word/WPS 转换失败：" + str(e))
-    out = r.stdout.decode("utf-8", errors="replace")
-    if "OK" in out and os.path.isfile(dst):
-        return dst
+    strategies = ["", "12", "16"]   # 扩展名驱动 → Word2007 docx → 默认 docx
+    for ff in strategies:
+        if os.path.exists(dst):
+            try:
+                os.remove(dst)
+            except OSError:
+                pass
+        cmd = ["cscript.exe", "//nologo", vbs, path, dst]
+        if ff:
+            cmd.append(ff)
+        try:
+            r = subprocess.run(cmd, capture_output=True, timeout=240)
+        except Exception as e:
+            raise RuntimeError("调用本机 Word/WPS 转换失败：" + str(e))
+        out = r.stdout.decode("utf-8", errors="replace")
+        if "OK" in out and os.path.isfile(dst) and _is_valid_docx(dst):
+            return dst
     return None
 
 
@@ -221,11 +255,11 @@ def normalize_input(path):
         if conv:
             return conv, "已自动将旧格式转换为 .docx 后处理（本机 Word/WPS，原文件未改动）"
         raise RuntimeError(
-            "检测到旧格式文件（.doc / .wps），但本机没有可用的转换工具。\n"
-            "已尝试：LibreOffice、本机 Word / WPS —— 均不可用。\n"
+            "检测到旧格式文件（.doc / .wps），自动转换未成功。\n"
+            "已尝试：LibreOffice（未安装）、本机 Word/WPS（转换结果异常，产物不是合法 .docx）。\n"
             "解决办法（任选其一）：\n"
             "① 安装免费的 LibreOffice（推荐，装好后本软件会自动转换）；\n"
-            "② 用 Word 或 WPS 打开该文件，执行「另存为 → Word 文档(.docx)」后再用本软件处理。"
+            "② 用 Word 或 WPS 打开该文件，手动执行「另存为 → Word 文档(.docx)」后再用本软件处理。"
         )
     # 其它扩展名：交给引擎，让它报“无法识别”之类的错
     return path, None
