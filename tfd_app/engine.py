@@ -19,6 +19,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import time
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -200,6 +201,9 @@ def _convert_doc_via_com_inproc(path, out_dir):
 
     优点：没有外部进程、不弹任何窗口（本机办公软件也以隐藏方式运行）。
     返回生成的 .docx 路径；未装 pywin32、本机无 Word/WPS 或转换失败时返回 None。
+
+    注意：用户开着 WPS/Word 时 COM 调用偶发失败（如 <unknown>.Add / 发生意外），
+    因此整体最多重试 3 轮，每轮都用全新实例（早绑定优先）。
     """
     try:
         import win32com.client
@@ -207,61 +211,77 @@ def _convert_doc_via_com_inproc(path, out_dir):
     except Exception:
         return None
     dst = os.path.join(out_dir, "_converted.docx")
-    app = None
-    try:
-        pythoncom.CoInitialize()
-        for progid in ("Word.Application", "KWPS.Application", "WPS.Application"):
-            try:
-                app = win32com.client.Dispatch(progid)
-                break
-            except Exception:
-                app = None
-        if app is None:
-            return None
+    progids = ("Word.Application", "KWPS.Application", "WPS.Application")
+    for attempt in range(3):
+        app = None
         try:
-            app.Visible = False
-        except Exception:
-            pass
-        try:
-            app.DisplayAlerts = 0
-        except Exception:
-            pass
-        for strategy in (None, 12, 16):   # 扩展名驱动 → Word2007 docx → 默认 docx
-            if os.path.exists(dst):
+            pythoncom.CoInitialize()
+            for progid in progids:
                 try:
-                    os.remove(dst)
-                except OSError:
-                    pass
-            doc = None
-            try:
-                doc = app.Documents.Open(path, False, True)
-                try:
-                    if strategy is None:
-                        doc.SaveAs2(dst)
-                    else:
-                        doc.SaveAs2(dst, strategy)
+                    app = win32com.client.gencache.EnsureDispatch(progid)
+                    break
                 except Exception:
-                    if strategy is None:
-                        doc.SaveAs(dst)
-                    else:
-                        doc.SaveAs(dst, strategy)
-                doc.Close(False)
+                    app = None
+                try:
+                    app = win32com.client.DispatchEx(progid)
+                    break
+                except Exception:
+                    app = None
+                try:
+                    app = win32com.client.Dispatch(progid)
+                    break
+                except Exception:
+                    app = None
+            if app is None:
+                return None
+            try:
+                app.Visible = False
+            except Exception:
+                pass
+            try:
+                app.DisplayAlerts = 0
+            except Exception:
+                pass
+            for strategy in (None, 12, 16):   # 扩展名驱动 → Word2007 docx → 默认 docx
+                if os.path.exists(dst):
+                    try:
+                        os.remove(dst)
+                    except OSError:
+                        pass
                 doc = None
-            except Exception:
                 try:
-                    if doc is not None:
-                        doc.Close(False)
+                    doc = app.Documents.Open(path, False, True)
+                    try:
+                        if strategy is None:
+                            doc.SaveAs2(dst)
+                        else:
+                            doc.SaveAs2(dst, strategy)
+                    except Exception:
+                        if strategy is None:
+                            doc.SaveAs(dst)
+                        else:
+                            doc.SaveAs(dst, strategy)
+                    doc.Close(False)
+                    doc = None
                 except Exception:
-                    pass
-            if _is_valid_docx(dst):
-                return dst
-        return None
-    finally:
-        try:
-            if app is not None:
-                app.Quit()
+                    try:
+                        if doc is not None:
+                            doc.Close(False)
+                    except Exception:
+                        pass
+                if _is_valid_docx(dst):
+                    return dst
         except Exception:
             pass
+        finally:
+            try:
+                if app is not None:
+                    app.Quit()
+            except Exception:
+                pass
+        if attempt < 2:
+            time.sleep(1.0)
+    return None
 
 
 def _convert_doc_via_script_host(path, out_dir):
@@ -303,15 +323,18 @@ def _convert_doc_via_ms_app(path, workdir):
 
     优先在软件进程内直接调用（pywin32 COM，无任何弹窗、无外部进程）；
     若进程内调用不可用，退回脚本宿主通道并强制隐藏控制台窗口。
-    全部失败返回 None。
+    返回 (docx_path, note)；全部失败返回 (None, None)。
     """
     if not sys.platform.startswith("win"):
-        return None
+        return None, None
     out_dir = tempfile.mkdtemp(prefix="tfd_conv_", dir=workdir or None)
     conv = _convert_doc_via_com_inproc(path, out_dir)
     if conv:
-        return conv
-    return _convert_doc_via_script_host(path, out_dir)
+        return conv, "已自动将旧格式转换为 .docx 后处理（软件内置转换，原文件未改动）"
+    conv = _convert_doc_via_script_host(path, out_dir)
+    if conv:
+        return conv, "已自动将旧格式转换为 .docx 后处理（备用通道转换，原文件未改动）"
+    return None, None
 
 
 def normalize_input(path):
@@ -336,9 +359,9 @@ def normalize_input(path):
             conv = _convert_doc_to_docx(path, soffice, workdir)
             return conv, "已自动将旧格式转换为 .docx 后处理（LibreOffice，原文件未改动）"
         # 优先级 2：本机已装的 Word / WPS（Windows COM）
-        conv = _convert_doc_via_ms_app(path, workdir)
+        conv, cnote = _convert_doc_via_ms_app(path, workdir)
         if conv:
-            return conv, "已自动将旧格式转换为 .docx 后处理（本机 Word/WPS，原文件未改动）"
+            return conv, cnote
         raise RuntimeError(
             "检测到旧格式文件（.doc / .wps），自动转换未成功。\n"
             "已尝试：LibreOffice（未安装）、本机 Word/WPS（转换结果异常，产物不是合法 .docx）。\n"
