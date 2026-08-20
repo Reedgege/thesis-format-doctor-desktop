@@ -127,6 +127,74 @@ def _convert_doc_to_docx(path, soffice, workdir):
     return produced
 
 
+# 用本机 Word / WPS（Windows COM，经 cscript 调 VBScript）把 .doc/.wps 转 .docx。
+# 纯标准库实现：cscript 是 Windows 自带，无需 pywin32；VBS 用 UTF-16 编码以支持中文路径。
+_VBS_CONVERT = r'''
+Option Explicit
+Dim app, doc, ok
+ok = False
+On Error Resume Next
+Set app = CreateObject("Word.Application")
+If Err.Number <> 0 Then
+    Err.Clear
+    Set app = CreateObject("KWPS.Application")
+End If
+If Err.Number <> 0 Then
+    Err.Clear
+    Set app = CreateObject("WPS.Application")
+End If
+If Err.Number <> 0 Then
+    WScript.Echo "NO_APP"
+    WScript.Quit 1
+End If
+app.Visible = False
+app.DisplayAlerts = 0
+Set doc = app.Documents.Open(WScript.Arguments(0), False, True)
+If Err.Number = 0 Then
+    On Error Resume Next
+    doc.SaveAs2 WScript.Arguments(1), 16
+    If Err.Number <> 0 Then
+        Err.Clear
+        doc.SaveAs WScript.Arguments(1), 16
+    End If
+    If Err.Number = 0 Then
+        ok = True
+    End If
+    doc.Close False
+End If
+app.Quit
+If ok Then
+    WScript.Echo "OK"
+Else
+    WScript.Echo "FAIL"
+End If
+'''
+
+
+def _convert_doc_via_ms_app(path, workdir):
+    """用本机已装的 Word / WPS 把 .doc/.wps 转成 .docx（Windows 专用）。
+
+    返回生成的 .docx 路径；本机无 Word/WPS 或转换失败时返回 None。
+    """
+    if not sys.platform.startswith("win"):
+        return None
+    out_dir = tempfile.mkdtemp(prefix="tfd_conv_", dir=workdir or None)
+    dst = os.path.join(out_dir, "_converted.docx")
+    vbs = os.path.join(out_dir, "_convert.vbs")
+    # cscript 需 UTF-16（带 BOM）才能正确读含中文的脚本与路径
+    with open(vbs, "w", encoding="utf-16", newline="\r\n") as f:
+        f.write(_VBS_CONVERT)
+    cmd = ["cscript.exe", "//nologo", vbs, path, dst]
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=240)
+    except Exception as e:
+        raise RuntimeError("调用本机 Word/WPS 转换失败：" + str(e))
+    out = r.stdout.decode("utf-8", errors="replace")
+    if "OK" in out and os.path.isfile(dst):
+        return dst
+    return None
+
+
 def normalize_input(path):
     """把输入文件整理成引擎能吃的标准 .docx。
 
@@ -142,15 +210,23 @@ def normalize_input(path):
     if ext == ".docx":
         return path, None
     if ext in (".doc", ".wps") or _looks_like_ole2(path):
-        soffice = find_soffice()
-        if not soffice:
-            raise RuntimeError(
-                "检测到旧格式文件（.doc / .wps），但本机未安装 LibreOffice，无法自动转换。\n"
-                "请先用 Word 或 WPS 打开，执行「另存为 → Word 文档(.docx)」后，再用本软件处理。"
-            )
         workdir = os.path.dirname(os.path.abspath(path))
-        conv = _convert_doc_to_docx(path, soffice, workdir)
-        return conv, "已自动将旧格式转换为 .docx 后处理（原文件未改动）"
+        # 优先级 1：LibreOffice（跨平台）
+        soffice = find_soffice()
+        if soffice:
+            conv = _convert_doc_to_docx(path, soffice, workdir)
+            return conv, "已自动将旧格式转换为 .docx 后处理（LibreOffice，原文件未改动）"
+        # 优先级 2：本机已装的 Word / WPS（Windows COM）
+        conv = _convert_doc_via_ms_app(path, workdir)
+        if conv:
+            return conv, "已自动将旧格式转换为 .docx 后处理（本机 Word/WPS，原文件未改动）"
+        raise RuntimeError(
+            "检测到旧格式文件（.doc / .wps），但本机没有可用的转换工具。\n"
+            "已尝试：LibreOffice、本机 Word / WPS —— 均不可用。\n"
+            "解决办法（任选其一）：\n"
+            "① 安装免费的 LibreOffice（推荐，装好后本软件会自动转换）；\n"
+            "② 用 Word 或 WPS 打开该文件，执行「另存为 → Word 文档(.docx)」后再用本软件处理。"
+        )
     # 其它扩展名：交给引擎，让它报“无法识别”之类的错
     return path, None
 
