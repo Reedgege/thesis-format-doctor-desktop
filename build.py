@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-跨平台构建脚本：把论文格式医生打包为单文件可执行程序。
+跨平台构建脚本：把论文格式医生打包为单文件可执行程序（原生 Tkinter 窗口，无浏览器）。
   Windows -> thesis-format-doctor-desktop.exe
-  macOS   -> thesis-format-doctor-desktop.app (--onefile 下为 Unix 可执行)
-  Linux   -> thesis-format-doctor-desktop (可执行)
+  macOS   -> thesis-format-doctor-desktop
+  Linux   -> thesis-format-doctor-desktop
 
 用法:
   python build.py            # 按当前平台构建到 dist/
@@ -13,8 +13,8 @@ import os
 import sys
 import subprocess
 
-# Windows CI 控制台默认 cp1252，无法输出中文会抛 UnicodeEncodeError。
-# 强制 stdout/stderr 用 utf-8，避免"构建完成"这类中文打印导致进程以非零退出。
+# Windows CI 控制台默认 cp1252，无法输出中文会抛 UnicodeEncodeError，
+# 强制 stdout/stderr 用 utf-8，避免构建脚本自身因中文打印以非零退出。
 try:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -29,7 +29,7 @@ SEP = ";" if sys.platform.startswith("win") else ":"
 APP_NAME = "thesis-format-doctor-desktop"
 ENTRY = os.path.join(HERE, "main.py")
 
-# 引擎模块（标准库，但用 importlib 动态加载，必须显式声明）
+# 引擎模块（标准库，但用 importlib 动态加载，必须显式声明 hiddenimport）
 HIDDEN = [
     "docxutils", "format_checker", "headings_fix",
     "ref_reformat", "format_profile", "report_docx", "format_check",
@@ -37,14 +37,12 @@ HIDDEN = [
 
 # 需作为"数据文件"打包的目录: (源目录, 打包后目录名)
 DATA_DIRS = [
-    (os.path.join(HERE, "tfd_app", "frontend"), "frontend"),
-    (os.path.join(HERE, "tfd_app", "assets"), "assets"),
+    (os.path.join(HERE, "tfd_app", "assets"), "tfd_app/assets"),
 ]
 
 
 def build(clean=False):
-    # 始终用 `python -m PyInstaller`，避免依赖 PATH 中的 pyinstaller 可执行文件
-    # （Windows CI 上 pyinstaller.exe 不在 PATH 时会触发 FileNotFoundError）
+    # 始终用 `python -m PyInstaller`，避免依赖 PATH 中的 pyinstaller 可执行文件。
     cmd = [sys.executable, "-m", "PyInstaller"]
     cmd += [
         "--name", APP_NAME,
@@ -53,6 +51,8 @@ def build(clean=False):
         "--clean" if clean else "",
         "--paths", HERE,
         "--paths", os.path.join(HERE, "tfd_app", "core"),
+        # Tk 资源：让 PyInstaller 把 tcl/tk 运行时一并打进单文件
+        "--collect-all", "tkinter",
     ]
     for h in HIDDEN:
         cmd += ["--hidden-import", h]
@@ -61,9 +61,7 @@ def build(clean=False):
             cmd += ["--add-data", f"{src}{SEP}{dst}"]
 
     cmd.append(ENTRY)
-
-    # 过滤空串
-    cmd = [c for c in cmd if c != ""]
+    cmd = [c for c in cmd if c != ""]  # 过滤空串
 
     print(">>> " + " ".join(cmd))
     env = os.environ.copy()
@@ -72,7 +70,8 @@ def build(clean=False):
     if rc != 0:
         print("Build failed with return code", rc)
         sys.exit(rc)
-    print(f"\nBuild complete -> {os.path.join(HERE, 'dist', APP_NAME + ('.exe' if sys.platform.startswith('win') else ''))}")
+    print("\nBuild complete -> " + os.path.join(HERE, "dist",
+          APP_NAME + (".exe" if sys.platform.startswith("win") else "")))
 
 
 if __name__ == "__main__":

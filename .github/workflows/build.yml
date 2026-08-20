@@ -37,6 +37,12 @@ jobs:
       - name: Install PyInstaller
         run: python -m pip install --upgrade pip pyinstaller
 
+      - name: Install Tk runtime (Linux only)
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tk tcl
+
       - name: Build (${{ matrix.os }})
         shell: bash
         env:
