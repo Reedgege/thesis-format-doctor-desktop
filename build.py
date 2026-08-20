@@ -13,6 +13,16 @@ import os
 import sys
 import subprocess
 
+# Windows CI 控制台默认 cp1252，无法输出中文会抛 UnicodeEncodeError。
+# 强制 stdout/stderr 用 utf-8，避免"构建完成"这类中文打印导致进程以非零退出。
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SEP = ";" if sys.platform.startswith("win") else ":"
 
@@ -60,9 +70,9 @@ def build(clean=False):
     env["PYTHONHASHSEED"] = "1"
     rc = subprocess.call(cmd, cwd=HERE, env=env)
     if rc != 0:
-        print("构建失败，返回码", rc)
+        print("Build failed with return code", rc)
         sys.exit(rc)
-    print(f"\n构建完成 -> {os.path.join(HERE, 'dist', APP_NAME + ('.exe' if sys.platform.startswith('win') else ''))}")
+    print(f"\nBuild complete -> {os.path.join(HERE, 'dist', APP_NAME + ('.exe' if sys.platform.startswith('win') else ''))}")
 
 
 if __name__ == "__main__":
