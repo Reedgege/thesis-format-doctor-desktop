@@ -184,8 +184,7 @@ def verify_via_kami(card, machine_code, timeout=30, retries=2):
             if attempt < retries - 1:
                 time.sleep(1.5)
                 continue
-            return False, 0, ("验证超时：若卡密通后台已显示「在线」，说明本机实际已被授权；\n"
-                              "请直接关闭本窗口，用【离线备用码】激活（联系卖家获取），或关闭 VPN/代理后重试。")
+            return False, 0, ("验证超时：请检查网络后重试；若多次失败，请联系客服获取离线激活码。")
         except Exception as e:
             last_err = str(e)
             _log("第 %s 次异常: %s" % (attempt + 1, last_err))
