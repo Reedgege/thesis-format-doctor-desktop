@@ -1,5 +1,10 @@
 name: Build Desktop (Win/macOS/Linux)
 
+# 运行名称：打标签推送 → 显示标签名（如 v1.3.21）；
+# 推 main → 显示推送提交的第一行（按约定版本发布提交以 vX.Y.Z 开头，如 "v1.3.21 · …"），
+# 这样在 Actions 列表里一眼就能找到对应版本，而不是光秃秃的 main。
+run-name: Build ${{ github.ref_type == 'tag' && github.ref_name || github.event.head_commit.message }}
+
 on:
   push:
     tags:
@@ -80,6 +85,7 @@ jobs:
       # 注意：offlinecode.exe 内含离线签名密钥，属卖家自用，勿把 Release 设为公开、勿发给客户。
       - name: Build offlinecode (Windows only)
         if: matrix.os == 'windows'
+        shell: bash
         run: |
           python -m PyInstaller --name offlinecode --onefile --noconsole --clean \
             --collect-all tkinter \
