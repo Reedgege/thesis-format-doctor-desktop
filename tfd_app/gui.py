@@ -299,9 +299,6 @@ class App:
 
         tk.Frame(self.root, bg=LINE, height=1).pack(fill="x", padx=24)
         tk.Label(self.root,
-                 text="论文格式医生 · 桌面版 — 完全离线，文件不会上传任何服务器",
-                 bg=PAPER, fg=MUTED, font=F_SUB).pack(fill="x", pady=(6, 2))
-        tk.Label(self.root,
                  text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制",
                  bg=PAPER, fg="#555555", font=("KaiTi", 12)).pack(fill="x", pady=(14, 0))
         tk.Label(self.root,
