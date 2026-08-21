@@ -62,6 +62,9 @@ F_BODY  = ("Microsoft YaHei UI", 12)           # 正文 / 步骤说明 12 号
 F_SMALL = ("Microsoft YaHei UI", 10)           # 底部提示 / 次要 10 号
 F_BTN   = ("Microsoft YaHei UI", 12, "bold")   # 按钮 12 号
 F_STAT  = ("Microsoft YaHei UI", 12)           # 状态文字 12 号
+F_SUBTITLE = ("Microsoft YaHei UI", 11)        # 副标题 / 元信息 11 号
+F_CARD_HDR = ("Microsoft YaHei UI", 13, "bold")# 卡片标题 13 号
+F_FOOT     = ("Microsoft YaHei UI", 11)        # 状态栏 / 页脚 11 号
 
 # 页边距字段：编辑厘米值时同步写 twips（top/bottom/left/right），兼容两套读取方
 _MARGIN_TWIPS = {
@@ -243,11 +246,15 @@ class App:
         self.profile_path = tk.StringVar()
         self.status_var = tk.StringVar(value="请按左侧步骤操作")
         self.running = False
+        self._errored = False
         self._msgs = []
         self.step_defs = [("profile", "提取学校模板要求"),
                           ("check", "论文格式检查"),
-                          ("fix", "按学校要求一键修正")]
-        self.step_state = {m: "pending" for m, _ in self.step_defs}
+                          ("fix", "一键格式修正")]
+        self.step_desc = ["识别字号、页边距与格式规范",
+                          "快速定位格式问题与待修正项",
+                          "确认后生成符合规范的论文文件"]
+        self.step_index = 0
 
         self._build_style()
         self._build_widgets()
@@ -280,176 +287,230 @@ class App:
     def _build_widgets(self):
         self.root.configure(bg=PAPER)
 
+        # 顶部标题区
         header = tk.Frame(self.root, bg=PAPER)
-        header.pack(fill="x", padx=24, pady=(16, 8))
+        header.pack(fill="x", padx=20, pady=(16, 8))
         tk.Label(header, text="论 文 格 式 医 生", bg=PAPER, fg=INK,
                  font=F_TITLE).pack(anchor="center")
-        tk.Label(header, text="按学校要求检查与修正 · 完全离线运行",
-                 bg=PAPER, fg=MUTED, font=F_SUB).pack(anchor="center", pady=(4, 0))
-        tk.Frame(self.root, bg=CINNABAR, height=2).pack(fill="x", padx=24)
+        tk.Label(header, text="—— 按学校要求检查与修正 · 完全离线 ——",
+                 bg=PAPER, fg=MUTED, font=F_SUBTITLE).pack(anchor="center", pady=(4, 0))
+        tk.Frame(self.root, bg=CINNABAR, height=2).pack(fill="x", padx=20)
 
+        # 主体两栏（文件选择 | 处理步骤）
         main = tk.Frame(self.root, bg=PAPER)
-        main.pack(fill="both", expand=True, padx=18, pady=10)
+        main.pack(fill="both", expand=True, padx=20, pady=14)
         main.columnconfigure(0, weight=3)
-        main.columnconfigure(1, weight=2)
+        main.columnconfigure(1, weight=4)
         main.rowconfigure(0, weight=1)
-
         left = tk.Frame(main, bg=PAPER)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         right = tk.Frame(main, bg=PAPER)
         right.grid(row=0, column=1, sticky="nsew")
-
         self._build_left(left)
         self._build_right(right)
 
-        # 状态栏 + 版权：独立贴底 frame，上下两行排布，杜绝窄窗下文字重叠（底部留白 ≥20px）
-        tk.Frame(self.root, bg=LINE, height=1).pack(fill="x", side="bottom", padx=24)
-        statusbar = tk.Frame(self.root, bg=PAPER)
-        statusbar.pack(side="bottom", fill="x", padx=24, pady=(8, 20))
-        inner = tk.Frame(statusbar, bg=PAPER)
-        inner.pack(fill="x")
-        # 第 1 行：运行状态（左对齐）
-        r1 = tk.Frame(inner, bg=PAPER)
-        r1.pack(fill="x", pady=(0, 3))
-        tk.Label(r1, text="●", bg=PAPER, fg=OKC, font=F_SMALL).pack(side="left", padx=(0, 6))
-        tk.Label(r1, text="完全离线运行 · 文件不上传任何服务器",
-                 bg=PAPER, fg=MUTED, font=F_SMALL).pack(side="left")
-        # 第 2 行：版权声明（左对齐，整行独立，绝不与其他文字抢同一行）
-        r2 = tk.Frame(inner, bg=PAPER)
-        r2.pack(fill="x")
-        tk.Label(r2,
+        # 页脚（两行版权，贴底）
+        footer = tk.Frame(self.root, bg=PAPER)
+        footer.pack(side="bottom", fill="x", pady=(0, 18))
+        tk.Label(footer, text="论文格式医生 · 桌面版 — 完全离线，文件不会上传任何服务器",
+                 bg=PAPER, fg=MUTED, font=F_FOOT).pack()
+        tk.Label(footer,
                  text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制 · 合作联系：reedskill@126.com",
-                 bg=PAPER, fg=MUTED, font=F_SMALL).pack(side="left")
+                 bg=PAPER, fg=MUTED, font=F_FOOT).pack(pady=(3, 0))
+
+        # 状态栏（顶部细线 + 单行，绝不与其他文字重叠）
+        tk.Frame(self.root, bg=LINE, height=1).pack(fill="x", side="bottom", padx=20)
+        statusbar = tk.Frame(self.root, bg=PANEL)
+        statusbar.pack(side="bottom", fill="x", padx=20, pady=(6, 6))
+        self.bar_dot = tk.Label(statusbar, text="●", bg=PANEL, fg=OKC, font=F_FOOT)
+        self.bar_dot.pack(side="left", padx=(0, 6))
+        self.bar_left = tk.Label(statusbar, text="论文格式医生 · 桌面版",
+                                 bg=PANEL, fg=MUTED, font=F_FOOT)
+        self.bar_left.pack(side="left")
+        self.bar_right = tk.Label(statusbar, text="请按左侧步骤操作",
+                                  bg=PANEL, fg=MUTED, font=F_FOOT)
+        self.bar_right.pack(side="right")
+
+        self._set_bar("idle")
 
     # ---------------------------------------------------------- left panel
     def _build_left(self, parent):
-        self._section_title(parent, "壹 · 选择文件")
+        # 文件选择卡片
+        card = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=LINE)
+        card.pack(fill="both", expand=True)
 
-        self._thesis_box, self._thesis_name = self._upload_zone(
-            parent, "待处理论文",
-            "Word 文档 .docx / .doc / .wps（必选）",
-            "选择论文…", self._pick_input,
-            placeholder="未选择 — 点击右侧按钮选择文件")
+        hdr = tk.Frame(card, bg=PANEL)
+        hdr.pack(fill="x", padx=14, pady=(12, 6))
+        tk.Label(hdr, text="文件选择", bg=PANEL, fg=INK, font=F_CARD_HDR).pack(side="left")
+        tk.Label(hdr, text="本地处理", bg="#e8e2d4", fg=ACCENT, font=F_FOOT,
+                 padx=8, pady=2).pack(side="right")
 
-        self._template_box, self._template_name = self._upload_zone(
-            parent, "学校模板",
-            "用于按学校要求检查 / 修正，更贴合要求；不选则按通用规范",
-            "选择模板…", self._pick_template,
-            placeholder="未选择 — 不选也能用通用规范处理")
+        self._thesis_box = self._file_row(
+            card, "论", "待处理论文", "必选", CINNABAR,
+            "Word 文档 .docx / .doc / .wps", "选择…", self._pick_input)
+        self._template_box = self._file_row(
+            card, "模", "学校模板", "可选", MUTED,
+            "用于按学校要求检查 / 修正，更贴合要求", "选择…", self._pick_template)
 
-        self.profile_box = tk.Frame(parent, bg="#f0f3ec",
+        # 底部选择状态
+        self._file_status_dot = tk.Label(card, text="●", bg=PANEL, fg="#b8b0a0", font=F_FOOT)
+        self._file_status_dot.pack(side="left", padx=(14, 6), pady=(10, 12))
+        self._file_status_lbl = tk.Label(card, text="未选择论文文件",
+                                         bg=PANEL, fg=MUTED, font=F_FOOT)
+        self._file_status_lbl.pack(side="left", pady=(10, 12))
+
+        # 画像状态（提取后显示）
+        self.profile_box = tk.Frame(card, bg="#f0f3ec",
                                     highlightthickness=1, highlightbackground="#b7c6ae")
         tk.Label(self.profile_box, text="●", bg="#f0f3ec", fg=OKC,
-                 font=F_SMALL).pack(side="left", padx=(10, 4), pady=6)
+                 font=F_FOOT).pack(side="left", padx=(10, 4), pady=6)
         self.profile_info_var = tk.StringVar(value="已载入格式画像")
         tk.Label(self.profile_box, textvariable=self.profile_info_var, bg="#f0f3ec",
-                 fg="#4c5f49", font=F_SMALL).pack(side="left", fill="x", expand=True)
+                 fg="#4c5f49", font=F_FOOT).pack(side="left", fill="x", expand=True)
         ttk.Button(self.profile_box, text="清除", width=6, style="Ghost.TButton",
                    command=self._clear_profile).pack(side="right", padx=8, pady=3)
+        self._update_profile_box()
 
-        self._section_title(parent, "贰 · 按步骤操作")
-        self._btns = []
-        steps = [
-            ("① 提取学校模板要求", "profile", False),
-            ("② 论文格式检查", "check", False),
-            ("③ 按学校要求一键修正", "fix", True),
-        ]
-        for text, mode, primary in steps:
-            btn = ttk.Button(parent, text=text,
-                             style="Primary.TButton" if primary else "Action.TButton",
-                             command=lambda m=mode: self._run_mode(m))
-            btn.pack(fill="x", pady=4)
-            self._btns.append(btn)
-
-        tk.Label(parent,
-                 text="建议顺序：先提取学校模板要求（没有学校模板可跳过），再检查，最后修正。"
-                      "提取后会弹出要求确认页，可修改后确认。",
-                 bg=PAPER, fg=MUTED, font=F_SMALL, justify="left",
-                 wraplength=420).pack(anchor="w", pady=(6, 0))
-
-    def _section_title(self, parent, text):
-        row = tk.Frame(parent, bg=PAPER)
-        row.pack(anchor="w", pady=(8, 3))
-        tk.Frame(row, bg=ACCENT, width=4, height=15).pack(side="left", padx=(0, 7))
-        tk.Label(row, text=text, bg=PAPER, fg=ACCENT, font=F_HDR).pack(side="left")
-
-    def _upload_zone(self, parent, title, desc, btn_text, cmd, placeholder):
-        box = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=LINE)
-        box.pack(fill="x", pady=4)
-        tk.Label(box, text=title, bg=PANEL, fg=INK,
-                 font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=12, pady=(8, 0))
-        tk.Label(box, text=desc, bg=PANEL, fg=BODY,
-                 font=F_SMALL).pack(anchor="w", padx=12, pady=(1, 0))
-        row = tk.Frame(box, bg=PANEL)
-        row.pack(fill="x", padx=12, pady=(6, 8))
-        name = tk.Label(row, text=placeholder, bg=PANEL, fg=MUTED,
-                        font=F_SMALL, anchor="w")
-        name.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ttk.Button(row, text=btn_text, command=cmd, style="Ghost.TButton").pack(side="right")
-        return box, name
+    def _file_row(self, parent, icon, title, mark, mark_color, desc, btn_text, cmd):
+        box = tk.Frame(parent, bg="#ffffff", highlightthickness=1, highlightbackground="#e3dccb")
+        box.pack(fill="x", padx=14, pady=6)
+        row = tk.Frame(box, bg="#ffffff")
+        row.pack(fill="x", padx=10, pady=8)
+        ic = tk.Label(row, text=icon, bg="#e8f0f6", fg=ACCENT,
+                      font=("Microsoft YaHei UI", 12, "bold"), padx=9, pady=5)
+        ic.pack(side="left", padx=(0, 8))
+        txt = tk.Frame(row, bg="#ffffff")
+        txt.pack(side="left", fill="x", expand=True)
+        tl = tk.Frame(txt, bg="#ffffff")
+        tl.pack(fill="x")
+        tk.Label(tl, text=title, bg="#ffffff", fg=INK, font=F_BODY).pack(side="left")
+        tk.Label(tl, text=" " + mark, bg="#ffffff", fg=mark_color, font=F_FOOT).pack(side="left")
+        tk.Label(txt, text=desc, bg="#ffffff", fg=MUTED, font=F_FOOT).pack(anchor="w")
+        ttk.Button(row, text=btn_text, style="Ghost.TButton", command=cmd).pack(side="right")
+        return box
 
     # --------------------------------------------------------- right panel
     def _build_right(self, parent):
-        self._section_title(parent, "叁 · 处理状态")
-
         card = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=LINE)
-        card.pack(fill="x", pady=(0, 6))
-        self.status_dot = tk.Label(card, text="●", bg=PANEL, fg=MUTED, font=F_BODY)
-        self.status_dot.pack(side="left", padx=(12, 6), pady=13)
-        self.status_lbl = tk.Label(card, textvariable=self.status_var, bg=PANEL, fg=INK,
-                                   font=F_STAT)
-        self.status_lbl.pack(side="left", pady=13)
+        card.pack(fill="both", expand=True)
 
-        self.progress = ttk.Progressbar(parent, mode="indeterminate")
-        self.progress.pack(fill="x", pady=(0, 6))
+        hdr = tk.Frame(card, bg=PANEL)
+        hdr.pack(fill="x", padx=14, pady=(12, 4))
+        tk.Label(hdr, text="处理步骤", bg=PANEL, fg=INK, font=F_CARD_HDR).pack(side="left")
+        self._step_counter = tk.Label(hdr, text="1 / 3", bg=PANEL, fg=MUTED, font=F_FOOT)
+        self._step_counter.pack(side="right")
+
+        self._build_timeline(card)
+
+        self.progress = ttk.Progressbar(card, mode="indeterminate")
+        self.progress.pack(fill="x", padx=14, pady=(4, 2))
         self.progress.pack_forget()
 
-        self._build_timeline(parent)
+        self.status_dot = tk.Label(card, text="●", bg=PANEL, fg=MUTED, font=F_BODY)
+        self.status_dot.pack(side="left", padx=(14, 6), pady=(8, 4))
+        self.status_lbl = tk.Label(card, textvariable=self.status_var, bg=PANEL, fg=INK,
+                                   font=F_STAT)
+        self.status_lbl.pack(side="left", pady=(8, 4))
 
-        tk.Label(parent,
-                 text="所有处理均在您本机完成，原文件绝不会被改动，请安心等待。",
-                 bg=PAPER, fg=BODY, font=F_SMALL, justify="left",
-                 wraplength=290).pack(anchor="w")
+        btn_row = tk.Frame(card, bg=PANEL)
+        btn_row.pack(fill="x", padx=14, pady=(10, 14))
+        self._next_btn = ttk.Button(btn_row, text="下一步", style="Primary.TButton",
+                                    command=self._run_step)
+        self._next_btn.pack(side="right")
 
-        self.result_lbl = tk.Label(parent, text="", bg=PAPER, fg=OKC,
-                                   font=F_SMALL, justify="left", wraplength=300,
-                                   anchor="w")
-        self.result_lbl.pack(anchor="w", pady=(10, 0))
+        self._refresh_wizard()
 
-    # ----------------------------------------------------- 步骤时间线
+    # ----------------------------------------------------- 步骤时间线（向导）
     def _build_timeline(self, parent):
-        tl = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=LINE)
-        tl.pack(fill="x", pady=(6, 6))
-        tk.Label(tl, text="步骤进度", bg=PANEL, fg=ACCENT,
-                 font=F_SMALL).pack(anchor="w", padx=12, pady=(6, 2))
-        self._step_dots = {}
-        self._step_lbls = {}
-        for _i, (mode, label) in enumerate(self.step_defs):
+        tl = tk.Frame(parent, bg=PANEL)
+        tl.pack(fill="x", padx=14, pady=(4, 2))
+        self._step_circle = []
+        self._step_title = []
+        self._step_line = []
+        n = len(self.step_defs)
+        for i, (mode, label) in enumerate(self.step_defs):
             row = tk.Frame(tl, bg=PANEL)
-            row.pack(fill="x", padx=12, pady=(2, 2))
-            dot = tk.Label(row, text="○", bg=PANEL, fg=MUTED, font=F_SMALL)
-            dot.pack(side="left", padx=(0, 8))
-            lbl = tk.Label(row, text=label, bg=PANEL, fg=MUTED, font=F_SMALL)
-            lbl.pack(side="left")
-            self._step_dots[mode] = dot
-            self._step_lbls[mode] = lbl
+            row.pack(fill="x", pady=2)
+            col = tk.Frame(row, bg=PANEL)
+            col.pack(side="left", padx=(0, 10))
+            circ = tk.Label(col, text=str(i + 1), bg="#e8e2d4", fg=MUTED,
+                            font=F_BODY, width=2, height=1, relief="flat")
+            circ.pack()
+            line = None
+            if i < n - 1:
+                line = tk.Frame(col, width=2, height=22, bg="#e3dccb")
+                line.pack()
+            self._step_circle.append(circ)
+            self._step_line.append(line)
+            txt = tk.Frame(row, bg=PANEL)
+            txt.pack(side="left", fill="x", expand=True)
+            title = tk.Label(txt, text=label, bg=PANEL, fg=MUTED, font=F_BODY)
+            title.pack(anchor="w")
+            tk.Label(txt, text=self.step_desc[i], bg=PANEL, fg=MUTED,
+                     font=F_FOOT).pack(anchor="w")
+            self._step_title.append(title)
 
-    def _update_timeline(self, mode, state):
-        dot = self._step_dots.get(mode)
-        lbl = self._step_lbls.get(mode)
-        if not dot:
-            return
-        if state == "active":
-            dot.config(text="●", fg=RUN); lbl.config(fg=INK)
-        elif state == "done":
-            dot.config(text="✔", fg=OKC); lbl.config(fg=INK)
-        elif state == "error":
-            dot.config(text="✕", fg=ERRC); lbl.config(fg=INK)
+    def _refresh_wizard(self):
+        """根据 step_index / _errored 重绘时间线、计数与“下一步”按钮。"""
+        n = len(self.step_defs)
+        for i, (mode, label) in enumerate(self.step_defs):
+            circ = self._step_circle[i]
+            title = self._step_title[i]
+            line = self._step_line[i]
+            if i < self.step_index:
+                circ.config(bg=OKC, fg="white", text="✔")
+                title.config(fg=INK)
+                if line: line.config(bg=OKC)
+            elif i == self.step_index:
+                if self._errored:
+                    circ.config(bg=ERRC, fg="white", text="✕")
+                else:
+                    circ.config(bg=ACCENT, fg="white", text=str(i + 1))
+                title.config(fg=INK)
+                if line: line.config(bg="#e3dccb")
+            else:
+                circ.config(bg="#e8e2d4", fg=MUTED, text=str(i + 1))
+                title.config(fg=MUTED)
+                if line: line.config(bg="#e3dccb")
+        self._step_counter.config(text="%d / %d" % (min(self.step_index + 1, n), n))
+        if self.step_index >= n:
+            self._next_btn.config(text="再处理一篇", state="normal")
         else:
-            dot.config(text="○", fg=MUTED); lbl.config(fg=MUTED)
+            label = "一键修正" if self.step_index == n - 1 else "下一步"
+            self._next_btn.config(text=label,
+                                  state="disabled" if self.running else "normal")
 
-    def _set_step(self, mode, state):
-        self.root.after(0, lambda: self._update_timeline(mode, state))
+    def _set_bar(self, state, hint=None):
+        """底部状态栏：idle / running / done / error。"""
+        cmap = {"idle": OKC, "running": RUN, "done": OKC, "error": ERRC}
+        tmap = {
+            "idle": ("论文格式医生 · 桌面版", "请按左侧步骤操作"),
+            "running": ("处理中…", hint or "正在处理"),
+            "done": ("已完成", "可再处理一篇"),
+            "error": ("出错", "请重试或联系客服"),
+        }
+        left, right = tmap.get(state, tmap["idle"])
+        c = cmap.get(state, MUTED)
+        self.bar_left.config(text=left, fg=c)
+        self.bar_dot.config(fg=c)
+        self.bar_right.config(text=right)
+
+    def _on_step_done(self, idx, mode):
+        self._step_circle[idx].config(bg=OKC, fg="white", text="✔")
+        self._step_title[idx].config(fg=INK)
+        if self._step_line[idx]:
+            self._step_line[idx].config(bg=OKC)
+        self.step_index = idx + 1
+        self._set_status("已完成", OKC)
+        self._set_bar("done")
+        self._refresh_wizard()
+
+    def _on_step_error(self, idx, mode, err):
+        self._errored = True
+        self._set_status("未能完成，请查看提示", ERRC)
+        self._set_bar("error")
+        self._refresh_wizard()
+        messagebox.showerror("处理出错", err)
 
     # --------------------------------------------------------------- picks
     def _pick_input(self):
@@ -458,7 +519,8 @@ class App:
             filetypes=[("Word 文档", "*.docx *.doc *.wps"), ("所有文件", "*.*")])
         if p:
             self.thesis_path.set(p)
-            self._thesis_name.config(text=os.path.basename(p), fg=INK)
+            self._file_status_dot.config(fg=OKC)
+            self._file_status_lbl.config(text="已选择：" + os.path.basename(p), fg=INK)
 
     def _pick_template(self):
         p = filedialog.askopenfilename(
@@ -466,26 +528,29 @@ class App:
             filetypes=[("Word 文档", "*.docx *.doc *.wps"), ("所有文件", "*.*")])
         if p:
             self.template_path.set(p)
-            self._template_name.config(text=os.path.basename(p), fg=INK)
+            if not self.thesis_path.get().strip():
+                self._file_status_dot.config(fg=OKC)
+                self._file_status_lbl.config(text="已选择：" + os.path.basename(p), fg=INK)
 
     def _clear_profile(self):
         self.profile_path.set("")
         self._update_profile_box()
 
-    # ---------------------------------------------------------------- run
-    def _run_mode(self, mode):
+    # ---------------------------------------------------------------- run（向导）
+    def _run_step(self):
         if self.running:
             return
-        if mode == "profile":
-            src = self.template_path.get().strip() or self.thesis_path.get().strip()
-            if not src or not os.path.isfile(src):
-                messagebox.showerror("缺少输入", "请先选择“学校模板”（没有模板也可选待处理论文）。")
-                return
-        else:
-            src = self.thesis_path.get().strip()
-            if not src or not os.path.isfile(src):
-                messagebox.showerror("缺少输入", "请先选择“待处理论文”。")
-                return
+        if self.step_index >= len(self.step_defs):
+            self._reset_wizard()
+            return
+        idx = self.step_index
+        mode = self.step_defs[idx][0]
+
+        # 校验：论文文件必选（模板可选）
+        src = self.thesis_path.get().strip()
+        if not src or not os.path.isfile(src):
+            messagebox.showerror("缺少输入", "请先选择“待处理论文”。")
+            return
 
         dst = None
         if mode == "fix":
@@ -499,16 +564,20 @@ class App:
             if not dst:
                 return
 
+        self._errored = False
         self.running = True
         self._set_running(True)
         status = {"profile": "正在提取学校模板要求…",
                   "check": "正在检查论文格式…",
                   "fix": "正在按学校要求修正论文…"}[mode]
         self._set_status(status, RUN)
-        self._update_timeline(mode, "active")
-        threading.Thread(target=self._worker, args=(mode, src, dst), daemon=True).start()
+        self._set_bar("running", self.step_defs[idx][1])
+        # 点亮当前步
+        self._step_circle[idx].config(bg=ACCENT, fg="white", text=str(idx + 1))
+        self._step_title[idx].config(fg=INK)
+        threading.Thread(target=self._worker, args=(idx, mode, src, dst), daemon=True).start()
 
-    def _worker(self, mode, src, dst=None):
+    def _worker(self, idx, mode, src, dst=None):
         try:
             if mode == "profile":
                 self._do_profile(src)
@@ -520,28 +589,25 @@ class App:
                     self._do_check(src, docx_path)
                 elif mode == "fix":
                     self._do_fix(src, docx_path, dst)
-            self._set_status("已完成", OKC)
-            self._set_step(mode, "done")
+            self.root.after(0, lambda: self._on_step_done(idx, mode))
         except Exception as e:
             self._debug("[错误] " + str(e))
-            self._set_status("未能完成，请查看提示", ERRC)
-            self._set_step(mode, "error")
-            self.root.after(0, lambda: messagebox.showerror("处理出错", str(e)))
+            self.root.after(0, lambda: self._on_step_error(idx, mode, str(e)))
         finally:
             self.running = False
-            self._set_running(False)
+            self.root.after(0, lambda: self._set_running(False))
 
     def _set_running(self, running):
         def _apply():
-            state = "disabled" if running else "normal"
-            for b in self._btns:
-                b.config(state=state)
             if running:
-                self.progress.pack(fill="x", pady=(0, 6))
+                self.progress.pack(fill="x", padx=14, pady=(4, 2))
                 self.progress.start(12)
+                self._next_btn.config(state="disabled")
             else:
                 self.progress.stop()
                 self.progress.pack_forget()
+                # 完成态允许“再处理一篇”，否则恢复可用
+                self._next_btn.config(state="normal")
         self.root.after(0, _apply)
 
     # --------------------------------------------------- profile 提取与确认
@@ -693,8 +759,6 @@ class App:
         out = self._extract_profile(src)
         if out:
             self._debug("画像已保存：" + out)
-            self.root.after(0, lambda: self.result_lbl.config(
-                text="学校模板要求已确认并保存：\n" + out))
 
     def _do_check(self, src, docx_path):
         base = _base_no_ext(src)
@@ -719,7 +783,6 @@ class App:
 
     # ------------------------------------------------------------ 确认页
     def _show_check_done(self, out_md):
-        self.result_lbl.config(text="检查报告已生成，保存在原文档旁。")
         k = self._modal("格式检查完成",
                         "检查报告已保存至：\n%s\n\n如需按学校要求修正论文，请继续第③步。" % out_md,
                         [("open", "打开所在文件夹"), ("ok", "完成")])
@@ -727,7 +790,6 @@ class App:
             self._open_folder(out_md)
 
     def _show_fix_done(self, dst, chk, rep):
-        self.result_lbl.config(text="论文已修正并保存完毕。")
         k = self._modal("修正完成",
                         "已为您保存以下文件：\n\n"
                         "① 修正后论文：%s\n② 检查报告：%s\n③ 修改报告：%s\n\n"
@@ -774,10 +836,24 @@ class App:
         if p and os.path.isfile(p):
             self.profile_info_var.set("已载入格式画像：" + os.path.basename(p))
             if not self.profile_box.winfo_ismapped():
-                self.profile_box.pack(fill="x", pady=4, after=self._template_box)
+                self.profile_box.pack(fill="x", padx=14, pady=(4, 8), after=self._template_box)
         else:
             if self.profile_box.winfo_ismapped():
                 self.profile_box.pack_forget()
+
+    def _reset_wizard(self):
+        """“再处理一篇”：回到第 1 步并清空选择。"""
+        self.step_index = 0
+        self._errored = False
+        self.thesis_path.set("")
+        self.template_path.set("")
+        self.profile_path.set("")
+        self._file_status_dot.config(fg="#b8b0a0")
+        self._file_status_lbl.config(text="未选择论文文件", fg=MUTED)
+        self._update_profile_box()
+        self._set_status("请按左侧步骤操作", MUTED)
+        self._set_bar("idle")
+        self._refresh_wizard()
 
     # ---------------------------------------------- 内部日志（不展示客户）
     def _debug(self, text):
@@ -895,7 +971,7 @@ def show_activation(root):
     ttk.Button(top, text="退出", command=lambda: top.destroy()).pack(pady=(2, 4))
 
     tk.Label(top, text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制 · 合作联系：reedskill@126.com",
-             bg=PAPER, fg=MUTED, font=F_SMALL, wraplength=560).pack(pady=(16, 12))
+             bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(16, 12))
 
     top.wait_window()
     return result["ok"]
