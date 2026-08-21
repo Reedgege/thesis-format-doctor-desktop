@@ -72,6 +72,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -92,13 +94,18 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            version="${{ github.ref_name }}"
           else
             # 推 main 时版本号取自仓库根目录 VERSION 文件（如 v1.3.19）
-            version=$(cat VERSION 2>/dev/null | tr -d '[:space:]')
-            [ -z "$version" ] && version="latest"
-            echo "version=$version" >> "$GITHUB_OUTPUT"
+            version=""
+            if [ -f VERSION ]; then
+              version="$(cat VERSION | tr -d '[:space:]')"
+            fi
+            if [ -z "$version" ]; then
+              version="latest"
+            fi
           fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
