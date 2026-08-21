@@ -55,15 +55,16 @@ OKC     = "#5f7d5c"   # 完成（墨绿）
 ERRC    = "#a0402f"   # 出错（朱红）
 RUN     = ACCENT      # 处理中（黛蓝）
 
-F_TITLE = ("Microsoft YaHei", 18, "bold")   # 主标题 18 号
-F_SUB   = ("Microsoft YaHei", 12)           # 副标题 12 号
-F_HDR   = ("Microsoft YaHei", 13, "bold")   # 章节标题 13 号
-F_BODY  = ("Microsoft YaHei", 12)           # 正文 / 步骤说明 12 号
-F_SMALL = ("Microsoft YaHei", 10)           # 底部提示 / 次要 10 号
-F_BTN   = ("Microsoft YaHei", 12, "bold")   # 按钮 12 号
-F_STAT  = ("Microsoft YaHei", 12)           # 状态文字 12 号
+# 字体：标题 / 章节 / 状态用楷体（KaiTi，文艺调性），正文 / 按钮 / 页脚用微软雅黑（清晰）
+F_TITLE = ("KaiTi", 20, "bold")            # 主标题 20 号（楷体）
+F_SUB   = ("Microsoft YaHei", 12)          # 副标题 12 号
+F_HDR   = ("KaiTi", 13, "bold")            # 章节标题 13 号（楷体）
+F_BODY  = ("Microsoft YaHei", 12)          # 正文 / 步骤说明 12 号
+F_SMALL = ("Microsoft YaHei", 10)          # 底部提示 / 次要 10 号
+F_BTN   = ("Microsoft YaHei", 12, "bold")  # 按钮 12 号
+F_STAT  = ("KaiTi", 12)                    # 状态文字 12 号（楷体）
 F_SUBTITLE = ("Microsoft YaHei", 11)        # 副标题 / 元信息 11 号
-F_CARD_HDR = ("Microsoft YaHei", 13, "bold")# 卡片标题 13 号
+F_CARD_HDR = ("KaiTi", 13, "bold")         # 卡片标题 13 号（楷体）
 F_FOOT     = ("Microsoft YaHei", 11)        # 状态栏 / 页脚 11 号
 
 # 页边距字段：编辑厘米值时同步写 twips（top/bottom/left/right），兼容两套读取方
@@ -685,7 +686,7 @@ class App:
                                         self.root.winfo_rooty() + 30))
 
         tk.Label(top, text="已提取出学校模板的格式要求", bg=PAPER, fg=INK,
-                 font=("Microsoft YaHei", 14, "bold")).pack(pady=(14, 2))
+                 font=("KaiTi", 14, "bold")).pack(pady=(14, 2))
         tk.Label(top, text="请核对是否与学校规定一致；如有不准，可直接修改后确认。",
                  bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(0, 6))
 
