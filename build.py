@@ -35,7 +35,7 @@ ENTRY = os.path.join(HERE, "main.py")
 HIDDEN = [
     "docxutils", "format_checker", "headings_fix",
     "ref_reformat", "format_profile", "report_docx", "format_check",
-    "tfd_app.engine", "tfd_app.gui",
+    "tfd_app.engine", "tfd_app.gui", "tfd_app.license",
     # Windows 专用：进程内调用本机 Word/WPS 转换 .doc/.wps（pywin32 COM）
     "win32com", "win32com.client", "pythoncom", "pywintypes",
 ]

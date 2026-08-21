@@ -32,7 +32,7 @@ if HERE not in sys.path:
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from . import engine
+from . import engine, license
 
 
 ICON = os.path.join(HERE, "assets", "icon.png")
@@ -730,8 +730,93 @@ class App:
                                     self.status_dot.config(fg=color)))
 
 
+def show_activation(root):
+    """激活窗口：卡密通在线激活（主） + 离线备用码（兜底）。返回是否成功。"""
+    result = {"ok": False}
+    top = tk.Toplevel(root)
+    top.title("激活 · 论文格式医生")
+    top.configure(bg=PAPER)
+    top.resizable(False, False)
+    top.geometry("520x480")
+
+    tk.Label(top, text="激 活 论 文 格 式 医 生", bg=PAPER, fg=INK,
+             font=("KaiTi", 18, "bold")).pack(pady=(18, 4))
+    tk.Label(top, text="请输入您购买的卡密以激活；激活仅需联网一次，之后完全离线使用。",
+             bg=PAPER, fg=MUTED, font=F_SMALL, wraplength=440, justify="center").pack(pady=(0, 12))
+
+    card_var = tk.StringVar()
+    tk.Entry(top, textvariable=card_var, width=40, font=F_BODY,
+             relief="solid", bd=1, justify="center").pack(pady=(4, 6))
+
+    msg_var = tk.StringVar()
+    tk.Label(top, textvariable=msg_var, bg=PAPER, fg=ERRC, font=F_SMALL).pack(pady=(0, 6))
+
+    def do_activate():
+        card = card_var.get().strip()
+        if not card:
+            msg_var.set("请输入卡密")
+            return
+        btn_activate.config(state="disabled")
+        msg_var.set("正在验证，请稍候…")
+        def work():
+            mc = license.get_machine_code()
+            ok, _days, note = license.verify_via_kami(card, mc)
+            def done():
+                btn_activate.config(state="normal")
+                if ok:
+                    license.save_local_license(card, mc)
+                    result["ok"] = True
+                    top.destroy()
+                else:
+                    msg_var.set(note)
+            top.after(0, done)
+        threading.Thread(target=work, daemon=True).start()
+
+    btn_activate = ttk.Button(top, text="激活", style="Primary.TButton",
+               command=do_activate)
+    btn_activate.pack(pady=(2, 4))
+
+    tk.Label(top, text="— 以下为特殊情形使用 —", bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(10, 4))
+    mc = license.get_machine_code()
+    tk.Label(top, text="本机机器码：" + mc, bg=PAPER, fg=MUTED, font=("Consolas", 9)).pack()
+    ttk.Button(top, text="复制机器码", style="Ghost.TButton",
+               command=lambda: top.clipboard_append(mc)).pack(pady=(3, 6))
+
+    off_var = tk.StringVar()
+    tk.Label(top, text="离线备用码（平台不可用时，联系卖家获取）：", bg=PAPER, fg=MUTED,
+             font=F_SMALL).pack(pady=(4, 2))
+    tk.Entry(top, textvariable=off_var, width=46, font=("Consolas", 9),
+             relief="solid", bd=1).pack(pady=(2, 4))
+
+    def do_offline():
+        code = off_var.get().strip()
+        if not code:
+            msg_var.set("请输入离线备用码")
+            return
+        mc2 = license.get_machine_code()
+        if license.verify_offline_code(code, mc2):
+            license.save_offline_license(code, mc2)
+            result["ok"] = True
+            top.destroy()
+        else:
+            msg_var.set("离线备用码无效，请核对")
+
+    ttk.Button(top, text="使用离线备用码激活", style="Ghost.TButton",
+               command=do_offline).pack(pady=(2, 6))
+    ttk.Button(top, text="退出", command=lambda: top.destroy()).pack(pady=(4, 8))
+
+    top.wait_window()
+    return result["ok"]
+
+
 def main():
     root = tk.Tk()
+    root.withdraw()
+    if not license.check_local_valid():
+        if not show_activation(root):
+            root.destroy()
+            return
+    root.deiconify()
     App(root)
     root.mainloop()
 
