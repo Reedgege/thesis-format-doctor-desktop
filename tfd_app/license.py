@@ -120,8 +120,11 @@ def verify_via_kami(card, machine_code, timeout=40, retries=2):
     卡密通 check.php 返回约定：以 'ok|' 开头表示通过（其后可能带 天数|分钟）。
     其他内容均视为失败（含 'invalid' / 'expired' / 'bind' 等）。
 
-    注意：卡密通免费平台实测服务端响应 20 秒+（连接很快、首字节慢），
-    所以超时放宽到 40s 并带 1 次重试，避免把"慢"误报成"网络失败"。
+    注意：
+    - 卡密通免费平台实测服务端响应 20 秒+（连接很快、首字节慢），超时放宽到 40s；
+    - 强制直连：卡密通是国内服务器，客户电脑的 VPN/代理（环境变量）会把请求
+      绕道海外，出现"后台显示在线、软件却一直等不到响应"；直连最快最稳；
+    - 超时直接给可操作提示（关 VPN/代理 或 联系卖家要离线码），不让客户干等。
     """
     if KAMI_USER in ("你的卡密通用户名",):
         return False, 0, "卡密通尚未配置：请在 tfd_app/license.py 填写 KAMI_USER 与 KAMI_APP"
@@ -131,11 +134,16 @@ def verify_via_kami(card, machine_code, timeout=40, retries=2):
     for attempt in range(retries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "tfd-desktop/1.0"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            # 无代理直连（无视环境变量 HTTP(S)_PROXY / 系统代理设置）
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(req, timeout=timeout) as resp:
                 text = resp.read().decode("utf-8", "ignore").strip()
             if text.startswith("ok|"):
                 return True, 0, "验证通过"
             return False, 0, "验证未通过：%s" % text
+        except (TimeoutError, socket.timeout):
+            return False, 0, ("验证超时：请关闭电脑的 VPN/代理后重试；"
+                              "或联系卖家获取离线激活码，无需等待在线验证")
         except Exception as e:
             last_err = str(e)
             if attempt < retries - 1:
