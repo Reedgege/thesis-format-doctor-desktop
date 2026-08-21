@@ -757,7 +757,7 @@ def show_activation(root):
             msg_var.set("请输入卡密")
             return
         btn_activate.config(state="disabled")
-        msg_var.set("正在验证，请稍候…")
+        msg_var.set("正在联网验证卡密，通常需要十几秒，请稍候…")
         def work():
             mc = license.get_machine_code()
             ok, _days, note = license.verify_via_kami(card, mc)
