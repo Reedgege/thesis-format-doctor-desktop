@@ -435,7 +435,7 @@ class App:
             col = tk.Frame(row, bg=PANEL)
             col.pack(side="left", padx=(0, 10))
             circ = tk.Label(col, text=str(i + 1), bg="#e8e2d4", fg=MUTED,
-                            font=F_BODY, width=2, height=1, relief="flat")
+                            font=F_SUBTITLE, width=2, height=1, relief="flat")
             circ.pack()
             line = None
             if i < n - 1:
@@ -445,10 +445,10 @@ class App:
             self._step_line.append(line)
             txt = tk.Frame(row, bg=PANEL)
             txt.pack(side="left", fill="x", expand=True)
-            title = tk.Label(txt, text=label, bg=PANEL, fg=MUTED, font=F_BODY)
+            title = tk.Label(txt, text=label, bg=PANEL, fg=MUTED, font=F_SUBTITLE)
             title.pack(anchor="w")
             tk.Label(txt, text=self.step_desc[i], bg=PANEL, fg=MUTED,
-                     font=F_FOOT).pack(anchor="w")
+                     font=F_SMALL).pack(anchor="w")
             self._step_title.append(title)
 
     def _refresh_wizard(self):
