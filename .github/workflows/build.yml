@@ -87,12 +87,24 @@ jobs:
           done
           ls -la release
 
+      - name: Determine version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            # 推 main 时版本号取自仓库根目录 VERSION 文件（如 v1.3.19）
+            version=$(cat VERSION 2>/dev/null | tr -d '[:space:]')
+            [ -z "$version" ] && version="latest"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # 打标签推送 → 用版本号（如 v1.3.19）；推 main → 固定 latest 预发布，方便每次同链接下载
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
-          name: ${{ github.ref_type == 'tag' && github.ref_name || 'Continuous Build' }}
-          prerelease: ${{ github.ref_type != 'tag' }}
+          # 打标签用标签名；推 main 用 VERSION 文件里的版本号（如 v1.3.19），保证一键 Push 也是正式版本号
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: ${{ steps.ver.outputs.version }}
           files: release/*
           generate_release_notes: true
