@@ -245,7 +245,7 @@ class App:
         self.thesis_path = tk.StringVar()
         self.template_path = tk.StringVar()
         self.profile_path = tk.StringVar()
-        self.status_var = tk.StringVar(value="请按左侧步骤操作")
+        self.status_var = tk.StringVar(value="请按步骤操作")
         self.running = False
         self._errored = False
         self._msgs = []
@@ -328,7 +328,7 @@ class App:
         self.bar_left = tk.Label(statusbar, text="论文格式医生 · 桌面版",
                                  bg=PANEL, fg=MUTED, font=F_FOOT)
         self.bar_left.pack(side="left")
-        self.bar_right = tk.Label(statusbar, text="请按左侧步骤操作",
+        self.bar_right = tk.Label(statusbar, text="请按步骤操作",
                                   bg=PANEL, fg=MUTED, font=F_FOOT)
         self.bar_right.pack(side="right")
 
@@ -485,7 +485,7 @@ class App:
         """底部状态栏：idle / running / done / error。"""
         cmap = {"idle": OKC, "running": RUN, "done": OKC, "error": ERRC}
         tmap = {
-            "idle": ("论文格式医生 · 桌面版", "请按左侧步骤操作"),
+            "idle": ("论文格式医生 · 桌面版", "请按步骤操作"),
             "running": ("处理中…", hint or "正在处理"),
             "done": ("已完成", "可再处理一篇"),
             "error": ("出错", "请重试或联系客服"),
@@ -852,7 +852,7 @@ class App:
         self._file_status_dot.config(fg="#b8b0a0")
         self._file_status_lbl.config(text="未选择论文文件", fg=MUTED)
         self._update_profile_box()
-        self._set_status("请按左侧步骤操作", MUTED)
+        self._set_status("请按步骤操作", MUTED)
         self._set_bar("idle")
         self._refresh_wizard()
 
