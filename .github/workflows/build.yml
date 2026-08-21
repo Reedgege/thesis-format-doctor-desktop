@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - "main"
   workflow_dispatch:
 
 jobs:
@@ -65,7 +67,7 @@ jobs:
   release:
     name: Publish Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    if: needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -88,5 +90,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # 打标签推送 → 用版本号（如 v1.3.19）；推 main → 固定 latest 预发布，方便每次同链接下载
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || 'Continuous Build' }}
+          prerelease: ${{ github.ref_type != 'tag' }}
           files: release/*
           generate_release_notes: true
