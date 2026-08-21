@@ -55,16 +55,16 @@ OKC     = "#5f7d5c"   # 完成（墨绿）
 ERRC    = "#a0402f"   # 出错（朱红）
 RUN     = ACCENT      # 处理中（黛蓝）
 
-F_TITLE = ("Microsoft YaHei UI", 18, "bold")   # 主标题 18 号
-F_SUB   = ("Microsoft YaHei UI", 12)           # 副标题 12 号
-F_HDR   = ("Microsoft YaHei UI", 13, "bold")   # 章节标题 13 号
-F_BODY  = ("Microsoft YaHei UI", 12)           # 正文 / 步骤说明 12 号
-F_SMALL = ("Microsoft YaHei UI", 10)           # 底部提示 / 次要 10 号
-F_BTN   = ("Microsoft YaHei UI", 12, "bold")   # 按钮 12 号
-F_STAT  = ("Microsoft YaHei UI", 12)           # 状态文字 12 号
-F_SUBTITLE = ("Microsoft YaHei UI", 11)        # 副标题 / 元信息 11 号
-F_CARD_HDR = ("Microsoft YaHei UI", 13, "bold")# 卡片标题 13 号
-F_FOOT     = ("Microsoft YaHei UI", 11)        # 状态栏 / 页脚 11 号
+F_TITLE = ("Microsoft YaHei", 18, "bold")   # 主标题 18 号
+F_SUB   = ("Microsoft YaHei", 12)           # 副标题 12 号
+F_HDR   = ("Microsoft YaHei", 13, "bold")   # 章节标题 13 号
+F_BODY  = ("Microsoft YaHei", 12)           # 正文 / 步骤说明 12 号
+F_SMALL = ("Microsoft YaHei", 10)           # 底部提示 / 次要 10 号
+F_BTN   = ("Microsoft YaHei", 12, "bold")   # 按钮 12 号
+F_STAT  = ("Microsoft YaHei", 12)           # 状态文字 12 号
+F_SUBTITLE = ("Microsoft YaHei", 11)        # 副标题 / 元信息 11 号
+F_CARD_HDR = ("Microsoft YaHei", 13, "bold")# 卡片标题 13 号
+F_FOOT     = ("Microsoft YaHei", 11)        # 状态栏 / 页脚 11 号
 
 # 页边距字段：编辑厘米值时同步写 twips（top/bottom/left/right），兼容两套读取方
 _MARGIN_TWIPS = {
@@ -377,7 +377,7 @@ class App:
         row = tk.Frame(box, bg="#ffffff")
         row.pack(fill="x", padx=10, pady=8)
         ic = tk.Label(row, text=icon, bg="#e8f0f6", fg=ACCENT,
-                      font=("Microsoft YaHei UI", 12, "bold"), padx=9, pady=5)
+                      font=("Microsoft YaHei", 12, "bold"), padx=9, pady=5)
         ic.pack(side="left", padx=(0, 8))
         txt = tk.Frame(row, bg="#ffffff")
         txt.pack(side="left", fill="x", expand=True)
@@ -685,7 +685,7 @@ class App:
                                         self.root.winfo_rooty() + 30))
 
         tk.Label(top, text="已提取出学校模板的格式要求", bg=PAPER, fg=INK,
-                 font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(14, 2))
+                 font=("Microsoft YaHei", 14, "bold")).pack(pady=(14, 2))
         tk.Label(top, text="请核对是否与学校规定一致；如有不准，可直接修改后确认。",
                  bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(0, 6))
 
@@ -978,6 +978,13 @@ def show_activation(root):
 
 
 def main():
+    # Windows 高分屏下让 Tk 字体清晰渲染（必须在创建 Tk 窗口前设置，否则整体发糊）
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            pass
     root = tk.Tk()
     root.withdraw()
     if not license.check_local_valid():
