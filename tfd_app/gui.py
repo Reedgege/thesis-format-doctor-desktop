@@ -299,11 +299,11 @@ class App:
 
         tk.Frame(self.root, bg=LINE, height=1).pack(fill="x", padx=24)
         tk.Label(self.root,
-                 text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制",
-                 bg=PAPER, fg="#555555", font=("KaiTi", 12)).pack(fill="x", pady=(14, 0))
+                 text="论文格式医生 · 桌面版 — 完全离线，文件不会上传任何服务器",
+                 bg=PAPER, fg=MUTED, font=F_SUB).pack(fill="x", pady=(6, 2))
         tk.Label(self.root,
-                 text="合作联系：reedskill@126.com",
-                 bg=PAPER, fg="#555555", font=("KaiTi", 12)).pack(fill="x", pady=(2, 10))
+                 text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制 · 合作联系：reedskill@126.com",
+                 bg=PAPER, fg="#555555", font=("KaiTi", 10), wraplength=840).pack(fill="x", pady=(10, 10))
 
     # ---------------------------------------------------------- left panel
     def _build_left(self, parent):
@@ -742,7 +742,7 @@ def show_activation(root):
     top.title("激活 · 论文格式医生")
     top.configure(bg=PAPER)
     top.resizable(False, False)
-    top.geometry("520x550")
+    top.geometry("600x550")
 
     tk.Label(top, text="激 活 论 文 格 式 医 生", bg=PAPER, fg=INK,
              font=("KaiTi", 18, "bold")).pack(pady=(18, 4))
@@ -838,10 +838,8 @@ def show_activation(root):
                command=do_offline).pack(pady=(2, 6))
     ttk.Button(top, text="退出", command=lambda: top.destroy()).pack(pady=(2, 4))
 
-    tk.Label(top, text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制",
-             bg=PAPER, fg="#555555", font=("KaiTi", 12)).pack(pady=(16, 0))
-    tk.Label(top, text="合作联系：reedskill@126.com",
-             bg=PAPER, fg="#555555", font=("KaiTi", 12)).pack(pady=(2, 12))
+    tk.Label(top, text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制 · 合作联系：reedskill@126.com",
+             bg=PAPER, fg="#555555", font=("KaiTi", 10), wraplength=560).pack(pady=(16, 12))
 
     top.wait_window()
     return result["ok"]
