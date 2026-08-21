@@ -49,6 +49,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y tk tcl
 
+      # UPX 压缩：PyInstaller 检测到 UPX 在 PATH 上会自动压缩，exe 体积约减半。
+      # 注意：个别杀毒软件对 UPX 压缩包有误报，若客户反馈可删掉本步（体积换安心）。
+      - name: Install UPX (Windows)
+        if: matrix.os == 'windows'
+        run: choco install upx -y
+      - name: Install UPX (macOS)
+        if: matrix.os == 'macos'
+        run: brew install upx
+      - name: Install UPX (Linux)
+        if: matrix.os == 'linux'
+        run: sudo apt-get install -y upx-ucl
+
       - name: Build (${{ matrix.os }})
         shell: bash
         env:
@@ -62,6 +74,24 @@ jobs:
         with:
           name: thesis-format-doctor-desktop-${{ matrix.os }}
           path: dist/thesis-format-doctor-desktop${{ matrix.ext }}
+          if-no-files-found: error
+
+      # 卖家兜底发码工具 offlinecode（离线签名码生成）。仅 Windows 构建。
+      # 注意：offlinecode.exe 内含离线签名密钥，属卖家自用，勿把 Release 设为公开、勿发给客户。
+      - name: Build offlinecode (Windows only)
+        if: matrix.os == 'windows'
+        run: |
+          python -m PyInstaller --name offlinecode --onefile --noconsole --clean \
+            --collect-all tkinter \
+            --add-data "tfd_app/license.py;tfd_app/license.py" \
+            offlinecode.py
+
+      - name: Upload offlinecode artifact (Windows only)
+        if: matrix.os == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: offlinecode-windows
+          path: dist/offlinecode.exe
           if-no-files-found: error
 
   release:
@@ -87,6 +117,8 @@ jobs:
             ext=""; [ "$plat" = "windows" ] && ext=".exe"
             cp "$src" "release/thesis-format-doctor-desktop-$plat$ext"
           done
+          # 卖家兜底发码工具（Windows）
+          cp "$(find artifacts/offlinecode-windows -type f | head -1)" "release/offlinecode.exe"
           ls -la release
 
       - name: Determine version

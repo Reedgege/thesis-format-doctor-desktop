@@ -45,6 +45,14 @@ DATA_DIRS = [
     (os.path.join(HERE, "tfd_app", "assets"), "tfd_app/assets"),
 ]
 
+# 明确排除用不到的模块，减小 exe 体积（unittest/在线文档/演示程序等）。
+# 保守起见只排除确定不用的；urllib 等网络组件依赖的模块一律保留。
+EXCLUDES = [
+    "unittest", "pydoc", "pydoc_data", "lib2to3", "idlelib",
+    "turtledemo", "ensurepip", "test", "tkinter.test", "distutils",
+    "http.server", "webbrowser", "xmlrpc", "telnetlib",
+]
+
 
 def build(clean=False):
     # 始终用 `python -m PyInstaller`，避免依赖 PATH 中的 pyinstaller 可执行文件。
@@ -61,6 +69,8 @@ def build(clean=False):
     ]
     for h in HIDDEN:
         cmd += ["--hidden-import", h]
+    for m in EXCLUDES:
+        cmd += ["--exclude-module", m]
     for src, dst in DATA_DIRS:
         if os.path.isdir(src):
             cmd += ["--add-data", f"{src}{SEP}{dst}"]

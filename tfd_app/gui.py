@@ -300,7 +300,10 @@ class App:
         tk.Frame(self.root, bg=LINE, height=1).pack(fill="x", padx=24)
         tk.Label(self.root,
                  text="论文格式医生 · 桌面版 — 完全离线，文件不会上传任何服务器",
-                 bg=PAPER, fg=MUTED, font=F_SUB).pack(fill="x", pady=(6, 8))
+                 bg=PAPER, fg=MUTED, font=F_SUB).pack(fill="x", pady=(6, 2))
+        tk.Label(self.root,
+                 text="© 2026 论文格式医生 · 保留所有权利 · 定制 / 商务合作请联系：reedai@126.com",
+                 bg=PAPER, fg=MUTED, font=("KaiTi", 8)).pack(fill="x", pady=(0, 6))
 
     # ---------------------------------------------------------- left panel
     def _build_left(self, parent):
@@ -739,7 +742,7 @@ def show_activation(root):
     top.title("激活 · 论文格式医生")
     top.configure(bg=PAPER)
     top.resizable(False, False)
-    top.geometry("520x480")
+    top.geometry("520x500")
 
     tk.Label(top, text="激 活 论 文 格 式 医 生", bg=PAPER, fg=INK,
              font=("KaiTi", 18, "bold")).pack(pady=(18, 4))
@@ -759,7 +762,7 @@ def show_activation(root):
             msg_var.set("请输入卡密")
             return
         btn_activate.config(state="disabled")
-        msg_var.set("正在联网验证卡密，卡密通服务器响应较慢，通常需要 20~40 秒，请稍候…")
+        msg_var.set("正在验证您的授权，请稍候…（首次激活需联网校验，通常需要 20~40 秒）")
         q = queue.Queue()
         start_t = time.time()
 
@@ -775,7 +778,7 @@ def show_activation(root):
                 import traceback
                 tb = traceback.format_exc()
                 license._log("gui: 激活线程异常\n%s" % tb)
-                q.put(("done", False, "激活过程出错，请查看日志或联系卖家", ""))
+                q.put(("done", False, "激活过程出错，请重试或联系客服", ""))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -786,7 +789,7 @@ def show_activation(root):
             except queue.Empty:
                 if time.time() - start_t > 120:   # UI 看门狗：物理上不可能无限转圈
                     btn_activate.config(state="normal")
-                    msg_var.set("验证超时：请关闭 VPN/代理后重试；或联系卖家使用【离线备用码】激活")
+                    msg_var.set("验证超时：请检查网络后重试；或联系客服获取离线激活码")
                     license._log("gui: UI 看门狗触发（120 秒未等到结果）")
                     return
                 top.after(300, poll)
@@ -813,7 +816,7 @@ def show_activation(root):
                command=lambda: top.clipboard_append(mc)).pack(pady=(3, 6))
 
     off_var = tk.StringVar()
-    tk.Label(top, text="离线备用码（平台不可用时，联系卖家获取）：", bg=PAPER, fg=MUTED,
+    tk.Label(top, text="离线激活码（网络不通时，联系客服获取）：", bg=PAPER, fg=MUTED,
              font=F_SMALL).pack(pady=(4, 2))
     tk.Entry(top, textvariable=off_var, width=46, font=("Consolas", 9),
              relief="solid", bd=1).pack(pady=(2, 4))
@@ -821,7 +824,7 @@ def show_activation(root):
     def do_offline():
         code = off_var.get().strip()
         if not code:
-            msg_var.set("请输入离线备用码")
+            msg_var.set("请输入离线激活码")
             return
         mc2 = license.get_machine_code()
         if license.verify_offline_code(code, mc2):
@@ -829,11 +832,14 @@ def show_activation(root):
             result["ok"] = True
             top.destroy()
         else:
-            msg_var.set("离线备用码无效，请核对")
+            msg_var.set("离线激活码无效，请核对后重试")
 
-    ttk.Button(top, text="使用离线备用码激活", style="Ghost.TButton",
+    ttk.Button(top, text="使用离线激活码激活", style="Ghost.TButton",
                command=do_offline).pack(pady=(2, 6))
-    ttk.Button(top, text="退出", command=lambda: top.destroy()).pack(pady=(4, 8))
+    ttk.Button(top, text="退出", command=lambda: top.destroy()).pack(pady=(2, 4))
+
+    tk.Label(top, text="© 2026 论文格式医生 · 保留所有权利 · 定制 / 商务合作请联系：reedai@126.com",
+             bg=PAPER, fg=MUTED, font=("KaiTi", 8)).pack(pady=(6, 8))
 
     top.wait_window()
     return result["ok"]
