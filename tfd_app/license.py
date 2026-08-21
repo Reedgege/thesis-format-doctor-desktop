@@ -33,6 +33,19 @@ import subprocess
 import urllib.parse
 import urllib.request
 
+# Windows 下子进程（wmic/powershell 等控制台程序）默认会弹一个黑框一闪；
+# 在 --noconsole 打包的 GUI 程序里必须加 CREATE_NO_WINDOW，让子进程静默执行。
+_NO_WINDOW = (getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+              if sys.platform.startswith("win") else 0)
+
+
+def _run(cmd):
+    """静默执行子进程命令并返回 stdout 文本（不弹黑框、不闪控制台）。"""
+    kwargs = {"stderr": subprocess.DEVNULL, "timeout": 8}
+    if sys.platform.startswith("win"):
+        kwargs["creationflags"] = _NO_WINDOW
+    return subprocess.check_output(cmd, **kwargs).decode("utf-8", "ignore")
+
 # ---------------------------------------------------------------------------
 # 卡密通配置 —— 卖家在 keyt.cn 注册开发者、创建应用后，把下面的常量改成你自己的
 # ---------------------------------------------------------------------------
@@ -58,9 +71,7 @@ def get_machine_code():
 
     # 磁盘序列号（优先 wmic，失败退 PowerShell）
     try:
-        out = subprocess.check_output(
-            "wmic diskdrive get serialnumber", shell=True,
-            stderr=subprocess.DEVNULL, timeout=8).decode("utf-8", "ignore")
+        out = _run(["wmic", "diskdrive", "get", "serialnumber"])
         for line in out.splitlines():
             line = line.strip()
             if line and "SerialNumber" not in line:
@@ -70,10 +81,8 @@ def get_machine_code():
         pass
     if not parts:
         try:
-            out = subprocess.check_output(
-                ["powershell", "-NoProfile", "-Command",
-                 "(Get-CimInstance Win32_DiskDrive).SerialNumber"],
-                stderr=subprocess.DEVNULL, timeout=8).decode("utf-8", "ignore").strip()
+            out = _run(["powershell", "-NoProfile", "-Command",
+                        "(Get-CimInstance Win32_DiskDrive).SerialNumber"]).strip()
             if out:
                 parts.append("disk:" + out)
         except Exception:
@@ -81,9 +90,7 @@ def get_machine_code():
 
     # 主板 / BIOS UUID
     try:
-        out = subprocess.check_output(
-            "wmic csproduct get uuid", shell=True,
-            stderr=subprocess.DEVNULL, timeout=8).decode("utf-8", "ignore")
+        out = _run(["wmic", "csproduct", "get", "uuid"])
         for line in out.splitlines():
             line = line.strip()
             if line and "UUID" not in line:
@@ -107,25 +114,33 @@ def get_machine_code():
 # ---------------------------------------------------------------------------
 # 主方案：卡密通在线验证
 # ---------------------------------------------------------------------------
-def verify_via_kami(card, machine_code, timeout=12):
+def verify_via_kami(card, machine_code, timeout=40, retries=2):
     """联网校验卡密。返回 (ok: bool, days: int, msg: str)。
 
     卡密通 check.php 返回约定：以 'ok|' 开头表示通过（其后可能带 天数|分钟）。
     其他内容均视为失败（含 'invalid' / 'expired' / 'bind' 等）。
+
+    注意：卡密通免费平台实测服务端响应 20 秒+（连接很快、首字节慢），
+    所以超时放宽到 40s 并带 1 次重试，避免把"慢"误报成"网络失败"。
     """
     if KAMI_USER in ("你的卡密通用户名",):
         return False, 0, "卡密通尚未配置：请在 tfd_app/license.py 填写 KAMI_USER 与 KAMI_APP"
     params = urllib.parse.urlencode({"card": card, "mac": machine_code, "app": KAMI_APP})
     url = KAMI_CHECK_URL + "?" + params
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "tfd-desktop/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            text = resp.read().decode("utf-8", "ignore").strip()
-    except Exception as e:
-        return False, 0, "网络验证失败（请检查网络或稍后重试）：%s" % e
-    if text.startswith("ok|"):
-        return True, 0, "验证通过"
-    return False, 0, "验证未通过：%s" % text
+    last_err = ""
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "tfd-desktop/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                text = resp.read().decode("utf-8", "ignore").strip()
+            if text.startswith("ok|"):
+                return True, 0, "验证通过"
+            return False, 0, "验证未通过：%s" % text
+        except Exception as e:
+            last_err = str(e)
+            if attempt < retries - 1:
+                time.sleep(1.0)
+    return False, 0, "网络验证失败（请检查网络或稍后重试）：%s" % last_err
 
 
 def save_local_license(card, machine_code, permanent=True):
