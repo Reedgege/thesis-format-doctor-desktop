@@ -60,6 +60,17 @@ KAMI_CHECK_URL = "https://www.keyt.cn/kami/{user}/check.php".format(user=KAMI_US
 LICENSE_DIR = os.path.join(os.path.expanduser("~"), ".tfd_license")
 LICENSE_FILE = os.path.join(LICENSE_DIR, "license.json")
 
+
+def _log(msg):
+    """把激活过程写进日志文件 ~/.tfd_license/activation.log，
+    客户机器上激活出问题时，可凭此日志精准定位。任何失败都不影响主流程。"""
+    try:
+        os.makedirs(LICENSE_DIR, exist_ok=True)
+        with open(os.path.join(LICENSE_DIR, "activation.log"), "a", encoding="utf-8") as f:
+            f.write("[%s] %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg))
+    except Exception:
+        pass
+
 # ---------------------------------------------------------------------------
 # 离线备用码密钥（与 keygen.py 共用；做了简单分片混淆，提高提取门槛）
 # ---------------------------------------------------------------------------
@@ -157,15 +168,19 @@ def verify_via_kami(card, machine_code, timeout=30, retries=2):
 
     overall = timeout + 12   # 硬上限：即便 socket 超时失效，也不让界面永久卡住
     last_err = ""
+    _log("验证开始 card=%s mac=%s timeout=%s retries=%s" % (card, machine_code, timeout, retries))
     for attempt in range(max(1, retries)):
         ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
+            _log("第 %s 次请求发出（overall=%ss）" % (attempt + 1, overall))
             fut = ex.submit(_kami_http, card, machine_code, timeout)
             text = fut.result(timeout=overall)
+            _log("第 %s 次请求返回: %r" % (attempt + 1, text[:120]))
         except (concurrent.futures.TimeoutError, TimeoutError, socket.timeout):
             # 超时：可能是卡密通响应慢，也可能是本机 VPN/代理把请求绕路海外。
             # 一机一码下，同卡+同机重查大概率能拿到 ok|，故重试而非直接放弃。
             last_err = "连接/读取超时（卡密通响应慢，或被 VPN/代理绕路）"
+            _log("第 %s 次超时" % (attempt + 1))
             if attempt < retries - 1:
                 time.sleep(1.5)
                 continue
@@ -173,6 +188,7 @@ def verify_via_kami(card, machine_code, timeout=30, retries=2):
                               "请直接关闭本窗口，用【离线备用码】激活（联系卖家获取），或关闭 VPN/代理后重试。")
         except Exception as e:
             last_err = str(e)
+            _log("第 %s 次异常: %s" % (attempt + 1, last_err))
             if attempt < retries - 1:
                 time.sleep(1.5)
                 continue
@@ -182,10 +198,13 @@ def verify_via_kami(card, machine_code, timeout=30, retries=2):
 
         # 拿到了服务端响应
         if text.startswith("ok|"):
+            _log("验证通过")
             return True, 0, "验证通过"
         # error| 是确定性失败，无需重试
+        _log("验证未通过: %r" % text[:120])
         return False, 0, "验证未通过：%s" % text
 
+    _log("最终失败: %s" % last_err)
     return False, 0, "网络验证失败：%s" % last_err
 
 

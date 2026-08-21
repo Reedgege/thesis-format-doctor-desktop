@@ -21,6 +21,8 @@
 import os
 import sys
 import json
+import time
+import queue
 import threading
 import subprocess
 
@@ -758,19 +760,47 @@ def show_activation(root):
             return
         btn_activate.config(state="disabled")
         msg_var.set("正在联网验证卡密，卡密通服务器响应较慢，通常需要 20~40 秒，请稍候…")
+        q = queue.Queue()
+        start_t = time.time()
+
         def work():
-            mc = license.get_machine_code()
-            ok, _days, note = license.verify_via_kami(card, mc)
-            def done():
-                btn_activate.config(state="normal")
-                if ok:
-                    license.save_local_license(card, mc)
-                    result["ok"] = True
-                    top.destroy()
-                else:
-                    msg_var.set(note)
-            top.after(0, done)
+            # 工作线程只做两件事：跑验证 + 把结果放进队列；绝不直接碰 Tk 界面
+            try:
+                mc = license.get_machine_code()
+                license._log("gui: 开始联网验证 card=%s mc=%s" % (card, mc))
+                ok, _days, note = license.verify_via_kami(card, mc)
+                license._log("gui: 联网验证返回 ok=%s note=%s" % (ok, note))
+                q.put(("done", ok, note, mc))
+            except Exception:
+                import traceback
+                tb = traceback.format_exc()
+                license._log("gui: 激活线程异常\n%s" % tb)
+                q.put(("done", False, "激活过程出错，请查看日志或联系卖家", ""))
+
         threading.Thread(target=work, daemon=True).start()
+
+        def poll():
+            # 主线程轮询队列（线程安全），拿到结果才更新界面
+            try:
+                _kind, ok, note, mc = q.get_nowait()
+            except queue.Empty:
+                if time.time() - start_t > 120:   # UI 看门狗：物理上不可能无限转圈
+                    btn_activate.config(state="normal")
+                    msg_var.set("验证超时：请关闭 VPN/代理后重试；或联系卖家使用【离线备用码】激活")
+                    license._log("gui: UI 看门狗触发（120 秒未等到结果）")
+                    return
+                top.after(300, poll)
+                return
+            btn_activate.config(state="normal")
+            if ok:
+                license.save_local_license(card, mc)
+                license._log("gui: 授权已写入本机")
+                result["ok"] = True
+                top.destroy()
+            else:
+                msg_var.set(note)
+
+        top.after(300, poll)
 
     btn_activate = ttk.Button(top, text="激活", style="Primary.TButton",
                command=do_activate)
