@@ -36,8 +36,8 @@ import urllib.request
 # ---------------------------------------------------------------------------
 # 卡密通配置 —— 卖家在 keyt.cn 注册开发者、创建应用后，把下面的常量改成你自己的
 # ---------------------------------------------------------------------------
-KAMI_USER = "你的卡密通用户名"   # 注册后你的专属地址：keyt.cn/kami/你的用户名/check.php
-KAMI_APP = "a"                  # 应用名（后台创建的应用，默认是 a）
+KAMI_USER = "reedai0537"      # 卡密通用户名（专属验证地址：keyt.cn/kami/reedai0537/check.php）
+KAMI_APP = "lunwengeshi"       # 应用名（后台创建的应用 lunwengeshi）
 KAMI_CHECK_URL = "https://www.keyt.cn/kami/{user}/check.php".format(user=KAMI_USER)
 
 # ---------------------------------------------------------------------------
