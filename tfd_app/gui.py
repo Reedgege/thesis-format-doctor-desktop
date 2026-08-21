@@ -42,25 +42,26 @@ ICON = os.path.join(HERE, "assets", "icon.png")
 # ---------------------------------------------------------------------------
 # 配色：宣纸 / 墨 / 黛蓝 / 朱砂 —— 学术范 + 文艺感
 # ---------------------------------------------------------------------------
-PAPER   = "#f6f2ea"   # 宣纸底
-PANEL   = "#fcfaf5"   # 面板（微亮的纸）
-INK     = "#33302b"   # 墨色文字
-MUTED   = "#8b8378"   # 灰褐（次要文字）
-LINE    = "#d9d2c2"   # 细线
-ACCENT  = "#46586f"   # 黛蓝（章节标题 / 强调）
+PAPER   = "#f6f2ea"   # 宣纸底（保留用户喜欢的底色）
+PANEL   = "#fdfbf6"   # 面板（微亮的纸）
+INK     = "#222222"   # 主文字（深）—— 标题 / 重点
+BODY    = "#444444"   # 正文（灰）—— 描述性文字
+MUTED   = "#666666"   # 次要文字 / 页脚（浅灰）
+LINE    = "#e0d9c8"   # 细线
+ACCENT  = "#46586f"   # 黛蓝（章节条 / 强调）
 CINNABAR= "#9e4233"   # 朱砂（主按钮）
 CINNABAR_D = "#8a382b"
 OKC     = "#5f7d5c"   # 完成（墨绿）
 ERRC    = "#a0402f"   # 出错（朱红）
 RUN     = ACCENT      # 处理中（黛蓝）
 
-F_TITLE = ("KaiTi", 20, "bold")
-F_SUB   = ("Microsoft YaHei UI", 9)
-F_HDR   = ("KaiTi", 12, "bold")
-F_BODY  = ("Microsoft YaHei UI", 10)
-F_SMALL = ("Microsoft YaHei UI", 9)
-F_BTN   = ("Microsoft YaHei UI", 10, "bold")
-F_STAT  = ("KaiTi", 12)
+F_TITLE = ("Microsoft YaHei UI", 18, "bold")   # 主标题 18 号
+F_SUB   = ("Microsoft YaHei UI", 12)           # 副标题 12 号
+F_HDR   = ("Microsoft YaHei UI", 13, "bold")   # 章节标题 13 号
+F_BODY  = ("Microsoft YaHei UI", 12)           # 正文 / 步骤说明 12 号
+F_SMALL = ("Microsoft YaHei UI", 10)           # 底部提示 / 次要 10 号
+F_BTN   = ("Microsoft YaHei UI", 12, "bold")   # 按钮 12 号
+F_STAT  = ("Microsoft YaHei UI", 12)           # 状态文字 12 号
 
 # 页边距字段：编辑厘米值时同步写 twips（top/bottom/left/right），兼容两套读取方
 _MARGIN_TWIPS = {
@@ -229,8 +230,8 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("论文格式医生 · 桌面版")
-        self.root.geometry("880x620")
-        self.root.minsize(780, 560)
+        self.root.geometry("900x640")
+        self.root.minsize(800, 580)
         try:
             if os.path.isfile(ICON):
                 self.root.iconphoto(True, tk.PhotoImage(file=ICON))
@@ -243,6 +244,10 @@ class App:
         self.status_var = tk.StringVar(value="请按左侧步骤操作")
         self.running = False
         self._msgs = []
+        self.step_defs = [("profile", "提取学校模板要求"),
+                          ("check", "论文格式检查"),
+                          ("fix", "按学校要求一键修正")]
+        self.step_state = {m: "pending" for m, _ in self.step_defs}
 
         self._build_style()
         self._build_widgets()
@@ -276,11 +281,11 @@ class App:
         self.root.configure(bg=PAPER)
 
         header = tk.Frame(self.root, bg=PAPER)
-        header.pack(fill="x", padx=24, pady=(14, 6))
+        header.pack(fill="x", padx=24, pady=(16, 8))
         tk.Label(header, text="论 文 格 式 医 生", bg=PAPER, fg=INK,
                  font=F_TITLE).pack(anchor="center")
-        tk.Label(header, text="—— 按学校要求检查与修正 · 完全离线 ——",
-                 bg=PAPER, fg=MUTED, font=F_SUB).pack(anchor="center", pady=(2, 0))
+        tk.Label(header, text="按学校要求检查与修正 · 完全离线运行",
+                 bg=PAPER, fg=MUTED, font=F_SUB).pack(anchor="center", pady=(4, 0))
         tk.Frame(self.root, bg=CINNABAR, height=2).pack(fill="x", padx=24)
 
         main = tk.Frame(self.root, bg=PAPER)
@@ -297,13 +302,24 @@ class App:
         self._build_left(left)
         self._build_right(right)
 
-        tk.Frame(self.root, bg=LINE, height=1).pack(fill="x", padx=24)
-        tk.Label(self.root,
-                 text="论文格式医生 · 桌面版 — 完全离线，文件不会上传任何服务器",
-                 bg=PAPER, fg=MUTED, font=F_SUB).pack(fill="x", pady=(6, 2))
-        tk.Label(self.root,
+        # 状态栏 + 版权：独立贴底 frame，上下两行排布，杜绝窄窗下文字重叠（底部留白 ≥20px）
+        tk.Frame(self.root, bg=LINE, height=1).pack(fill="x", side="bottom", padx=24)
+        statusbar = tk.Frame(self.root, bg=PAPER)
+        statusbar.pack(side="bottom", fill="x", padx=24, pady=(8, 20))
+        inner = tk.Frame(statusbar, bg=PAPER)
+        inner.pack(fill="x")
+        # 第 1 行：运行状态（左对齐）
+        r1 = tk.Frame(inner, bg=PAPER)
+        r1.pack(fill="x", pady=(0, 3))
+        tk.Label(r1, text="●", bg=PAPER, fg=OKC, font=F_SMALL).pack(side="left", padx=(0, 6))
+        tk.Label(r1, text="完全离线运行 · 文件不上传任何服务器",
+                 bg=PAPER, fg=MUTED, font=F_SMALL).pack(side="left")
+        # 第 2 行：版权声明（左对齐，整行独立，绝不与其他文字抢同一行）
+        r2 = tk.Frame(inner, bg=PAPER)
+        r2.pack(fill="x")
+        tk.Label(r2,
                  text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制 · 合作联系：reedskill@126.com",
-                 bg=PAPER, fg="#555555", font=("KaiTi", 10), wraplength=840).pack(fill="x", pady=(10, 10))
+                 bg=PAPER, fg=MUTED, font=F_SMALL).pack(side="left")
 
     # ---------------------------------------------------------- left panel
     def _build_left(self, parent):
@@ -361,8 +377,8 @@ class App:
         box = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=LINE)
         box.pack(fill="x", pady=4)
         tk.Label(box, text=title, bg=PANEL, fg=INK,
-                 font=("KaiTi", 11, "bold")).pack(anchor="w", padx=12, pady=(8, 0))
-        tk.Label(box, text=desc, bg=PANEL, fg=MUTED,
+                 font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w", padx=12, pady=(8, 0))
+        tk.Label(box, text=desc, bg=PANEL, fg=BODY,
                  font=F_SMALL).pack(anchor="w", padx=12, pady=(1, 0))
         row = tk.Frame(box, bg=PANEL)
         row.pack(fill="x", padx=12, pady=(6, 8))
@@ -388,15 +404,52 @@ class App:
         self.progress.pack(fill="x", pady=(0, 6))
         self.progress.pack_forget()
 
+        self._build_timeline(parent)
+
         tk.Label(parent,
                  text="所有处理均在您本机完成，原文件绝不会被改动，请安心等待。",
-                 bg=PAPER, fg=MUTED, font=F_SMALL, justify="left",
+                 bg=PAPER, fg=BODY, font=F_SMALL, justify="left",
                  wraplength=290).pack(anchor="w")
 
         self.result_lbl = tk.Label(parent, text="", bg=PAPER, fg=OKC,
                                    font=F_SMALL, justify="left", wraplength=300,
                                    anchor="w")
         self.result_lbl.pack(anchor="w", pady=(10, 0))
+
+    # ----------------------------------------------------- 步骤时间线
+    def _build_timeline(self, parent):
+        tl = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=LINE)
+        tl.pack(fill="x", pady=(6, 6))
+        tk.Label(tl, text="步骤进度", bg=PANEL, fg=ACCENT,
+                 font=F_SMALL).pack(anchor="w", padx=12, pady=(6, 2))
+        self._step_dots = {}
+        self._step_lbls = {}
+        for _i, (mode, label) in enumerate(self.step_defs):
+            row = tk.Frame(tl, bg=PANEL)
+            row.pack(fill="x", padx=12, pady=(2, 2))
+            dot = tk.Label(row, text="○", bg=PANEL, fg=MUTED, font=F_SMALL)
+            dot.pack(side="left", padx=(0, 8))
+            lbl = tk.Label(row, text=label, bg=PANEL, fg=MUTED, font=F_SMALL)
+            lbl.pack(side="left")
+            self._step_dots[mode] = dot
+            self._step_lbls[mode] = lbl
+
+    def _update_timeline(self, mode, state):
+        dot = self._step_dots.get(mode)
+        lbl = self._step_lbls.get(mode)
+        if not dot:
+            return
+        if state == "active":
+            dot.config(text="●", fg=RUN); lbl.config(fg=INK)
+        elif state == "done":
+            dot.config(text="✔", fg=OKC); lbl.config(fg=INK)
+        elif state == "error":
+            dot.config(text="✕", fg=ERRC); lbl.config(fg=INK)
+        else:
+            dot.config(text="○", fg=MUTED); lbl.config(fg=MUTED)
+
+    def _set_step(self, mode, state):
+        self.root.after(0, lambda: self._update_timeline(mode, state))
 
     # --------------------------------------------------------------- picks
     def _pick_input(self):
@@ -452,6 +505,7 @@ class App:
                   "check": "正在检查论文格式…",
                   "fix": "正在按学校要求修正论文…"}[mode]
         self._set_status(status, RUN)
+        self._update_timeline(mode, "active")
         threading.Thread(target=self._worker, args=(mode, src, dst), daemon=True).start()
 
     def _worker(self, mode, src, dst=None):
@@ -467,9 +521,11 @@ class App:
                 elif mode == "fix":
                     self._do_fix(src, docx_path, dst)
             self._set_status("已完成", OKC)
+            self._set_step(mode, "done")
         except Exception as e:
             self._debug("[错误] " + str(e))
             self._set_status("未能完成，请查看提示", ERRC)
+            self._set_step(mode, "error")
             self.root.after(0, lambda: messagebox.showerror("处理出错", str(e)))
         finally:
             self.running = False
@@ -563,7 +619,7 @@ class App:
                                         self.root.winfo_rooty() + 30))
 
         tk.Label(top, text="已提取出学校模板的格式要求", bg=PAPER, fg=INK,
-                 font=("KaiTi", 14, "bold")).pack(pady=(14, 2))
+                 font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(14, 2))
         tk.Label(top, text="请核对是否与学校规定一致；如有不准，可直接修改后确认。",
                  bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(0, 6))
 
@@ -689,7 +745,7 @@ class App:
         top.grab_set()
         top.geometry("+%d+%d" % (self.root.winfo_rootx() + 140,
                                  self.root.winfo_rooty() + 120))
-        tk.Label(top, text=text, bg=PAPER, fg=INK, font=F_BODY, justify="left",
+        tk.Label(top, text=text, bg=PAPER, fg=BODY, font=F_BODY, justify="left",
                  wraplength=480).pack(padx=24, pady=(20, 14))
         fr = tk.Frame(top, bg=PAPER)
         fr.pack(pady=(0, 18))
@@ -745,7 +801,7 @@ def show_activation(root):
     top.geometry("600x550")
 
     tk.Label(top, text="激 活 论 文 格 式 医 生", bg=PAPER, fg=INK,
-             font=("KaiTi", 18, "bold")).pack(pady=(18, 4))
+             font=F_TITLE).pack(pady=(18, 4))
     tk.Label(top, text="请输入您购买的卡密以激活；激活仅需联网一次，之后完全离线使用。",
              bg=PAPER, fg=MUTED, font=F_SMALL, wraplength=440, justify="center").pack(pady=(0, 12))
 
@@ -839,7 +895,7 @@ def show_activation(root):
     ttk.Button(top, text="退出", command=lambda: top.destroy()).pack(pady=(2, 4))
 
     tk.Label(top, text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制 · 合作联系：reedskill@126.com",
-             bg=PAPER, fg="#555555", font=("KaiTi", 10), wraplength=560).pack(pady=(16, 12))
+             bg=PAPER, fg=MUTED, font=F_SMALL, wraplength=560).pack(pady=(16, 12))
 
     top.wait_window()
     return result["ok"]
