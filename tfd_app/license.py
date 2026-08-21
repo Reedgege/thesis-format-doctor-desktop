@@ -32,6 +32,7 @@ import hmac
 import subprocess
 import urllib.parse
 import urllib.request
+import concurrent.futures
 
 # Windows 下子进程（wmic/powershell 等控制台程序）默认会弹一个黑框一闪；
 # 在 --noconsole 打包的 GUI 程序里必须加 CREATE_NO_WINDOW，让子进程静默执行。
@@ -112,43 +113,80 @@ def get_machine_code():
 
 
 # ---------------------------------------------------------------------------
-# 主方案：卡密通在线验证
+# 主方案：卡密通在线验证流程
 # ---------------------------------------------------------------------------
-def verify_via_kami(card, machine_code, timeout=40, retries=2):
+def _kami_http(card, machine_code, timeout):
+    """单次 HTTP 校验，返回原始响应文本；任何异常都向上抛。
+
+    关键点：urllib 的 opener.open(timeout=...) 在部分环境下（开着 VPN/系统代理、
+    SSL 握手阶段、DNS 解析）根本不生效，导致线程永久挂在等回包。这里额外用
+    socket.setdefaulttimeout 兜底，让本次 socket 也受超时约束。
+    """
+    params = urllib.parse.urlencode({"card": card, "mac": machine_code, "app": KAMI_APP})
+    url = KAMI_CHECK_URL + "?" + params
+    prev = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(timeout)   # 兜底：覆盖 DNS / SSL 握手阶段的悬挂
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "tfd-desktop/1.0"})
+        # 无代理直连（无视环境变量 HTTP(S)_PROXY / 系统代理设置）
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", "ignore").strip()
+    finally:
+        socket.setdefaulttimeout(prev)
+
+
+def verify_via_kami(card, machine_code, timeout=30, retries=2):
     """联网校验卡密。返回 (ok: bool, days: int, msg: str)。
 
     卡密通 check.php 返回约定：以 'ok|' 开头表示通过（其后可能带 天数|分钟）。
     其他内容均视为失败（含 'invalid' / 'expired' / 'bind' 等）。
 
-    注意：
-    - 卡密通免费平台实测服务端响应 20 秒+（连接很快、首字节慢），超时放宽到 40s；
-    - 强制直连：卡密通是国内服务器，客户电脑的 VPN/代理（环境变量）会把请求
-      绕道海外，出现"后台显示在线、软件却一直等不到响应"；直连最快最稳；
-    - 超时直接给可操作提示（关 VPN/代理 或 联系卖家要离线码），不让客户干等。
+    设计要点（针对"后台在线、前端卡死"的真实故障）：
+    1. 硬性总超时：用独立线程跑 HTTP，并设 overall 截止时间。即便 urllib 的
+       socket 超时失效，线程也会被强制判超时，保证界面一定在限定时间内拿到
+       结果，绝不永久卡在"联网激活中"。
+    2. 一机一码恢复：卡密通是"首次验证成功即绑定本机"。若首次请求已在服务端
+       绑定成功（后台显示"在线"）但客户端没读到回包→超时，此时复用同一张卡
+       + 同一机器码再查一次，卡密通会返回 ok|，把授权补回来。因此超时后重试
+       同一卡密是正确恢复手段，而不是放弃。
+    3. error| 是确定性失败（卡密无效/已用/绑定到别的设备），无需重试，直接告知。
     """
     if KAMI_USER in ("你的卡密通用户名",):
         return False, 0, "卡密通尚未配置：请在 tfd_app/license.py 填写 KAMI_USER 与 KAMI_APP"
-    params = urllib.parse.urlencode({"card": card, "mac": machine_code, "app": KAMI_APP})
-    url = KAMI_CHECK_URL + "?" + params
+
+    overall = timeout + 12   # 硬上限：即便 socket 超时失效，也不让界面永久卡住
     last_err = ""
-    for attempt in range(retries):
+    for attempt in range(max(1, retries)):
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "tfd-desktop/1.0"})
-            # 无代理直连（无视环境变量 HTTP(S)_PROXY / 系统代理设置）
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            with opener.open(req, timeout=timeout) as resp:
-                text = resp.read().decode("utf-8", "ignore").strip()
-            if text.startswith("ok|"):
-                return True, 0, "验证通过"
-            return False, 0, "验证未通过：%s" % text
-        except (TimeoutError, socket.timeout):
-            return False, 0, ("验证超时：请关闭电脑的 VPN/代理后重试；"
-                              "或联系卖家获取离线激活码，无需等待在线验证")
+            fut = ex.submit(_kami_http, card, machine_code, timeout)
+            text = fut.result(timeout=overall)
+        except (concurrent.futures.TimeoutError, TimeoutError, socket.timeout):
+            # 超时：可能是卡密通响应慢，也可能是本机 VPN/代理把请求绕路海外。
+            # 一机一码下，同卡+同机重查大概率能拿到 ok|，故重试而非直接放弃。
+            last_err = "连接/读取超时（卡密通响应慢，或被 VPN/代理绕路）"
+            if attempt < retries - 1:
+                time.sleep(1.5)
+                continue
+            return False, 0, ("验证超时：若卡密通后台已显示「在线」，说明本机实际已被授权；\n"
+                              "请直接关闭本窗口，用【离线备用码】激活（联系卖家获取），或关闭 VPN/代理后重试。")
         except Exception as e:
             last_err = str(e)
             if attempt < retries - 1:
-                time.sleep(1.0)
-    return False, 0, "网络验证失败（请检查网络或稍后重试）：%s" % last_err
+                time.sleep(1.5)
+                continue
+            return False, 0, "网络验证失败（请检查网络或稍后重试）：%s" % last_err
+        finally:
+            ex.shutdown(wait=False)   # 放弃线程池；仍在跑的孤儿线程会自行结束
+
+        # 拿到了服务端响应
+        if text.startswith("ok|"):
+            return True, 0, "验证通过"
+        # error| 是确定性失败，无需重试
+        return False, 0, "验证未通过：%s" % text
+
+    return False, 0, "网络验证失败：%s" % last_err
 
 
 def save_local_license(card, machine_code, permanent=True):
