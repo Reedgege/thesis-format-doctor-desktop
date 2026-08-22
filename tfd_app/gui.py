@@ -68,6 +68,7 @@ _FONT_BASE = {
     "F_HDR":        ("KaiTi", 13, "bold"),      # 章节标题（楷体）
     "F_BODY":       ("Microsoft YaHei", 12),    # 正文 / 步骤说明
     "F_SMALL":      ("Microsoft YaHei", 10),    # 底部提示 / 次要
+    "F_SMALL_B":    ("Microsoft YaHei", 10, "bold"),  # 提示框标题（加粗，随缩放联动）
     "F_BTN":        ("Microsoft YaHei", 12, "bold"),  # 按钮
     "F_STAT":       ("KaiTi", 12),              # 状态文字（楷体）
     "F_SUBTITLE":   ("Microsoft YaHei", 11),    # 元信息
@@ -77,7 +78,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.49"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.50"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -482,18 +483,43 @@ class App:
             "用于按学校要求检查 / 修正，更贴合要求", "选择…", self._pick_template)
 
         # v1.3.46：模板驱动说明常驻提示（防止客户上传无批注模板造成误解，减少纠纷）
-        tpl_note = tk.Frame(card, bg="#fdf3e7", highlightthickness=1,
-                            highlightbackground="#e6c794")
-        tpl_note.pack(fill="x", padx=14, pady=(4, 2))
-        tk.Label(tpl_note, text="模板驱动：以学校模板【批注】写明的格式要求为准"
-                                "（批注优先于样式定义）。",
-                 bg="#fdf3e7", fg="#8a5a1a", font=F_SMALL,
-                 justify="left", anchor="w").pack(fill="x", padx=8, pady=(5, 1))
-        tk.Label(tpl_note, text="请优先使用学校官方模板（通常批注中写明了格式要求）；"
-                                "若模板无批注，将按模板样式定义 / 通用规范处理，"
-                                "可能与学校要求有出入。",
-                 bg="#fdf3e7", fg="#8a5a1a", font=F_FOOT,
-                 justify="left", anchor="w", wraplength=430).pack(fill="x", padx=8, pady=(0, 5))
+        # v1.3.50：升级为标准 Info 提示框——圆角浅色容器 + 加粗标题 + 说明文字行距 1.6
+        def _round_pts(x1, y1, x2, y2, r):
+            return [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+                    x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+
+        tpl_canvas = tk.Canvas(card, bg=PANEL, highlightthickness=0)
+        tpl_canvas.pack(fill="x", padx=14, pady=(4, 2))
+        tpl_body = tk.Frame(tpl_canvas, bg="#fdf3e7")
+        tk.Label(tpl_body, text="模板驱动：以学校模板【批注】写明的格式要求为准（批注优先于样式定义）",
+                 bg="#fdf3e7", fg="#7a4e0e", font=F_SMALL_B,
+                 justify="left", anchor="w").pack(fill="x", padx=14, pady=(9, 0))
+        # 说明文字：Text 的 spacing2 即"段内行距"，实现约 1.6 倍行高；relief=flat 无边框
+        tpl_note_txt = tk.Text(tpl_body, wrap="word", bg="#fdf3e7", fg="#8a5a1a",
+                               font=F_FOOT, relief="flat", bd=0, height=3,
+                               spacing1=5, spacing2=5, spacing3=5,
+                               padx=14, pady=(0, 9), highlightthickness=0, cursor="arrow")
+        tpl_note_txt.insert("1.0", "请优先使用学校官方模板（通常批注中写明了格式要求）；"
+                                   "若模板无批注，将按模板样式定义 / 通用规范处理，"
+                                   "可能与学校要求有出入。")
+        tpl_note_txt.config(state="disabled")
+        tpl_note_txt.pack(fill="x")
+        _tpl_rect = tpl_canvas.create_polygon([0, 0, 20, 20], smooth=True,
+                                              fill="#fdf3e7", outline="#e6c794")
+        _tpl_win = tpl_canvas.create_window(1, 1, window=tpl_body, anchor="nw")
+
+        def _resize_tpl(_e=None):
+            w = tpl_canvas.winfo_width()
+            if w <= 2:
+                return
+            tpl_canvas.itemconfig(_tpl_win, width=w - 4)
+            h = tpl_body.winfo_reqheight()
+            tpl_canvas.coords(_tpl_rect, *_round_pts(1, 1, w - 2, h + 2, 10))
+            tpl_canvas.configure(height=h + 4)
+
+        tpl_canvas.bind("<Configure>", _resize_tpl)
+        tpl_body.bind("<Configure>", _resize_tpl)
+        tpl_canvas.after(20, _resize_tpl)
 
         # 底部选择状态
         # 选择状态：论文 / 模板 上下两行、左对齐；选中后打对号
