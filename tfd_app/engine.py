@@ -518,9 +518,13 @@ def run_fix_headings(src, dst, profile_path=None, report_docx=None, add_comments
     report_docx: 修改明细 docx（可选）；add_comments: 是否在文档写批注。
     返回 markdown 修改清单文本。
 
-    稳健策略：任一次尝试失败都捕获真实异常并降级重试，尽量保证主交付物
-    （修正后论文 dst）写出；全部失败时抛出最后一次异常，并把 traceback 写入
-    %TEMP%/tfd_fix_error.log 供客服定位。
+    模板驱动原则（v1.3.42）：本软件是模板驱动的修正工具——客户选择了学校模板后，
+    修正必须严格按【从模板提取的画像】执行。因此当 profile_path 非空时，
+    **绝不静默退化为通用规范**：带模板的两次尝试（模板+修改报告 → 模板无报告）
+    全部失败则直接报错（GUI 弹窗 + %TEMP%/tfd_fix_error.log 留痕），由客户/客服
+    定位，而不是输出一份"没按模板改"的论文让客户困惑。
+    未选模板（profile_path 为空）时，base 本身即通用规范——那是客户预期的行为，
+    不属于降级。
     """
     base = ["headings-fix.py", src, dst]
     if profile_path:
@@ -531,11 +535,6 @@ def run_fix_headings(src, dst, profile_path=None, report_docx=None, add_comments
     if report_docx:
         attempts.append((base + ["--report", report_docx], "模板+修改报告"))
     attempts.append((base, "模板（无修改报告）"))
-    # 最后的兜底：不依赖学校模板，仅按通用标题识别套样式（仍产出可出目录的论文）
-    generic = ["headings-fix.py", src, dst] + (["--report", report_docx] if report_docx else [])
-    if not add_comments:
-        generic += ["--no-comments"]
-    attempts.append((generic, "通用标题识别（无模板）"))
     last = None
     for argv, label in attempts:
         try:
