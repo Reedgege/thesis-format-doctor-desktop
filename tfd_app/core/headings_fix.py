@@ -1368,7 +1368,9 @@ def fix(src, dst, profile=None, add_comments=True):
         # 参考文献之后（致谢/附录等）也不套标题格式——由参考文献pass和结构页保护处理。
         # 这些区域的文字（如封面"1. 分类号"、目录页"1.1 研究背景"、附录问卷"1. 请..."）
         # 可能被 detect_heading 命中，但属于结构页/后论区域，不应按正文标题格式化。
-        _in_body_for_heading = (first_chap is not None and idx > first_chap
+        # 注意：首个一级标题（idx == first_chap）本身也要套标题样式，故用 >= 而非 >
+        # （原 > 会导致“第一章”永远不被格式化，是真实缺陷）。
+        _in_body_for_heading = (first_chap is not None and idx >= first_chap
                                 and (ref_start is None or idx < ref_start))
         if lvl in (1, 2, 3, 4) and idx not in demote_chapter and _in_body_for_heading:
             # 4 级标题（如"2.1.2.1"）若模板无独立样式，回退用 3 级样式承载

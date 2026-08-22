@@ -76,7 +76,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.36"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.37"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -319,6 +319,9 @@ class App:
         self.running = False
         self._dialog_open = False   # 保存对话框打开期间防重复弹窗
         self._profile_confirmed = False  # 画像是否已被客户确认（检查/修正前弹出确认页）
+        # 已保存文件记录：同一会话内再次保存到同一文件时弹“已保存过，是否再次保存”
+        self._check_report_saved = None   # 第②步检查报告已保存路径
+        self._fix_saved = set()           # 第③步修正产出文件已保存路径集合
         self._errored = False
         self._msgs = []
         self.step_defs = [("profile", "提取学校模板要求"),
@@ -700,6 +703,15 @@ class App:
             self._dialog_open = False
         if mode == "fix" and not dst:
             return
+        # 第③步：同一会话内已保存过修正文件时，再次生成前弹“已保存过，是否再次保存”
+        if mode == "fix" and self._fix_saved:
+            base = _base_no_ext(dst)
+            prev = sorted(self._fix_saved)
+            if not messagebox.askyesno(
+                    "已保存过",
+                    "修正文件之前已保存过：\n%s\n\n确定要再次生成并保存（覆盖）吗？"
+                    % "\n".join(os.path.basename(p) for p in prev)):
+                return
 
         self._errored = False
         self.running = True
@@ -737,8 +749,6 @@ class App:
                     confirmed = self._confirm_profile_if_needed()
                     if confirmed is None:
                         self.profile_path.set("")
-                    self._do_fix(src, docx_path, dst)
-                    self.root.after(0, lambda: self._on_step_done(idx, mode))
                     self._do_fix(src, docx_path, dst)
                     self.root.after(0, lambda: self._on_step_done(idx, mode))
         except Exception as e:
@@ -950,9 +960,27 @@ class App:
 
     # ------------------------------------------------------------ 各步骤
     def _do_profile(self, src):
-        out = self._extract_profile(src)
-        if out:
-            self._debug("画像已保存：" + out)
+        """第①步：提取【学校模板】的格式要求（不是从论文提取）。
+
+        画像必须来自学校模板才有意义；若未选模板，则没有“学校要求”可提取，
+        走通用规范并明确告知客户，且不弹一个空的“确认模板要求”框。
+        """
+        tpl = self.template_path.get().strip()
+        if tpl and os.path.isfile(tpl):
+            out = self._extract_profile(tpl)
+            if out:
+                self._debug("学校模板画像已保存：" + out)
+            else:
+                self._debug("学校模板要求提取失败（模板可能无样式/批注）")
+        else:
+            # 未选模板：无学校要求可提取，按通用规范处理，标记已确认避免后续弹空框
+            self.profile_path.set("")
+            self._profile_confirmed = True
+            self.root.after(0, lambda: messagebox.showinfo(
+                "无需提取学校要求",
+                "未选择学校模板，将按通用论文格式规范检查 / 修正。\n\n"
+                "如需按学校具体要求处理，请点“上一步”回到第①步，先选择学校模板再重做。"))
+            self.root.after(0, self._update_profile_box)
 
     def _do_check(self, src, docx_path):
         profile = self._ensure_profile_ready()
@@ -961,7 +989,10 @@ class App:
         return report
 
     def _save_check_report(self, report, idx):
-        """主线程：检查完成后让客户选择保存位置，写入 Word 报告并收尾该步骤。"""
+        """主线程：检查完成后让客户选择保存位置，写入 Word 报告并收尾该步骤。
+
+        同一会话内已保存过检查报告时，再次保存前弹“已保存过，是否再次保存”确认。
+        """
         base = _base_no_ext(self.thesis_path.get().strip() or "report")
         dst = filedialog.asksaveasfilename(
             title="选择检查报告保存位置",
@@ -969,16 +1000,27 @@ class App:
             initialdir=os.path.dirname(base) or None,
             defaultextension=".docx",
             filetypes=[("Word 文档", "*.docx")])
+        saved = False
         if dst:
-            try:
-                engine.md_to_docx(report, dst)
-            except Exception as e:
-                messagebox.showerror("保存失败", str(e))
-                dst = None
+            if self._check_report_saved:
+                again = messagebox.askyesno(
+                    "已保存过",
+                    "检查报告之前已保存过：\n%s\n\n确定要再次保存（覆盖）吗？"
+                    % os.path.basename(self._check_report_saved))
+                if not again:
+                    dst = None
+            if dst:
+                try:
+                    engine.md_to_docx(report, dst)
+                    self._check_report_saved = dst
+                    saved = True
+                except Exception as e:
+                    messagebox.showerror("保存失败", str(e))
+                    dst = None
         else:
             self._debug("客户未选择保存位置，检查报告未落盘")
         self._on_step_done(idx, "check")
-        if dst:
+        if saved:
             self._show_check_done(dst)
 
     def _do_fix(self, src, docx_path, dst):
@@ -988,11 +1030,12 @@ class App:
         profile = self._ensure_profile_ready()
         report = engine.run_fix_headings(
             docx_path, dst, profile_path=profile,
-            report_docx=rep, add_comments=True)
+            report_docx=rep, add_comments=False)
         self._debug(report)
         check_report = engine.run_check(dst, profile_path=profile)
         engine.md_to_docx(check_report, chk)
         self._debug(check_report)
+        self._fix_saved = {dst, chk, rep}
         self.root.after(0, lambda: self._show_fix_done(dst, chk, rep))
 
     # ------------------------------------------------------------ 确认页
@@ -1060,6 +1103,8 @@ class App:
         self.step_index = 0
         self._errored = False
         self._profile_confirmed = False
+        self._check_report_saved = None
+        self._fix_saved = set()
         self.thesis_path.set("")
         self.template_path.set("")
         self.profile_path.set("")
