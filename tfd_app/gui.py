@@ -23,6 +23,8 @@ import sys
 import json
 import time
 import queue
+import tempfile
+import hashlib
 import threading
 import subprocess
 
@@ -74,7 +76,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.32"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.33"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -475,6 +477,9 @@ class App:
 
         btn_row = tk.Frame(card, bg=PANEL)
         btn_row.pack(fill="x", padx=14, pady=(10, 14))
+        self._prev_btn = ttk.Button(btn_row, text="上一步", style="TButton",
+                                    command=self._go_prev)
+        self._prev_btn.pack(side="left")
         self._next_btn = ttk.Button(btn_row, text="下一步", style="Primary.TButton",
                                     command=self._run_step)
         self._next_btn.pack(side="right")
@@ -543,10 +548,13 @@ class App:
         self._step_counter.config(text="%d / %d" % (min(self.step_index + 1, n), n))
         if self.step_index >= n:
             self._next_btn.config(text="再处理一篇", state="normal")
+            self._prev_btn.config(state="disabled")
         else:
             label = "一键修正" if self.step_index == n - 1 else "下一步"
             self._next_btn.config(text=label,
                                   state="disabled" if self.running else "normal")
+            self._prev_btn.config(
+                state="disabled" if (self.running or self.step_index == 0) else "normal")
 
     def _set_bar(self, state, hint=None):
         """底部状态栏：idle / running / done / error。"""
@@ -605,6 +613,16 @@ class App:
         self._update_profile_box()
 
     # ---------------------------------------------------------------- run（向导）
+    def _go_prev(self):
+        """上一步：回退一个步骤，该步及其后的进度重置为待办，可重新执行。"""
+        if self.running or self.step_index <= 0:
+            return
+        self.step_index -= 1
+        self._errored = False
+        self._set_status("请按步骤操作", MUTED)
+        self._set_bar("idle")
+        self._refresh_wizard()
+
     def _run_step(self):
         if self.running:
             return
@@ -631,6 +649,16 @@ class App:
                 filetypes=[("Word 文档", "*.docx")])
             if not dst:
                 return
+        elif mode == "check":
+            base = _base_no_ext(src)
+            dst = filedialog.asksaveasfilename(
+                title="选择检查报告保存位置",
+                initialfile=os.path.basename(base) + "_格式检查报告.md",
+                initialdir=os.path.dirname(base) or None,
+                defaultextension=".md",
+                filetypes=[("Markdown 报告", "*.md"), ("所有文件", "*.*")])
+            if not dst:
+                return
 
         self._errored = False
         self.running = True
@@ -655,7 +683,7 @@ class App:
                 if note:
                     self._debug(note)
                 if mode == "check":
-                    self._do_check(src, docx_path)
+                    self._do_check(src, docx_path, dst)
                 elif mode == "fix":
                     self._do_fix(src, docx_path, dst)
             self.root.after(0, lambda: self._on_step_done(idx, mode))
@@ -685,7 +713,10 @@ class App:
         t_docx, note = engine.normalize_input(src)
         if note:
             self._debug(note)
-        out = _base_no_ext(src) + "_格式画像.json"
+        # 画像 json 放到系统临时目录（不污染客户源目录），按源文件 hash 命名避免多论文覆盖
+        out = os.path.join(tempfile.gettempdir(),
+                           "tfd_profile_%s.json"
+                           % hashlib.sha1(src.encode("utf-8")).hexdigest()[:10])
         text = engine.run_build_profile(t_docx, out)
         try:
             profile = json.loads(text)
@@ -814,11 +845,13 @@ class App:
             result["ok"] = False
             top.destroy()
 
+        # 按钮区固定底部（表单区自动占据剩余空间并可滚动，滚动条置顶）
         btns = tk.Frame(top, bg=PAPER)
-        btns.pack(pady=10)
+        btns.pack(side="bottom", fill="x", pady=10)
         ttk.Button(btns, text="确认，使用此要求", style="Primary.TButton",
                    command=on_confirm).pack(side="left", padx=6)
         ttk.Button(btns, text="放弃（不使用画像）", command=on_cancel).pack(side="left", padx=6)
+        top.after(10, lambda: canvas.yview_moveto(0))
 
         top.wait_window()
         return result["ok"], result["edits"]
@@ -829,9 +862,10 @@ class App:
         if out:
             self._debug("画像已保存：" + out)
 
-    def _do_check(self, src, docx_path):
-        base = _base_no_ext(src)
-        out_md = base + "_格式检查报告.md"
+    def _do_check(self, src, docx_path, out_md=None):
+        if not out_md:
+            base = _base_no_ext(src)
+            out_md = base + "_格式检查报告.md"
         profile = self._ensure_profile_ready()
         report = engine.run_check(docx_path, profile_path=profile, out_md=out_md)
         self._debug(report)
