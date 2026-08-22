@@ -1880,7 +1880,15 @@ def main():
     if "--report" in sys.argv:
         report_path = sys.argv[sys.argv.index("--report") + 1]
     applied, low_conf, skipped, sinfo = fix(src, dst, profile, add_comments=add_comments)
-    print(_render(applied, low_conf, skipped, sinfo, dst))
+    report = _render(applied, low_conf, skipped, sinfo, dst)
+    # 模板驱动：报告开头展示"从学校模板提取到了什么"，画像为空时明确警告
+    if profile:
+        try:
+            from format_profile import profile_summary_block
+            report = profile_summary_block(profile) + report
+        except Exception:
+            pass
+    print(report)
     if report_path:
         _build_change_docx(applied, low_conf, skipped, sinfo, report_path)
         print(f"\n[已生成修改明细报告] {report_path}")

@@ -686,6 +686,12 @@ def main():
     L.append(f'# 论文格式校验报告：{os.path.basename(path)}')
     L.append('')
     if profile:
+        try:
+            from format_profile import profile_summary_block
+            L.append(profile_summary_block(profile).rstrip())
+            L.append('')
+        except Exception:
+            pass
         L.append('> ✅ 本报告为【模板驱动诊断】——依据您上传的学校模板**批注**中的权威规范逐项核对')
         L.append(f'> （模板 `{profile.get("source","")}` 共提取批注 {profile.get("comment_count",0)} 条；用户要求以批注写明为准）。')
         L.append('> 以下"与批注不符"项即为需整改点；未列出的维度表示已符合模板要求。')
