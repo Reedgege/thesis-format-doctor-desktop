@@ -1301,13 +1301,33 @@ def fix(src, dst, profile=None, add_comments=True):
             _is_multi_num = bool(re.match(r"^\d+\.\d+", t))
             # v1.3.5：单数字+分隔符（如"1 绪论"）也是一级标题。
             # detect_heading 已要求单数字后必须跟分隔符，所以这里只需排除正文特征。
-            _is_single_num = bool(re.match(r"^\d{1,3}[\s、：:（(\t]", t))
+            # v1.3.40：分隔符集合加入 . ． ，覆盖"1. 绪论"式写法（此前漏判→整篇不修正）。
+            _is_single_num = bool(re.match(r"^\d{1,3}[.\s、：:（(\t]", t))
+            # v1.3.40：中文序数"一、绪论"式一级章标题（detect_heading 已返回 lvl 1）。
+            _is_cn_ord = bool(re.match(r"^[一二三四五六七八九十百千]+、", t))
             # v1.3.5：即使匹配了标题模式，也要排除正文特征（完整句子/过长），
             # 否则"第一章：绪论。介绍论文研究背景..."这类研究内容概述会被误判为正文起点。
-            if (_is_chapter_kw or _is_multi_num or _is_single_num) and not _looks_like_body_despite_heading_style(t):
+            if (_is_chapter_kw or _is_multi_num or _is_single_num or _is_cn_ord) \
+                    and not _looks_like_body_despite_heading_style(t):
                 first_chap = i
         if is_reference_heading(t) and ref_start is None and not _looks_like_body_despite_heading_style(t):
             ref_start = i
+    # v1.3.40 兜底：扩展识别后仍未定位到章标题（如论文用无编号纯文字"绪论/引言"），
+    # 跳过封面/摘要/目录等结构页，从第一个标题段或长正文段（≥20字）开始视为正文区，
+    # 避免整篇漏改（此前会静默输出与原文一致的文档，客户无法察觉）。
+    if first_chap is None:
+        for _j, _p in enumerate(paras_list):
+            if _p in tbl_ps:
+                continue
+            _t = _text_of(_p).strip()
+            if not _t or is_toc_residue(_t) or _is_toc_style(_cur_style_id(_p), styles_map, heading_sids):
+                continue
+            if is_structural_title(_t):
+                continue
+            _lv, _ = detect_heading(_t)
+            if _lv in (1, 2, 3, 4) or len(_t) >= 20:
+                first_chap = _j
+                break
     spec_cats = (profile or {}).get("spec", {}).get("cats", {}) if profile else {}
     levels = (profile or {}).get("levels") or {}
 
@@ -1721,6 +1741,13 @@ def _render(applied, low_conf, skipped_residue, style_info, dst):
     _parts.append(f"页边距 {_nm}")
     lines.append(f"## 逐条修改清单（共 {len(all_c)} 条记录、{sum(1 for c in all_c)} 处：{' / '.join(_parts)}）")
     lines.append(f"> 另有 {already_ok} 处标题经核对已符合学校样式，无需改动。")
+    if not all_c:
+        # v1.3.40：修正结果为"零改动"时给出明确原因提示，避免客户看到"报告空白/论文没变"无法判断。
+        lines.append("⚠ 未检测到需要修正的段落（修改清单为空）。")
+        lines.append("  可能原因：① 论文已符合学校模板格式，确实无需改动；")
+        lines.append("  ② 未能识别论文的章标题/正文区（标题无编号或写法特殊，已尝试兜底处理）；")
+        lines.append("  ③ 学校模板画像为空（未提取到明确的格式要求）。")
+        lines.append("  若确认论文需要修正，请把本报告连同论文文件发给客服定位。")
     if comment_count:
         lines.append(f"> 已在文档中添加 {comment_count} 条 Word 批注，说明每处修改（可在 Word 中「删除所有批注」清理）。")
     lines.append("")
