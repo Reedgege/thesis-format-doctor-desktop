@@ -77,7 +77,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.42"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.43"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -942,7 +942,7 @@ class App:
                 cb = ttk.Combobox(form, textvariable=var, width=20, font=F_SMALL,
                                   values=list(ALIGN_DISPLAY.values()), state="readonly")
                 cb.grid(row=i, column=1, sticky="w", pady=3)
-                entries[i] = (candidates, var, "align")
+                entries[i] = (candidates, var, "align", var.get())
             elif kind == "ref":
                 has_ref = bool(cur)
                 var = tk.StringVar(value="已提取" if has_ref else "未提取（按通用规范检查）")
@@ -950,24 +950,45 @@ class App:
                          relief="flat", bd=0, bg=PAPER, state="disabled",
                          disabledforeground=OKC if has_ref else MUTED).grid(
                     row=i, column=1, sticky="w", pady=3)
-                entries[i] = (candidates, var, "ref")
+                entries[i] = (candidates, var, "ref", var.get())
             else:
                 var = tk.StringVar(value=cur)
                 tk.Entry(form, textvariable=var, width=22, font=F_SMALL,
                          relief="solid", bd=1).grid(row=i, column=1, sticky="w", pady=3)
-                entries[i] = (candidates, var, "text")
+                entries[i] = (candidates, var, "text", var.get())
+
+        _NUM_FIELDS = ("indent_chars", "line_val", "top_cm", "bottom_cm",
+                       "left_cm", "right_cm", "before_pt", "after_pt", "hanging_cm")
 
         def on_confirm():
             edits = []
-            for (candidates, var, kind) in entries.values():
+            for (candidates, var, kind, init_text) in entries.values():
                 if kind == "ref":
                     continue  # 参考文献格式为只读提示，不参与修改
                 text = var.get().strip()
-                if not text:
+                # v1.3.43：只写回【真正被修改】的字段——此前把"所有非空字段"全部写回，
+                # 导致未修改的 sz（显示为磅）被当成半磅写回、数值字段变字符串，
+                # 修正引擎 %d 崩溃/字号错乱（用户实测"一键修正没改论文"的根因）。
+                if text == init_text or not text:
                     continue
                 if kind == "align":
                     code = ALIGN_CODE.get(text, text)
                     edits.append((candidates[0], code))
+                    continue
+                k = candidates[0][-1]
+                if k == "sz":
+                    # 确认页显示为磅（_field_value ÷2），写回需还原为半磅（×2）
+                    try:
+                        pt = float(text)
+                    except (TypeError, ValueError):
+                        continue  # 非法输入：保持提取结果
+                    edits.append((candidates[0], str(int(round(pt * 2)))))
+                elif k in _NUM_FIELDS:
+                    try:
+                        float(text)
+                    except (TypeError, ValueError):
+                        continue  # 非法输入：保持提取结果
+                    edits.append((candidates[0], text))
                 else:
                     edits.append((candidates[0], text))
             result["ok"] = True

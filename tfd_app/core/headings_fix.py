@@ -92,6 +92,30 @@ def _set_style(p, style_val):
     ps.set(WR + "val", style_val)
 
 
+def _num(v, default=0):
+    """安全取数值：兼容 int/float/数字字符串/带单位字符串（如 '2字符'、'20磅'）。
+
+    v1.3.43：确认弹窗的编辑写回会把数值字段存成字符串（Tk Entry 值恒为 str），
+    直接参与 %d / int() / 乘法会 TypeError 或产生字符串重复错乱（用户实测
+    '首行缩进%d字符' % '2' 崩溃导致一键修正整体失败）。此函数做统一归一。
+    """
+    if isinstance(v, (int, float)):
+        return v
+    if v is None:
+        return default
+    s = re.sub(r"[^\d.\-]", "", str(v))
+    try:
+        f = float(s)
+    except (TypeError, ValueError):
+        return default
+    return int(f) if f == int(f) else f
+
+
+def _num_str(v, suffix="", default=0):
+    """数值字段的展示/拼接安全版：非法时回退 default，避免 %d 崩溃。"""
+    return ("%g" % _num(v, default)) + suffix
+
+
 def _align(val):
     return {'center': 'center', '居中': 'center', 'both': 'both', '两端': 'both',
             'justify': 'both', 'left': 'left', '左': 'left', 'right': 'right', '右': 'right'}.get(val, 'both')
@@ -100,13 +124,15 @@ def _align(val):
 def _line(spec):
     """把批注/样式 spec 的行距规则映射为 OOXML 的 (lineRule, line-twips)。"""
     lr = spec.get('line_rule')
-    val = spec.get('line_val')
-    if lr == 'exact' and val:
+    val = _num(spec.get('line_val'), None)
+    if val is None:
+        return None, None
+    if lr == 'exact':
         return 'exact', int(val) * 20          # 固定值 X 磅 -> X*20 twips
-    if lr in ('atLeast',) and val:
+    if lr in ('atLeast',):
         return 'atLeast', int(val) * 20
-    if lr == 'auto' and val:
-        return 'auto', int(val)                 # auto：twips 直接透传（240=单倍，360=1.5倍）
+    if lr == 'auto':
+        return 'auto', int(val)                # auto：twips 直接透传（240=单倍，360=1.5倍）
     if lr == 'single':
         return 'auto', 240
     return None, None
@@ -185,9 +211,11 @@ def _set_run_rpr(run, spec):
     if spec.get('bold'):
         ET.SubElement(rpr, WR + 'b')
     if spec.get('sz'):
-        for tag in ('sz', 'szCs'):
-            s = ET.SubElement(rpr, WR + tag)
-            s.set(WR + 'val', str(spec['sz']))
+        _szv = int(_num(spec['sz']))
+        if _szv > 0:
+            for tag in ('sz', 'szCs'):
+                s = ET.SubElement(rpr, WR + tag)
+                s.set(WR + 'val', str(_szv))
     run.insert(0, rpr)
 
 
@@ -257,18 +285,18 @@ def _set_para_format(p, spec, style_val=None):
         # 续行跑到左边距外（Word标尺显示为负值）。
         ind = ET.Element(WR + 'ind')
         if spec.get('hanging_cm') is not None:
-            _tw = str(int(round(spec['hanging_cm'] * 567)))
+            _tw = str(int(round(_num(spec['hanging_cm']) * 567)))
             ind.set(WR + 'left', _tw)
             ind.set(WR + 'hanging', _tw)
         if spec.get('hanging_chars') is not None:
-            _ch = str(int(round(spec['hanging_chars'] * 100)))
+            _ch = str(int(round(_num(spec['hanging_chars']) * 100)))
             ind.set(WR + 'leftChars', _ch)
             ind.set(WR + 'hangingChars', _ch)
         newc.append(ind)
     elif spec.get('indent_chars') and spec.get('indent_type') == 'first':
         ind = ET.Element(WR + 'ind')
-        ind.set(WR + 'firstLineChars', str(spec['indent_chars'] * 100))
-        ind.set(WR + 'firstLine', str(spec['indent_chars'] * 240))
+        ind.set(WR + 'firstLineChars', str(int(_num(spec['indent_chars']) * 100)))
+        ind.set(WR + 'firstLine', str(int(_num(spec['indent_chars']) * 240)))
         newc.append(ind)
     lr, line = _line(spec)
     sp = {}
@@ -276,9 +304,9 @@ def _set_para_format(p, spec, style_val=None):
         sp['line'] = str(line)
         sp['lineRule'] = lr
     if spec.get('before_pt') is not None:
-        sp['before'] = str(int(spec['before_pt']) * 20)
+        sp['before'] = str(int(_num(spec['before_pt'])) * 20)
     if spec.get('after_pt') is not None:
-        sp['after'] = str(int(spec['after_pt']) * 20)
+        sp['after'] = str(int(_num(spec['after_pt'])) * 20)
     if sp:
         s = ET.Element(WR + 'spacing')
         for k, v in sp.items():
@@ -330,7 +358,7 @@ def _para_needs_fix(p, spec):
     # 首行缩进
     if spec.get('indent_type') == 'first':
         ind = ppr.find(WR + 'ind') if ppr is not None else None
-        want = spec.get('indent_chars', 0) * 100
+        want = _num(spec.get('indent_chars', 0)) * 100
         cur = ind.get(WR + 'firstLineChars') if ind is not None else None
         if cur is None or int(cur) != want:
             return True
@@ -343,11 +371,11 @@ def _para_needs_fix(p, spec):
     # 段前 / 段后（twips = pt*20，容许 1 磅误差避免抖动）
     if spec.get('before_pt') is not None:
         cur = sp.get(WR + 'before') if sp is not None else None
-        if cur is None or abs(int(cur) - int(spec['before_pt']) * 20) > 20:
+        if cur is None or abs(int(cur) - int(_num(spec['before_pt'])) * 20) > 20:
             return True
     if spec.get('after_pt') is not None:
         cur = sp.get(WR + 'after') if sp is not None else None
-        if cur is None or abs(int(cur) - int(spec['after_pt']) * 20) > 20:
+        if cur is None or abs(int(cur) - int(_num(spec['after_pt'])) * 20) > 20:
             return True
     # 行距（exact/atLeast 用值，single 隐式 240，auto 用 240 分度）
     # 注意：单倍行距没有显式 line_val，_line() 会兜底返回 (auto,240)，
@@ -364,7 +392,7 @@ def _para_needs_fix(p, spec):
     # 跑到左边距外显示负数（v1.3.4 遗留 bug）。
     if spec.get('hanging_cm') is not None:
         ind = ppr.find(WR + 'ind') if ppr is not None else None
-        want_hanging = int(round(spec['hanging_cm'] * 567))
+        want_hanging = int(round(_num(spec['hanging_cm']) * 567))
         cur_hanging = ind.get(WR + 'hanging') if ind is not None else None
         if cur_hanging is None or abs(int(cur_hanging) - want_hanging) > 10:
             return True
@@ -382,9 +410,9 @@ def _fmt_summary(spec):
     if spec.get('size'):
         parts.append('字号' + spec['size'])
     if spec.get('indent_type') == 'first':
-        parts.append('首行缩进%d字符' % spec.get('indent_chars', 0))
+        parts.append('首行缩进%s字符' % _num_str(spec.get('indent_chars', 0)))
     if spec.get('line_rule') == 'exact' and spec.get('line_val'):
-        parts.append('固定值%d磅' % spec.get('line_val'))
+        parts.append('固定值%s磅' % _num_str(spec.get('line_val')))
     return ' / '.join(parts) if parts else '（同模板）'
 
 
