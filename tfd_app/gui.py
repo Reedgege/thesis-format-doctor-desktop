@@ -69,7 +69,7 @@ _FONT_BASE = {
     "F_STAT":       ("KaiTi", 12),              # 状态文字（楷体）
     "F_SUBTITLE":   ("Microsoft YaHei", 11),    # 元信息
     "F_CARD_HDR":   ("KaiTi", 13, "bold"),      # 卡片标题（楷体）
-    "F_FOOT":       ("Microsoft YaHei", 11),    # 状态栏 / 页脚
+    "F_FOOT":       ("Microsoft YaHei", 10),    # 状态栏 / 页脚 / 说明（次要，最小层级）
     "F_MONO":       ("Consolas", 9),            # 机器码 / 离线码（等宽）
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
 }
@@ -435,7 +435,7 @@ class App:
         txt.pack(side="left", fill="x", expand=True)
         tl = tk.Frame(txt, bg="#ffffff")
         tl.pack(fill="x")
-        tk.Label(tl, text=title, bg="#ffffff", fg=INK, font=F_BODY).pack(side="left")
+        tk.Label(tl, text=title, bg="#ffffff", fg=INK, font=F_SUBTITLE).pack(side="left")
         tk.Label(tl, text=" " + mark, bg="#ffffff", fg=mark_color, font=F_FOOT).pack(side="left")
         tk.Label(txt, text=desc, bg="#ffffff", fg=MUTED, font=F_FOOT).pack(anchor="w")
         ttk.Button(row, text=btn_text, style="Ghost.TButton", command=cmd).pack(side="right")
