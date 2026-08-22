@@ -21,6 +21,7 @@ import subprocess
 import tempfile
 import time
 import zipfile
+import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CORE = os.path.join(HERE, "core")
@@ -493,21 +494,57 @@ def md_to_docx(md_text, out_docx):
         z.writestr("word/styles.xml", styles)
 
 
+def _log_fix_error(src, label, exc):
+    """把一键修正的真实异常写入临时日志（便于回传定位），同时打印到 stderr。"""
+    try:
+        log_path = os.path.join(tempfile.gettempdir(), "tfd_fix_error.log")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write("=" * 60 + "\n")
+            f.write("时间: %s\n" % time.strftime("%Y-%m-%d %H:%M:%S"))
+            f.write("输入: %s\n" % src)
+            f.write("尝试模式: %s\n" % label)
+            f.write("异常: %s\n" % repr(exc))
+            f.write(traceback.format_exc())
+            f.write("\n")
+        sys.stderr.write("[一键修正异常·已记录到 %s]\n%s\n" % (log_path, traceback.format_exc()))
+    except Exception:
+        pass
+
+
 def run_fix_headings(src, dst, profile_path=None, report_docx=None, add_comments=True):
     """一键套标题样式（通用或模板驱动）。
 
     src: 输入 docx；dst: 输出 docx（新文件，不改动 src）；
     report_docx: 修改明细 docx（可选）；add_comments: 是否在文档写批注。
     返回 markdown 修改清单文本。
+
+    稳健策略：任一次尝试失败都捕获真实异常并降级重试，尽量保证主交付物
+    （修正后论文 dst）写出；全部失败时抛出最后一次异常，并把 traceback 写入
+    %TEMP%/tfd_fix_error.log 供客服定位。
     """
-    argv = ["headings-fix.py", src, dst]
+    base = ["headings-fix.py", src, dst]
     if profile_path:
-        argv += ["--profile", profile_path]
-    if report_docx:
-        argv += ["--report", report_docx]
+        base += ["--profile", profile_path]
     if not add_comments:
-        argv += ["--no-comments"]
-    return _run_module_main(headings_fix, argv)
+        base += ["--no-comments"]
+    attempts = []
+    if report_docx:
+        attempts.append((base + ["--report", report_docx], "模板+修改报告"))
+    attempts.append((base, "模板（无修改报告）"))
+    # 最后的兜底：不依赖学校模板，仅按通用标题识别套样式（仍产出可出目录的论文）
+    generic = ["headings-fix.py", src, dst] + (["--report", report_docx] if report_docx else [])
+    if not add_comments:
+        generic += ["--no-comments"]
+    attempts.append((generic, "通用标题识别（无模板）"))
+    last = None
+    for argv, label in attempts:
+        try:
+            return _run_module_main(headings_fix, argv)
+        except Exception as e:
+            last = e
+            _log_fix_error(src, label, e)
+            continue
+    raise last
 
 
 def run_reformat_refs(src, dst):

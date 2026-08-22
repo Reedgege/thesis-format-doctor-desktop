@@ -1342,8 +1342,13 @@ def fix(src, dst, profile=None, add_comments=True):
     if first_chap is not None:
         for _ci in range(min(first_chap + 1, len(paras_list))):
             _cover_paras.add(paras_list[_ci])
-    img_changes = _normalize_images(root, profile, skip_paras=_cover_paras)
-    changes.extend(img_changes)
+    # 图片归一化失败不应阻断整步：原始图片部件由 write_docx_files 原样保留。
+    try:
+        img_changes = _normalize_images(root, profile, skip_paras=_cover_paras)
+        changes.extend(img_changes)
+    except Exception as _e:
+        import traceback as _tb
+        sys.stderr.write("[图片归一化跳过] " + repr(_e) + "\n" + _tb.format_exc() + "\n")
 
     # v1.3.5：识别表格/图片附近字号明显小于正文的短段落（疑似题注/来源说明）。
     # 这些段落保留原格式不被正文规格覆盖，并在批注中提醒用户确认。
@@ -1616,13 +1621,17 @@ def fix(src, dst, profile=None, add_comments=True):
                     })
 
     if profile:
-        _, margin_changes = _fix_sect_margins(root, profile)
-        for label, old_disp, new_disp in margin_changes:
-            changes.append({
-                "kind": "margin", "text": "%s边距" % label, "level": 0,
-                "old": old_disp, "new": new_disp, "new_name": new_disp,
-                "conf": 1.0,
-            })
+        try:
+            _, margin_changes = _fix_sect_margins(root, profile)
+            for label, old_disp, new_disp in margin_changes:
+                changes.append({
+                    "kind": "margin", "text": "%s边距" % label, "level": 0,
+                    "old": old_disp, "new": new_disp, "new_name": new_disp,
+                    "conf": 1.0,
+                })
+        except Exception as _e:
+            import traceback as _tb
+            sys.stderr.write("[页边距处理跳过] " + repr(_e) + "\n" + _tb.format_exc() + "\n")
 
     # ---- 半角标点自动替换（独立 pass，在所有正文格式套用之后执行）----
     # 保守替换：仅对正文区散文段落生效，跳过标题/表格/图片/题注/目录样式/结构页。
@@ -1653,7 +1662,11 @@ def fix(src, dst, profile=None, add_comments=True):
     replacements["word/document.xml"] = to_doc_xml(root)
     # 题注/脚注 pass 可能已往 replacements 写入 footnotes.xml，这里以 document 为基准并集
     if need_defs:
-        replacements["word/styles.xml"] = _inject_style_defs(src, need_defs)
+        try:
+            replacements["word/styles.xml"] = _inject_style_defs(src, need_defs)
+        except Exception as _e:
+            import traceback as _tb
+            sys.stderr.write("[样式定义注入跳过] " + repr(_e) + "\n" + _tb.format_exc() + "\n")
     # 判断套用的样式是否带大纲级别（决定 Word 能否一键出目录）
     has_outline = any("outlineLvl" in (x or "") for x in need_defs.values())
     write_docx_files(src, dst, replacements)
