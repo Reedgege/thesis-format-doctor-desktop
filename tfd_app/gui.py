@@ -76,7 +76,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.34"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.35"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -118,30 +118,36 @@ ALIGN_CODE = {v: k for k, v in ALIGN_DISPLAY.items()}
 
 # 确认页可修改项：(中文标签, [候选取值路径…], 控件类型)
 # 取值优先级：批注要求(spec.*) → 样式定义(profile 根的 body/headings/headingStyles/page)
+# 字段取值路径：levels 段最完整（样式定义挖全要素 + 批注覆盖），spec 兜底，根级再兜底。
+# levels 键：zh_font/sz(半磅)/align/line_val/indent_chars/before_pt/after_pt/bold 等。
 EDIT_FIELDS = [
-    ("正文字体",     [("spec", "body", "font"), ("body", "font")], "text"),
-    ("正文字号",     [("spec", "body", "size"), ("body", "size")], "text"),
-    ("正文行距(磅)", [("spec", "body", "line_val"), ("body", "line_val"), ("body", "line")], "text"),
-    ("首行缩进(字符)", [("spec", "body", "indent_chars"), ("body", "indent_chars"),
-                       ("body", "firstLineChars")], "text"),
-    ("一级标题字体", [("spec", "h1", "zh_font"), ("headings", "1", "font"),
-                     ("headingStyles", "1", "font")], "text"),
-    ("一级标题字号", [("spec", "h1", "size"), ("headings", "1", "size"),
-                     ("headingStyles", "1", "size")], "text"),
-    ("一级标题对齐", [("spec", "h1", "align")], "align"),
-    ("二级标题字体", [("spec", "h2", "zh_font"), ("headings", "2", "font"),
-                     ("headingStyles", "2", "font")], "text"),
-    ("二级标题字号", [("spec", "h2", "size"), ("headings", "2", "size"),
-                     ("headingStyles", "2", "size")], "text"),
-    ("三级标题字体", [("spec", "h3", "zh_font"), ("headings", "3", "font"),
-                     ("headingStyles", "3", "font")], "text"),
-    ("三级标题字号", [("spec", "h3", "size"), ("headings", "3", "size"),
-                     ("headingStyles", "3", "size")], "text"),
+    ("正文字体",     [("levels", "body", "zh_font"), ("spec", "body", "zh_font"),
+                     ("spec", "body", "font"), ("body", "font")], "text"),
+    ("正文字号",     [("levels", "body", "size"), ("spec", "body", "size"),
+                     ("levels", "body", "sz"), ("body", "size")], "text"),
+    ("正文行距(磅)", [("levels", "body", "line_val"), ("spec", "body", "line_val"),
+                     ("body", "line_val"), ("body", "line")], "text"),
+    ("首行缩进(字符)", [("levels", "body", "indent_chars"), ("spec", "body", "indent_chars"),
+                       ("body", "indent_chars"), ("body", "firstLineChars")], "text"),
+    ("一级标题字体", [("levels", "1", "zh_font"), ("spec", "h1", "zh_font"),
+                     ("spec", "h1", "font"), ("headings", "1", "font")], "text"),
+    ("一级标题字号", [("levels", "1", "size"), ("spec", "h1", "size"),
+                     ("levels", "1", "sz"), ("headings", "1", "size")], "text"),
+    ("一级标题对齐", [("levels", "1", "align"), ("spec", "h1", "align")], "align"),
+    ("二级标题字体", [("levels", "2", "zh_font"), ("spec", "h2", "zh_font"),
+                     ("spec", "h2", "font"), ("headings", "2", "font")], "text"),
+    ("二级标题字号", [("levels", "2", "size"), ("spec", "h2", "size"),
+                     ("levels", "2", "sz"), ("headings", "2", "size")], "text"),
+    ("三级标题字体", [("levels", "3", "zh_font"), ("spec", "h3", "zh_font"),
+                     ("spec", "h3", "font"), ("headings", "3", "font")], "text"),
+    ("三级标题字号", [("levels", "3", "size"), ("spec", "h3", "size"),
+                     ("levels", "3", "sz"), ("headings", "3", "size")], "text"),
     ("页边距 上(厘米)", [("spec", "page", "top_cm"), ("page", "top")], "text"),
     ("页边距 下(厘米)", [("spec", "page", "bottom_cm"), ("page", "bottom")], "text"),
     ("页边距 左(厘米)", [("spec", "page", "left_cm"), ("page", "left")], "text"),
     ("页边距 右(厘米)", [("spec", "page", "right_cm"), ("page", "right")], "text"),
-    ("参考文献格式", [("spec", "reference"), ("reference",)], "ref"),
+    ("参考文献格式", [("levels", "reference"), ("spec", "reference"),
+                     ("refExample",), ("reference",)], "ref"),
 ]
 
 
@@ -172,6 +178,12 @@ def _field_value(profile, candidates):
         if v in (None, ""):
             continue
         s = str(v)
+        # levels/spec 里的 sz 是半磅（OOXML 单位）→ 显示为磅
+        if path[-1] == "sz":
+            try:
+                return str(int(float(v)) // 2)
+            except (ValueError, TypeError):
+                return s
         # 样式定义里的页边距是 twips → 换算成厘米显示
         if len(path) == 2 and path[0] == "page" and path[1] in ("top", "bottom", "left", "right"):
             try:
@@ -195,6 +207,7 @@ def _profile_summary(profile):
     """
     lines = []
     spec = profile.get("spec") or {}
+    levels = profile.get("levels") or {}
 
     # 页面
     page = spec.get("page") or {}
@@ -214,14 +227,21 @@ def _profile_summary(profile):
         except (ValueError, TypeError):
             lines.append("· 页边距：已提取")
 
-    # 正文（spec 优先，样式定义兜底）
-    body = spec.get("body") or profile.get("body") or {}
+    # 正文（levels 完整画像优先，spec/根级兜底）
+    body = levels.get("body") or spec.get("body") or profile.get("body") or {}
     if body:
         parts = []
-        if body.get("font"):
-            parts.append("字体 %s" % body["font"])
-        if body.get("size"):
-            parts.append("字号 %s" % body["size"])
+        font = body.get("zh_font") or body.get("font")
+        if font:
+            parts.append("字体 %s" % font)
+        size = body.get("size")
+        if size:
+            parts.append("字号 %s" % size)
+        elif body.get("sz"):
+            try:
+                parts.append("字号 %s" % str(int(float(body["sz"])) // 2))
+            except (ValueError, TypeError):
+                pass
         indent = body.get("indent_chars") or body.get("firstLineChars")
         if indent:
             parts.append("首行缩进 %s 字符" % indent)
@@ -235,10 +255,11 @@ def _profile_summary(profile):
             parts.append("行距 %s 磅" % line_val)
         lines.append("· 正文：%s" % ("，".join(parts) if parts else "样式已提取"))
 
-    # 各级标题（spec 优先，headings/headingStyles 兜底）
+    # 各级标题（levels 优先，spec/headings 兜底）
     lv_keys = {"h1": "1", "h2": "2", "h3": "3"}
     for lv, name in (("h1", "一级标题"), ("h2", "二级标题"), ("h3", "三级标题")):
-        h = spec.get(lv) or profile.get("headings", {}).get(lv_keys[lv]) or {}
+        h = (levels.get(lv_keys[lv]) or spec.get(lv)
+             or profile.get("headings", {}).get(lv_keys[lv]) or {})
         if not h:
             continue
         parts = []
@@ -248,20 +269,27 @@ def _profile_summary(profile):
         size = h.get("size")
         if size:
             parts.append("字号 %s" % size)
+        elif h.get("sz"):
+            try:
+                parts.append("字号 %s" % str(int(float(h["sz"])) // 2))
+            except (ValueError, TypeError):
+                pass
         if h.get("align"):
             parts.append("对齐 %s" % ALIGN_DISPLAY.get(h["align"], h["align"]))
         if h.get("bold"):
             parts.append("加粗")
         lines.append("· %s：%s" % (name, "，".join(parts) if parts else "样式已提取"))
 
-    # 其它分类（批注要求里有就展示）
+    # 其它分类（levels 优先，spec 兜底；dict 或文本都展示）
     for key, label in (("abstract", "摘要"), ("keywords", "关键词"), ("toc", "目录"),
                        ("reference", "参考文献"), ("title", "论文题目"),
                        ("table", "表格"), ("figure", "插图"), ("footnote", "脚注")):
-        v = spec.get(key)
+        v = levels.get(key) or spec.get(key)
         if isinstance(v, dict) and v:
             s = "，".join("%s %s" % (k, val) for k, val in list(v.items())[:4])
             lines.append("· %s：%s" % (label, s))
+        elif isinstance(v, str) and v.strip():
+            lines.append("· %s：%s" % (label, v.strip()[:40]))
 
     if not lines:
         lines.append("（未从模板提取到明确的格式要求，将按通用规范处理。）")
@@ -289,6 +317,7 @@ class App:
         self.profile_path = tk.StringVar()
         self.status_var = tk.StringVar(value="请按步骤操作")
         self.running = False
+        self._dialog_open = False   # 保存对话框打开期间防重复弹窗
         self._errored = False
         self._msgs = []
         self.step_defs = [("profile", "提取学校模板要求"),
@@ -411,15 +440,21 @@ class App:
             "用于按学校要求检查 / 修正，更贴合要求", "选择…", self._pick_template)
 
         # 底部选择状态
-        # 选择状态：论文 / 模板 各自一行，选中后打对号
-        self._thesis_dot = tk.Label(card, text="○", bg=PANEL, fg=MUTED, font=F_FOOT)
-        self._thesis_dot.pack(side="left", padx=(14, 6), pady=(10, 2))
-        self._thesis_lbl = tk.Label(card, text="未选择论文", bg=PANEL, fg=MUTED, font=F_FOOT)
-        self._thesis_lbl.pack(side="left", pady=(10, 2))
-        self._tpl_dot = tk.Label(card, text="○", bg=PANEL, fg=MUTED, font=F_FOOT)
-        self._tpl_dot.pack(side="left", padx=(14, 6), pady=(2, 12))
-        self._tpl_lbl = tk.Label(card, text="模板未选（可选）", bg=PANEL, fg=MUTED, font=F_FOOT)
-        self._tpl_lbl.pack(side="left", pady=(2, 12))
+        # 选择状态：论文 / 模板 上下两行、左对齐；选中后打对号
+        self._thesis_row = tk.Frame(card, bg=PANEL)
+        self._thesis_row.pack(fill="x", padx=14, pady=(10, 1))
+        self._thesis_dot = tk.Label(self._thesis_row, text="○", bg=PANEL, fg=MUTED, font=F_FOOT)
+        self._thesis_dot.pack(side="left", padx=(0, 6))
+        self._thesis_lbl = tk.Label(self._thesis_row, text="未选择论文", bg=PANEL, fg=MUTED,
+                                    font=F_FOOT)
+        self._thesis_lbl.pack(side="left")
+        self._tpl_row = tk.Frame(card, bg=PANEL)
+        self._tpl_row.pack(fill="x", padx=14, pady=(1, 12))
+        self._tpl_dot = tk.Label(self._tpl_row, text="○", bg=PANEL, fg=MUTED, font=F_FOOT)
+        self._tpl_dot.pack(side="left", padx=(0, 6))
+        self._tpl_lbl = tk.Label(self._tpl_row, text="模板未选（可选）", bg=PANEL, fg=MUTED,
+                                 font=F_FOOT)
+        self._tpl_lbl.pack(side="left")
 
         # 画像状态（提取后显示）
         self.profile_box = tk.Frame(card, bg="#f0f3ec",
@@ -631,7 +666,10 @@ class App:
         self._refresh_wizard()
 
     def _run_step(self):
+        if self._dialog_open:
+            return  # 保存对话框已打开，防连点重复弹窗
         if self.running:
+            messagebox.showinfo("正在处理", "上一步还在处理中，请稍候…")
             return
         if self.step_index >= len(self.step_defs):
             self._reset_wizard()
@@ -645,27 +683,30 @@ class App:
             messagebox.showerror("缺少输入", "请先选择“待处理论文”。")
             return
 
-        dst = None
-        if mode == "fix":
-            base = _base_no_ext(src)
-            dst = filedialog.asksaveasfilename(
-                title="选择修正后论文的保存位置",
-                initialfile=os.path.basename(base) + "_已修正.docx",
-                initialdir=os.path.dirname(base) or None,
-                defaultextension=".docx",
-                filetypes=[("Word 文档", "*.docx")])
-            if not dst:
-                return
-        elif mode == "check":
-            base = _base_no_ext(src)
-            dst = filedialog.asksaveasfilename(
-                title="选择检查报告保存位置",
-                initialfile=os.path.basename(base) + "_格式检查报告.docx",
-                initialdir=os.path.dirname(base) or None,
-                defaultextension=".docx",
-                filetypes=[("Word 文档", "*.docx")])
-            if not dst:
-                return
+        # 弹保存对话框期间锁住按钮，避免快速连点弹出多个对话框
+        self._dialog_open = True
+        try:
+            dst = None
+            if mode == "fix":
+                base = _base_no_ext(src)
+                dst = filedialog.asksaveasfilename(
+                    title="选择修正后论文的保存位置",
+                    initialfile=os.path.basename(base) + "_已修正.docx",
+                    initialdir=os.path.dirname(base) or None,
+                    defaultextension=".docx",
+                    filetypes=[("Word 文档", "*.docx")])
+            elif mode == "check":
+                base = _base_no_ext(src)
+                dst = filedialog.asksaveasfilename(
+                    title="选择检查报告保存位置",
+                    initialfile=os.path.basename(base) + "_格式检查报告.docx",
+                    initialdir=os.path.dirname(base) or None,
+                    defaultextension=".docx",
+                    filetypes=[("Word 文档", "*.docx")])
+        finally:
+            self._dialog_open = False
+        if mode in ("fix", "check") and not dst:
+            return
 
         self._errored = False
         self.running = True
@@ -872,6 +913,9 @@ class App:
         # 按钮区固定底部（表单区自动占据剩余空间并可滚动，滚动条置顶）
         btns = tk.Frame(top, bg=PAPER)
         btns.pack(side="bottom", fill="x", pady=10)
+        # 重新 pack 表单区：让出底部给按钮，保证滚动到底/任何位置按钮都贴底可见
+        form_area.pack_forget()
+        form_area.pack(fill="both", expand=True, padx=(18, 0), pady=3)
         ttk.Button(btns, text="确认，使用此要求", style="Primary.TButton",
                    command=on_confirm).pack(side="left", padx=6)
         ttk.Button(btns, text="放弃（不使用画像）", command=on_cancel).pack(side="left", padx=6)
