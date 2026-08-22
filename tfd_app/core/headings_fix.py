@@ -144,6 +144,9 @@ def _line(spec):
         return 'auto', int(val)                # auto：twips 直接透传（240=单倍，360=1.5倍）
     if lr == 'single':
         return 'auto', 240
+    # v1.3.48：只有磅值无行距规则（无批注模板/客户仅填行距）时按固定值行距处理
+    if lr is None and val:
+        return 'exact', int(val) * 20
     return None, None
 
 
@@ -391,7 +394,8 @@ def _para_needs_fix(p, spec):
     # 行距（exact/atLeast 用值，single 隐式 240，auto 用 240 分度）
     # 注意：单倍行距没有显式 line_val，_line() 会兜底返回 (auto,240)，
     # 故不能以 line_val 缺失就跳过检查，否则无法纠出错误的单倍行距。
-    if spec.get('line_rule'):
+    # v1.3.48：只有 line_val 无 line_rule（无批注画像）也要检查行距。
+    if spec.get('line_rule') or spec.get('line_val'):
         lr, line = _line(spec)
         if lr is not None and line is not None:
             cur_line = sp.get(WR + 'line') if sp is not None else None
