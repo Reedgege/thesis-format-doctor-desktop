@@ -27,6 +27,7 @@ import tempfile
 import hashlib
 import threading
 import subprocess
+import shutil
 
 # 把 tfd_app 加入搜索路径（打包成 exe 后 sys.path 已含，但开发态下保险）
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -76,7 +77,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.37"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.38"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -322,6 +323,7 @@ class App:
         # 已保存文件记录：同一会话内再次保存到同一文件时弹“已保存过，是否再次保存”
         self._check_report_saved = None   # 第②步检查报告已保存路径
         self._fix_saved = set()           # 第③步修正产出文件已保存路径集合
+        self._fix_out = None              # 第③步修正完成后的临时产出 (dst, chk, rep)
         self._errored = False
         self._msgs = []
         self.step_defs = [("profile", "提取学校模板要求"),
@@ -624,6 +626,9 @@ class App:
         self.step_index = idx + 1
         self._set_status("已完成", OKC)
         self._set_bar("done")
+        if mode == "fix":
+            # 修正已在后台完成，转到主线程让客户选择保存位置（先修正、后导出）
+            self._export_fix()
         self._refresh_wizard()
 
     def _on_step_error(self, idx, mode, err):
@@ -687,31 +692,9 @@ class App:
             messagebox.showerror("缺少输入", "请先选择“待处理论文”。")
             return
 
-        # 弹对话框期间锁住按钮，避免快速连点弹出多个对话框
-        self._dialog_open = True
-        try:
-            dst = None
-            if mode == "fix":
-                base = _base_no_ext(src)
-                dst = filedialog.asksaveasfilename(
-                    title="选择修正后论文的保存位置",
-                    initialfile=os.path.basename(base) + "_已修正.docx",
-                    initialdir=os.path.dirname(base) or None,
-                    defaultextension=".docx",
-                    filetypes=[("Word 文档", "*.docx")])
-        finally:
-            self._dialog_open = False
-        if mode == "fix" and not dst:
-            return
-        # 第③步：同一会话内已保存过修正文件时，再次生成前弹“已保存过，是否再次保存”
-        if mode == "fix" and self._fix_saved:
-            base = _base_no_ext(dst)
-            prev = sorted(self._fix_saved)
-            if not messagebox.askyesno(
-                    "已保存过",
-                    "修正文件之前已保存过：\n%s\n\n确定要再次生成并保存（覆盖）吗？"
-                    % "\n".join(os.path.basename(p) for p in prev)):
-                return
+        # 第③步的「保存位置」放到修正【完成之后】再弹（先修正、后导出）：
+        # 这里统一 dst=None，_do_fix 先把结果产出到临时目录，_export_fix 收尾时再让客户选位置。
+        dst = None
 
         self._errored = False
         self.running = True
@@ -856,7 +839,11 @@ class App:
                 ev.set()
 
         self.root.after(0, show)
-        ev.wait(timeout=600)
+        # 注意：不能用 ev.wait(timeout=...) 限时等待——客户读完弹窗再点“确认”必然
+        # 超过限定时长，导致 ev 超时、box 仍为空、确认结果被丢弃（画像被清空、退回通用规范）。
+        # 弹窗通过 wait_window 阻塞主线程，客户关闭后 show() 才返回并 ev.set()，
+        # 这里无限等待直到客户做出选择即可（工作线程等待、主线程照常处理弹窗，无死锁）。
+        ev.wait()
         return box.get("ok", False), box.get("edits", [])
 
     def _profile_confirm_dialog(self, profile):
@@ -1024,9 +1011,17 @@ class App:
             self._show_check_done(dst)
 
     def _do_fix(self, src, docx_path, dst):
-        base_dst = _base_no_ext(dst)
-        rep = base_dst + "_修改报告.docx"
-        chk = base_dst + "_检查报告.docx"
+        # dst 为 None：先产出到临时目录，待修正完成（主线程 _export_fix）再让客户选保存位置。
+        if not dst:
+            tmp = tempfile.mkdtemp(prefix="tfd_fix_")
+            base = os.path.join(tmp, os.path.splitext(os.path.basename(src))[0])
+            dst = base + "_已修正.docx"
+            rep = base + "_修改报告.docx"
+            chk = base + "_检查报告.docx"
+        else:
+            base_dst = _base_no_ext(dst)
+            rep = base_dst + "_修改报告.docx"
+            chk = base_dst + "_检查报告.docx"
         profile = self._ensure_profile_ready()
         report = engine.run_fix_headings(
             docx_path, dst, profile_path=profile,
@@ -1035,8 +1030,8 @@ class App:
         check_report = engine.run_check(dst, profile_path=profile)
         engine.md_to_docx(check_report, chk)
         self._debug(check_report)
-        self._fix_saved = {dst, chk, rep}
-        self.root.after(0, lambda: self._show_fix_done(dst, chk, rep))
+        # 修正已落到临时文件，结果交给主线程在「修正完成」后导出（先修正、后导出）
+        self._fix_out = (dst, chk, rep)
 
     # ------------------------------------------------------------ 确认页
     def _show_check_done(self, out_md):
@@ -1054,6 +1049,45 @@ class App:
                         [("open", "打开所在文件夹"), ("ok", "完成")])
         if k == "open":
             self._open_folder(dst)
+
+    def _export_fix(self):
+        """主线程：修正完成后让客户选择保存位置并导出三个文件（先修正、后导出）。
+
+        同一会话内已导出过则先弹“已保存过，是否再次保存（覆盖）”。
+        """
+        out = getattr(self, "_fix_out", None)
+        if not out:
+            return
+        tmp_dst, chk, rep = out
+        if self._fix_saved:
+            prev = sorted(self._fix_saved)
+            if not messagebox.askyesno(
+                    "已保存过",
+                    "修正文件之前已保存过：\n%s\n\n确定要再次生成并保存（覆盖）吗？"
+                    % "\n".join(os.path.basename(p) for p in prev)):
+                return
+        base_src = _base_no_ext(self.thesis_path.get().strip() or "论文")
+        dst = filedialog.asksaveasfilename(
+            title="选择修正后论文的保存位置",
+            initialfile=os.path.basename(base_src) + "_已修正.docx",
+            initialdir=os.path.dirname(base_src) or None,
+            defaultextension=".docx",
+            filetypes=[("Word 文档", "*.docx")])
+        if not dst:
+            messagebox.showinfo("未导出",
+                                "未选择保存位置，本次修正结果未导出。\n"
+                                "如需导出，请点“上一步”回到第③步重新执行。")
+            return
+        try:
+            base = _base_no_ext(dst)
+            shutil.copy(tmp_dst, dst)
+            shutil.copy(rep, base + "_修改报告.docx")
+            shutil.copy(chk, base + "_检查报告.docx")
+            self._fix_saved = {dst, base + "_修改报告.docx", base + "_检查报告.docx"}
+        except Exception as e:
+            messagebox.showerror("导出失败", str(e))
+            return
+        self._show_fix_done(dst, base + "_检查报告.docx", base + "_修改报告.docx")
 
     def _modal(self, title, text, buttons):
         result = {"v": None}
@@ -1105,6 +1139,7 @@ class App:
         self._profile_confirmed = False
         self._check_report_saved = None
         self._fix_saved = set()
+        self._fix_out = None
         self.thesis_path.set("")
         self.template_path.set("")
         self.profile_path.set("")

@@ -397,29 +397,100 @@ def run_check(path, profile_path=None, out_md=None):
 
 
 def md_to_docx(md_text, out_docx):
-    """把 Markdown 报告文本转成 Word 文档（给客户输出统一用 Word，不产出 .md）。
+    """把 Markdown 报告文本转成 Word 文档（纯标准库生成，无需 python-docx）。
 
-    支持：# / ## / ### 标题、- / * 列表、普通段落；`**加粗**`、行内代码标记会去掉，
-    以纯文本呈现（简单可靠）。文档默认样式由 python-docx 模板决定。
+    关键：本软件运行环境（PyInstaller 单文件 exe）未安装 python-docx，若依赖它，
+    检查报告 / 修正检查报告在客户机器上会 ImportError 写不出文件。
+    这里直接按 OOXML 规范用 zipfile 生成最小可用的 .docx（Word/WPS 均可正常打开）。
+
+    支持：# / ## / ### 标题、- / * 列表、普通段落；`**加粗**`、行内代码标记去除。
     """
-    from docx import Document
-    doc = Document()
+    W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+    def esc(t):
+        return (t.replace("&", "&amp;").replace("<", "&lt;")
+                 .replace(">", "&gt;").replace('"', "&quot;"))
+
+    body = []
     for raw in md_text.splitlines():
         line = raw.rstrip()
         if not line.strip():
             continue
         s = line.strip()
         if s.startswith("### "):
-            doc.add_heading(s[4:].replace("**", "").replace("`", ""), level=3)
+            ppr, text = '<w:pPr><w:pStyle w:val="Heading3"/></w:pPr>', s[4:]
         elif s.startswith("## "):
-            doc.add_heading(s[3:].replace("**", "").replace("`", ""), level=2)
+            ppr, text = '<w:pPr><w:pStyle w:val="Heading2"/></w:pPr>', s[3:]
         elif s.startswith("# "):
-            doc.add_heading(s[2:].replace("**", "").replace("`", ""), level=1)
-        elif s.startswith("- ") or s.startswith("* "):
-            doc.add_paragraph(s[2:].replace("**", "").replace("`", ""), style="List Bullet")
+            ppr, text = '<w:pPr><w:pStyle w:val="Heading1"/></w:pPr>', s[2:]
         else:
-            doc.add_paragraph(s.replace("**", "").replace("`", ""))
-    doc.save(out_docx)
+            ppr, text = "", s
+        text = text.replace("**", "").replace("`", "")
+        if s.startswith("- ") or s.startswith("* "):
+            text = "• " + text
+        run = '<w:r><w:t xml:space="preserve">%s</w:t></w:r>' % esc(text)
+        body.append('<w:p>%s%s</w:p>' % (ppr, run))
+
+    document = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:document xmlns:w="%s"><w:body>%s'
+        '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+        '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" '
+        'w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>'
+        '</w:body></w:document>' % (W, "".join(body))
+    )
+    styles = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:styles xmlns:w="%s">'
+        '<w:style w:type="paragraph" w:default="1" w:styleId="Normal">'
+        '<w:name w:val="Normal"/><w:rPr><w:rFonts w:ascii="Calibri" '
+        'w:eastAsia="宋体"/><w:sz w:val="21"/></w:rPr></w:style>'
+        '<w:style w:type="paragraph" w:styleId="Heading1">'
+        '<w:name w:val="heading 1"/><w:basedOn w:val="Normal"/>'
+        '<w:rPr><w:b/><w:sz w:val="32"/></w:rPr></w:style>'
+        '<w:style w:type="paragraph" w:styleId="Heading2">'
+        '<w:name w:val="heading 2"/><w:basedOn w:val="Normal"/>'
+        '<w:rPr><w:b/><w:sz w:val="26"/></w:rPr></w:style>'
+        '<w:style w:type="paragraph" w:styleId="Heading3">'
+        '<w:name w:val="heading 3"/><w:basedOn w:val="Normal"/>'
+        '<w:rPr><w:b/><w:sz w:val="22"/></w:rPr></w:style>'
+        '</w:styles>' % W
+    )
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" '
+        'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/word/document.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.'
+        'wordprocessingml.document.main+xml"/>'
+        '<Override PartName="/word/styles.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.'
+        'wordprocessingml.styles+xml"/>'
+        '</Types>'
+    )
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships '
+        'xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/'
+        'officeDocument/2006/relationships/officeDocument" '
+        'Target="word/document.xml"/>'
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/'
+        'officeDocument/2006/relationships/styles" Target="word/styles.xml"/>'
+        '</Relationships>'
+    )
+    if os.path.exists(out_docx):
+        try:
+            os.remove(out_docx)
+        except OSError:
+            pass
+    with zipfile.ZipFile(out_docx, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", content_types)
+        z.writestr("_rels/.rels", rels)
+        z.writestr("word/document.xml", document)
+        z.writestr("word/styles.xml", styles)
 
 
 def run_fix_headings(src, dst, profile_path=None, report_docx=None, add_comments=True):
