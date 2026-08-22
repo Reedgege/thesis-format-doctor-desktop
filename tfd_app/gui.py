@@ -77,7 +77,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.44"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.45"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -786,6 +786,8 @@ class App:
             self.root.after(0, lambda: self._on_step_error(idx, mode, str(e)))
         finally:
             self.running = False
+            # 步骤处理结束：清理旧格式转换产生的临时目录（客户无感，不残留 tfd_conv_*）
+            engine.cleanup_conv_dirs()
             self.root.after(0, lambda: self._set_running(False))
 
     def _set_running(self, running):
@@ -1171,6 +1173,11 @@ class App:
         except Exception as e:
             messagebox.showerror("导出失败", str(e))
             return
+        # 导出完成：清理修正临时产出目录（系统 temp，客户无感，不残留 tfd_fix_*）
+        try:
+            shutil.rmtree(os.path.dirname(tmp_dst), ignore_errors=True)
+        except Exception:
+            pass
         # 导出成功 → 进入“完成”子状态（按钮变“完成”，上一步变“再处理一篇”）
         self._fix_phase = "saved"
         self._set_status("已保存，可再处理一篇", OKC)
