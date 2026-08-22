@@ -87,9 +87,10 @@ jobs:
         if: matrix.os == 'windows'
         shell: bash
         run: |
+          # 算法已内联进 offlinecode.py，不打包任何 tfd_app 文件，避免 onefile 解压时
+          # 读取 license.py 被系统安全软件拦截（PermissionError）
           python -m PyInstaller --name offlinecode --onefile --noconsole --clean \
             --collect-all tkinter \
-            --add-data "tfd_app/license.py;tfd_app/license.py" \
             offlinecode.py
 
       - name: Upload offlinecode artifact (Windows only)
