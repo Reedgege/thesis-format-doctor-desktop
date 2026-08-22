@@ -396,6 +396,32 @@ def run_check(path, profile_path=None, out_md=None):
     return report
 
 
+def md_to_docx(md_text, out_docx):
+    """把 Markdown 报告文本转成 Word 文档（给客户输出统一用 Word，不产出 .md）。
+
+    支持：# / ## / ### 标题、- / * 列表、普通段落；`**加粗**`、行内代码标记会去掉，
+    以纯文本呈现（简单可靠）。文档默认样式由 python-docx 模板决定。
+    """
+    from docx import Document
+    doc = Document()
+    for raw in md_text.splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        s = line.strip()
+        if s.startswith("### "):
+            doc.add_heading(s[4:].replace("**", "").replace("`", ""), level=3)
+        elif s.startswith("## "):
+            doc.add_heading(s[3:].replace("**", "").replace("`", ""), level=2)
+        elif s.startswith("# "):
+            doc.add_heading(s[2:].replace("**", "").replace("`", ""), level=1)
+        elif s.startswith("- ") or s.startswith("* "):
+            doc.add_paragraph(s[2:].replace("**", "").replace("`", ""), style="List Bullet")
+        else:
+            doc.add_paragraph(s.replace("**", "").replace("`", ""))
+    doc.save(out_docx)
+
+
 def run_fix_headings(src, dst, profile_path=None, report_docx=None, add_comments=True):
     """一键套标题样式（通用或模板驱动）。
 
