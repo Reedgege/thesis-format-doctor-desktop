@@ -72,7 +72,9 @@ _FONT_BASE = {
     "F_FOOT":       ("Microsoft YaHei", 10),    # 状态栏 / 页脚 / 说明（次要，最小层级）
     "F_MONO":       ("Consolas", 9),            # 机器码 / 离线码（等宽）
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
+    "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
+APP_VERSION = "1.3.30"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.5）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -344,8 +346,8 @@ class App:
         header.pack(fill="x", padx=20, pady=(16, 8))
         tk.Label(header, text="论 文 格 式 医 生", bg=PAPER, fg=INK,
                  font=F_TITLE).pack(anchor="center")
-        tk.Label(header, text="—— 按学校要求检查与修正 · 完全离线 ——",
-                 bg=PAPER, fg=MUTED, font=F_SUBTITLE).pack(anchor="center", pady=(4, 0))
+        tk.Label(header, text="THESIS FORMAT DOCTOR · 高校论文格式规范引擎",
+                 bg=PAPER, fg="#8b8378", font=F_SUBTITLE).pack(anchor="center", pady=(5, 0))
         tk.Frame(self.root, bg=CINNABAR, height=2).pack(fill="x", padx=20)
 
         # 主体两栏（文件选择 | 处理步骤）
@@ -393,8 +395,9 @@ class App:
 
         hdr = tk.Frame(card, bg=PANEL)
         hdr.pack(fill="x", padx=14, pady=(12, 6))
+        tk.Frame(hdr, bg=ACCENT, width=4, height=15).pack(side="left", padx=(0, 7))
         tk.Label(hdr, text="文件选择", bg=PANEL, fg=INK, font=F_CARD_HDR).pack(side="left")
-        tk.Label(hdr, text="本地处理", bg="#e8e2d4", fg=ACCENT, font=F_FOOT,
+        tk.Label(hdr, text="本机离线", bg="#e8f0f6", fg=ACCENT, font=F_FOOT,
                  padx=8, pady=2).pack(side="right")
 
         self._thesis_box = self._file_row(
@@ -423,13 +426,18 @@ class App:
                    command=self._clear_profile).pack(side="right", padx=8, pady=3)
         self._update_profile_box()
 
+        # 卡片底部章节小字（文艺学术点缀）
+        tk.Label(card, text="壹 · 选择", bg=PANEL, fg="#b8b0a0",
+                 font=F_FOOT).pack(side="bottom", pady=(0, 8))
+
     def _file_row(self, parent, icon, title, mark, mark_color, desc, btn_text, cmd):
         box = tk.Frame(parent, bg="#ffffff", highlightthickness=1, highlightbackground="#e3dccb")
         box.pack(fill="x", padx=14, pady=6)
         row = tk.Frame(box, bg="#ffffff")
         row.pack(fill="x", padx=10, pady=8)
-        ic = tk.Label(row, text=icon, bg="#e8f0f6", fg=ACCENT,
-                      font=F_BTN, padx=9, pady=5)
+        ic = tk.Label(row, text=icon, bg="#ffffff", fg=CINNABAR,
+                      font=F_ICON, padx=7, pady=4,
+                      highlightthickness=1, highlightbackground=CINNABAR)
         ic.pack(side="left", padx=(0, 8))
         txt = tk.Frame(row, bg="#ffffff")
         txt.pack(side="left", fill="x", expand=True)
@@ -448,6 +456,7 @@ class App:
 
         hdr = tk.Frame(card, bg=PANEL)
         hdr.pack(fill="x", padx=14, pady=(12, 4))
+        tk.Frame(hdr, bg=ACCENT, width=4, height=15).pack(side="left", padx=(0, 7))
         tk.Label(hdr, text="处理步骤", bg=PANEL, fg=INK, font=F_CARD_HDR).pack(side="left")
         self._step_counter = tk.Label(hdr, text="1 / 3", bg=PANEL, fg=MUTED, font=F_FOOT)
         self._step_counter.pack(side="right")
@@ -470,6 +479,10 @@ class App:
                                     command=self._run_step)
         self._next_btn.pack(side="right")
 
+        # 卡片底部章节小字（文艺学术点缀）
+        tk.Label(card, text="贰 · 处理", bg=PANEL, fg="#b8b0a0",
+                 font=F_FOOT).pack(side="bottom", pady=(0, 8))
+
         self._refresh_wizard()
 
     # ----------------------------------------------------- 步骤时间线（向导）
@@ -485,8 +498,9 @@ class App:
             row.pack(fill="x", pady=2)
             col = tk.Frame(row, bg=PANEL)
             col.pack(side="left", padx=(0, 10))
-            circ = tk.Label(col, text=str(i + 1), bg="#e8e2d4", fg=MUTED,
-                            font=F_SUBTITLE, width=2, height=1, relief="flat")
+            circ = tk.Label(col, text=str(i + 1), bg="#ffffff", fg="#8b8378",
+                            font=F_STAT, width=2, height=1, relief="flat",
+                            highlightthickness=1, highlightbackground="#c9c1ae")
             circ.pack()
             line = None
             if i < n - 1:
@@ -510,18 +524,20 @@ class App:
             title = self._step_title[i]
             line = self._step_line[i]
             if i < self.step_index:
-                circ.config(bg=OKC, fg="white", text="✔")
+                circ.config(bg="#ffffff", fg=OKC, highlightbackground=OKC, text="✔")
                 title.config(fg=INK)
                 if line: line.config(bg=OKC)
             elif i == self.step_index:
                 if self._errored:
-                    circ.config(bg=ERRC, fg="white", text="✕")
+                    circ.config(bg="#ffffff", fg=ERRC, highlightbackground=ERRC, text="✕")
                 else:
-                    circ.config(bg=ACCENT, fg="white", text=str(i + 1))
+                    circ.config(bg="#ffffff", fg=ACCENT, highlightbackground=ACCENT,
+                               text=str(i + 1))
                 title.config(fg=INK)
                 if line: line.config(bg="#e3dccb")
             else:
-                circ.config(bg="#e8e2d4", fg=MUTED, text=str(i + 1))
+                circ.config(bg="#ffffff", fg="#8b8378", highlightbackground="#c9c1ae",
+                            text=str(i + 1))
                 title.config(fg=MUTED)
                 if line: line.config(bg="#e3dccb")
         self._step_counter.config(text="%d / %d" % (min(self.step_index + 1, n), n))
@@ -536,7 +552,7 @@ class App:
         """底部状态栏：idle / running / done / error。"""
         cmap = {"idle": OKC, "running": RUN, "done": OKC, "error": ERRC}
         tmap = {
-            "idle": ("论文格式医生 · 桌面版", "请按步骤操作"),
+            "idle": ("就绪 · 论文格式医生 v%s · 完全离线" % APP_VERSION, "请按步骤操作"),
             "running": ("处理中…", hint or "正在处理"),
             "done": ("已完成", "可再处理一篇"),
             "error": ("出错", "请重试或联系客服"),
@@ -548,7 +564,7 @@ class App:
         self.bar_right.config(text=right)
 
     def _on_step_done(self, idx, mode):
-        self._step_circle[idx].config(bg=OKC, fg="white", text="✔")
+        self._step_circle[idx].config(bg="#ffffff", fg=OKC, highlightbackground=OKC, text="✔")
         self._step_title[idx].config(fg=INK)
         if self._step_line[idx]:
             self._step_line[idx].config(bg=OKC)
@@ -625,7 +641,8 @@ class App:
         self._set_status(status, RUN)
         self._set_bar("running", self.step_defs[idx][1])
         # 点亮当前步
-        self._step_circle[idx].config(bg=ACCENT, fg="white", text=str(idx + 1))
+        self._step_circle[idx].config(bg="#ffffff", fg=ACCENT,
+                                      highlightbackground=ACCENT, text=str(idx + 1))
         self._step_title[idx].config(fg=INK)
         threading.Thread(target=self._worker, args=(idx, mode, src, dst), daemon=True).start()
 
