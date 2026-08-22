@@ -77,7 +77,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.46"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.47"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -450,7 +450,7 @@ class App:
         tpl_note = tk.Frame(card, bg="#fdf3e7", highlightthickness=1,
                             highlightbackground="#e6c794")
         tpl_note.pack(fill="x", padx=14, pady=(4, 2))
-        tk.Label(tpl_note, text="⚠ 模板驱动：以学校模板【批注】写明的格式要求为准"
+        tk.Label(tpl_note, text="模板驱动：以学校模板【批注】写明的格式要求为准"
                                 "（批注优先于样式定义）。",
                  bg="#fdf3e7", fg="#8a5a1a", font=F_SMALL,
                  justify="left", anchor="w").pack(fill="x", padx=8, pady=(5, 1))
@@ -930,12 +930,12 @@ class App:
         if _n_cmt > 0:
             src_note = tk.Frame(top, bg="#eef4ea", highlightthickness=1,
                                 highlightbackground="#b9cdaa")
-            src_txt = "✔ 已读取学校模板批注 %d 条 —— 以下要求以【批注】为准（最权威）。" % _n_cmt
+            src_txt = "已读取学校模板批注 %d 条 —— 以下要求以【批注】为准（最权威）。" % _n_cmt
             src_fg = "#3f6b35"
         else:
             src_note = tk.Frame(top, bg="#fbeae8", highlightthickness=1,
                                 highlightbackground="#e0b4ae")
-            src_txt = ("⚠ 该模板【未检测到批注】。学校批注是最权威的格式要求；"
+            src_txt = ("该模板【未检测到批注】。学校批注是最权威的格式要求；"
                        "无批注时以下要求来自模板样式定义 / 通用规范，"
                        "可能与学校规定有出入，请仔细核对后再确认。")
             src_fg = "#9e3b30"
@@ -1024,6 +1024,10 @@ class App:
                     except (TypeError, ValueError):
                         continue  # 非法输入：保持提取结果
                     edits.append((candidates[0], text))
+                    # v1.3.47：客户填了首行缩进 → 同时落定 indent_type="first"，
+                    # 否则画像无 indent_type 时引擎不会套用缩进（用户实测踩坑）
+                    if k == "indent_chars":
+                        edits.append((candidates[0][:-1] + ("indent_type",), "first"))
                 else:
                     edits.append((candidates[0], text))
             result["ok"] = True

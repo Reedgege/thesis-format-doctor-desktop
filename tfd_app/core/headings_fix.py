@@ -42,6 +42,15 @@ __copyright__ = "Copyright (c) 2026 芦苇（山东大学 MBA）"
 __version__ = "1.3.5"
 
 STYLE_FOR = {1: "Heading1", 2: "Heading2", 3: "Heading3"}
+
+# v1.3.47：未选学校模板时的【通用学术规范】兜底（非学校特定值，与模板驱动不冲突）。
+# 仅在客户未提供模板 / 画像无正文要求时使用，报告会明确标注"按通用规范处理"。
+_GENERIC_BODY = {
+    "zh_font": "宋体", "sz": 24, "size": "小四",
+    "indent_chars": 2, "indent_type": "first",
+    "line_rule": "auto", "line_val": 360,   # 1.5 倍行距
+}
+_GENERIC_HEADING = {"zh_font": "黑体"}       # 通用标题字体
 # 通用模式下新样式的展示名（无模板画像时使用）
 DISP_GENERIC = {1: ("Heading1", "标题1"), 2: ("Heading2", "标题2"), 3: ("Heading3", "标题3")}
 
@@ -293,7 +302,8 @@ def _set_para_format(p, spec, style_val=None):
             ind.set(WR + 'leftChars', _ch)
             ind.set(WR + 'hangingChars', _ch)
         newc.append(ind)
-    elif spec.get('indent_chars') and spec.get('indent_type') == 'first':
+    elif spec.get('indent_chars') and spec.get('indent_type') != 'none':
+        # v1.3.47：indent_type 缺失（无批注模板 / 客户仅填写缩进）时也按首行缩进套用
         ind = ET.Element(WR + 'ind')
         ind.set(WR + 'firstLineChars', str(int(_num(spec['indent_chars']) * 100)))
         ind.set(WR + 'firstLine', str(int(_num(spec['indent_chars']) * 240)))
@@ -355,8 +365,9 @@ def _para_needs_fix(p, spec):
                 and int(sz.get(WR + 'val')) != int(spec['sz']):
             return True
     ppr = p.find(WR + 'pPr')
-    # 首行缩进
-    if spec.get('indent_type') == 'first':
+    # 首行缩进（v1.3.47：indent_type 缺失时只要有 indent_chars 即视为首行缩进，
+    # 否则客户在确认弹窗填了"缩进2字符"而画像无 indent_type 时不会生效）
+    if spec.get('indent_chars') and spec.get('indent_type') != 'none':
         ind = ppr.find(WR + 'ind') if ppr is not None else None
         want = _num(spec.get('indent_chars', 0)) * 100
         cur = ind.get(WR + 'firstLineChars') if ind is not None else None
@@ -1367,6 +1378,12 @@ def fix(src, dst, profile=None, add_comments=True):
         return spec_cats.get(cat_key) or {}
 
     body_spec = _lvl_spec("body", "body")
+    # v1.3.47：画像无正文要求（未选模板 / 模板无批注且样式定义无正文要素）时，
+    # 按通用学术规范兜底，避免"一键修正只加批注、正文格式不动"。
+    generic_body = False
+    if not body_spec:
+        body_spec = dict(_GENERIC_BODY)
+        generic_body = True
 
     # ---- 聚集判定：第X章/第X节「逐条罗列」视为正文，而非章标题 ----
     # 用户实测踩坑：1.2.2「研究内容」里用"第一章：绪论…第七章"逐条概述七个章节，
@@ -1433,6 +1450,10 @@ def fix(src, dst, profile=None, add_comments=True):
             ppr = p.find(WR + "pPr")
             cur = ppr.find(WR + "pStyle").get(WR + "val") if (ppr is not None and ppr.find(WR + "pStyle") is not None) else None
             hspec = _lvl_spec(str(lvl), "h%d" % lvl)
+            # v1.3.47：通用模式（未选模板）下标题规格为空时补通用黑体，
+            # 使"按通用规范修正"时标题字体也能落定（模板模式保持 _set_style 不动）
+            if not hspec and not template_exact:
+                hspec = dict(_GENERIC_HEADING)
             if hspec:
                 # 标题文本 run 格式化（_set_run_rpr 内部已跳过含图 run），
                 # 段落格式（jc/spacing/ind）也正常设置——标题规格不用固定值行距(lineRule=exact)，
