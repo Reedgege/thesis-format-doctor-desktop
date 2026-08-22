@@ -77,7 +77,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.48"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.49"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -124,25 +124,28 @@ ALIGN_CODE = {v: k for k, v in ALIGN_DISPLAY.items()}
 EDIT_FIELDS = [
     ("正文字体",     [("levels", "body", "zh_font"), ("spec", "body", "zh_font"),
                      ("spec", "body", "font"), ("body", "font")], "text"),
-    ("正文字号",     [("levels", "body", "size"), ("spec", "body", "size"),
-                     ("levels", "body", "sz"), ("body", "size")], "text"),
+    # v1.3.49：字号候选把 sz（半磅数字）提到 size（中文字号名）之前——
+    # 此前 size 优先导致表单显示"小四"、客户改数字写回 size 字段而引擎只读 sz，
+    # 客户改字号不生效（自查发现的逻辑 bug）。
+    ("正文字号",     [("levels", "body", "sz"), ("levels", "body", "size"),
+                     ("spec", "body", "sz"), ("spec", "body", "size")], "text"),
     ("正文行距(磅)", [("levels", "body", "line_val"), ("spec", "body", "line_val"),
                      ("body", "line_val"), ("body", "line")], "text"),
     ("首行缩进(字符)", [("levels", "body", "indent_chars"), ("spec", "body", "indent_chars"),
                        ("body", "indent_chars"), ("body", "firstLineChars")], "text"),
     ("一级标题字体", [("levels", "1", "zh_font"), ("spec", "h1", "zh_font"),
                      ("spec", "h1", "font"), ("headings", "1", "font")], "text"),
-    ("一级标题字号", [("levels", "1", "size"), ("spec", "h1", "size"),
-                     ("levels", "1", "sz"), ("headings", "1", "size")], "text"),
+    ("一级标题字号", [("levels", "1", "sz"), ("levels", "1", "size"),
+                     ("spec", "h1", "sz"), ("spec", "h1", "size")], "text"),
     ("一级标题对齐", [("levels", "1", "align"), ("spec", "h1", "align")], "align"),
     ("二级标题字体", [("levels", "2", "zh_font"), ("spec", "h2", "zh_font"),
                      ("spec", "h2", "font"), ("headings", "2", "font")], "text"),
-    ("二级标题字号", [("levels", "2", "size"), ("spec", "h2", "size"),
-                     ("levels", "2", "sz"), ("headings", "2", "size")], "text"),
+    ("二级标题字号", [("levels", "2", "sz"), ("levels", "2", "size"),
+                     ("spec", "h2", "sz"), ("spec", "h2", "size")], "text"),
     ("三级标题字体", [("levels", "3", "zh_font"), ("spec", "h3", "zh_font"),
                      ("spec", "h3", "font"), ("headings", "3", "font")], "text"),
-    ("三级标题字号", [("levels", "3", "size"), ("spec", "h3", "size"),
-                     ("levels", "3", "sz"), ("headings", "3", "size")], "text"),
+    ("三级标题字号", [("levels", "3", "sz"), ("levels", "3", "size"),
+                     ("spec", "h3", "sz"), ("spec", "h3", "size")], "text"),
     ("页边距 上(厘米)", [("spec", "page", "top_cm"), ("page", "top")], "text"),
     ("页边距 下(厘米)", [("spec", "page", "bottom_cm"), ("page", "bottom")], "text"),
     ("页边距 左(厘米)", [("spec", "page", "left_cm"), ("page", "left")], "text"),
@@ -170,6 +173,37 @@ def _deep_set(d, path, value):
             d[k] = {}
         d = d[k]
     d[path[-1]] = value
+
+
+_CN_SIZE_PT = {  # 中文字号名 → 磅（通用印刷规范，非学校特定值）
+    "初号": 42, "小初": 36, "一号": 26, "小一": 24, "二号": 22, "小二": 18,
+    "三号": 16, "小三": 15, "四号": 14, "小四": 12, "五号": 10.5, "小五": 9,
+    "六号": 7.5, "小六": 6.5, "七号": 5.5, "八号": 5,
+}
+
+
+def _cn_size_to_pt(text):
+    """把客户输入的字号转成磅：支持数字（如 12）与中文字号名（如 小四=12）。
+
+    v1.3.49：确认弹窗字号输入此前只认数字，客户填"小四"会被当非法忽略。
+    """
+    s = (text or "").strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        pass
+    if s in _CN_SIZE_PT:
+        return _CN_SIZE_PT[s]
+    # 容忍"小四号""小五号"等写法：先匹配"小X"（小四=12 优先于 四号=14），再匹配普通字号名
+    for name in ("小初", "小一", "小二", "小三", "小四", "小五", "小六", "小七"):
+        if name in s:
+            return _CN_SIZE_PT[name]
+    for name, pt in _CN_SIZE_PT.items():
+        if name in s:
+            return pt
+    return None
 
 
 def _field_value(profile, candidates):
@@ -320,6 +354,7 @@ class App:
         self.running = False
         self._dialog_open = False   # 保存对话框打开期间防重复弹窗
         self._profile_confirmed = False  # 画像是否已被客户确认（检查/修正前弹出确认页）
+        self._profile_abandoned = False  # v1.3.49：客户在确认页点"放弃"后，本次不再自动重新提取画像
         # 已保存文件记录：同一会话内再次保存到同一文件时弹“已保存过，是否再次保存”
         self._check_report_saved = None   # 第②步检查报告已保存路径
         self._fix_saved = set()           # 第③步修正产出文件已保存路径集合
@@ -708,6 +743,9 @@ class App:
             self._template_name.config(text=os.path.basename(p), fg=INK)
             self._tpl_dot.config(text="✓", fg=OKC)
             self._tpl_lbl.config(text="模板已选择", fg=INK)
+            # 换了新模板：重新允许提取画像（清除"放弃"标记）
+            self._profile_abandoned = False
+            self._profile_confirmed = False
 
     def _clear_profile(self):
         self.profile_path.set("")
@@ -731,6 +769,8 @@ class App:
             return
         self.step_index -= 1
         self._errored = False
+        # v1.3.49：回退后允许重新确认画像（清除"放弃"标记）
+        self._profile_abandoned = False
         self._set_status("请按步骤操作", MUTED)
         self._set_bar("idle")
         self._refresh_wizard()
@@ -839,10 +879,15 @@ class App:
         # 客户在真正处理前核对/修改（修改会写回画像并生效）。
         self.profile_path.set(out)
         self._profile_confirmed = False
+        self._profile_abandoned = False   # 新画像就绪：清除"放弃"标记
         self.root.after(0, self._update_profile_box)
         return out
 
     def _ensure_profile_ready(self):
+        # v1.3.49：客户已明确"放弃"画像 → 本次会话不再自动重新提取（按通用规范处理），
+        # 否则放弃后又会从模板重新提取，放弃形同虚设。
+        if self._profile_abandoned:
+            return None
         p = self.profile_path.get().strip()
         if p and os.path.isfile(p):
             return p
@@ -867,7 +912,10 @@ class App:
             return p
         ok, edits = self._ask_profile_confirm(profile)
         if not ok:
+            # v1.3.49：客户点"放弃"→ 本次会话不再自动重新提取画像，按通用规范处理
+            self._profile_abandoned = True
             return None
+        self._profile_abandoned = False
         if edits:
             for path_keys, value in edits:
                 _deep_set(profile, path_keys, value)
@@ -1012,10 +1060,10 @@ class App:
                     continue
                 k = candidates[0][-1]
                 if k == "sz":
-                    # 确认页显示为磅（_field_value ÷2），写回需还原为半磅（×2）
-                    try:
-                        pt = float(text)
-                    except (TypeError, ValueError):
+                    # 确认页显示为磅（_field_value ÷2），写回需还原为半磅（×2）。
+                    # v1.3.49：支持输入中文字号名（如"小四"→12磅）或数字磅值。
+                    pt = _cn_size_to_pt(text)
+                    if pt is None:
                         continue  # 非法输入：保持提取结果
                     edits.append((candidates[0], str(int(round(pt * 2)))))
                 elif k in _NUM_FIELDS:
@@ -1274,6 +1322,7 @@ class App:
         self.step_index = 0
         self._errored = False
         self._profile_confirmed = False
+        self._profile_abandoned = False
         self._check_report_saved = None
         self._fix_saved = set()
         self._fix_out = None
