@@ -109,9 +109,30 @@ def find_soffice():
     return None
 
 
+# 本会话产生的旧格式转换临时目录（LibreOffice / Word-WPS 转换）。
+# v1.3.45：转换目录改到系统临时目录（dir=None，不再出现在客户论文旁），
+# 并在此登记，处理完成后由 GUI 统一 cleanup_conv_dirs() 删除——客户全程无感。
+_conv_dirs = []
+
+
+def _track_conv_dir(out_dir):
+    _conv_dirs.append(out_dir)
+
+
+def cleanup_conv_dirs():
+    """删除本次会话创建的转换临时目录（尽力而为，失败忽略）。"""
+    while _conv_dirs:
+        d = _conv_dirs.pop()
+        try:
+            shutil.rmtree(d, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def _convert_doc_to_docx(path, soffice, workdir):
     """调用 LibreOffice 把 .doc/.wps 转成 .docx，返回生成的 .docx 路径。"""
-    out_dir = tempfile.mkdtemp(prefix="tfd_conv_", dir=workdir or None)
+    out_dir = tempfile.mkdtemp(prefix="tfd_conv_")
+    _track_conv_dir(out_dir)
     cmd = [soffice, "--headless", "--convert-to", "docx", "--outdir", out_dir, path]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
@@ -328,7 +349,8 @@ def _convert_doc_via_ms_app(path, workdir):
     """
     if not sys.platform.startswith("win"):
         return None, None
-    out_dir = tempfile.mkdtemp(prefix="tfd_conv_", dir=workdir or None)
+    out_dir = tempfile.mkdtemp(prefix="tfd_conv_")
+    _track_conv_dir(out_dir)
     conv = _convert_doc_via_com_inproc(path, out_dir)
     if conv:
         return conv, "已自动将旧格式转换为 .docx 后处理（软件内置转换，原文件未改动）"
