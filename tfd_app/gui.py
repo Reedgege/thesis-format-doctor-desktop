@@ -77,7 +77,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.47"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.48"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -1028,6 +1028,10 @@ class App:
                     # 否则画像无 indent_type 时引擎不会套用缩进（用户实测踩坑）
                     if k == "indent_chars":
                         edits.append((candidates[0][:-1] + ("indent_type",), "first"))
+                    # v1.3.48：客户填了行距(磅) → 同时落定 line_rule="exact"（固定值行距），
+                    # 否则画像无 line_rule 时引擎不设行距（实测发现同款坑）
+                    if k == "line_val":
+                        edits.append((candidates[0][:-1] + ("line_rule",), "exact"))
                 else:
                     edits.append((candidates[0], text))
             result["ok"] = True
