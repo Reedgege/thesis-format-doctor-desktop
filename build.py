@@ -29,6 +29,23 @@ SEP = ";" if sys.platform.startswith("win") else ":"
 APP_NAME = "thesis-format-doctor-desktop"
 ENTRY = os.path.join(HERE, "main.py")
 
+# v1.3.52：按平台选小羽毛图标（统一各平台 exe 文件图标）
+# Windows: .ico（PyInstaller 直接嵌入为 exe 资源）
+# macOS:   .icns（CI 步骤从 icon.png 生成后提交，见 .github/workflows/build.yml）
+# Linux:   .png（PyInstaller 6+ 支持，onefile 内嵌为 ELF 资源）
+ICON_ICO = os.path.join(HERE, "tfd_app", "assets", "icon.ico")
+ICON_ICNS = os.path.join(HERE, "tfd_app", "assets", "icon.icns")
+ICON_PNG = os.path.join(HERE, "tfd_app", "assets", "icon.png")
+
+
+def _icon_for_build():
+    """按当前平台返回可用的图标路径；缺失则退回 PNG（避免构建失败）。"""
+    if sys.platform.startswith("win") and os.path.isfile(ICON_ICO):
+        return ICON_ICO
+    if sys.platform == "darwin" and os.path.isfile(ICON_ICNS):
+        return ICON_ICNS
+    return ICON_PNG
+
 # 引擎模块（标准库，但用 importlib 动态加载，必须显式声明 hiddenimport）
 # 注意：tfd_app.engine / tfd_app.gui 必须显式列出，否则 PyInstaller 静态分析
 # 追踪不到"裸 import engine"这类运行时才解析的导入，打包后运行报 No module named 'engine'。
@@ -74,6 +91,8 @@ def build(clean=False):
     for src, dst in DATA_DIRS:
         if os.path.isdir(src):
             cmd += ["--add-data", f"{src}{SEP}{dst}"]
+    # v1.3.52：统一各平台 exe 文件图标为小羽毛（gui 窗口图标已用 icon.png 跨平台）
+    cmd += ["--icon", _icon_for_build()]
 
     cmd.append(ENTRY)
     cmd = [c for c in cmd if c != ""]  # 过滤空串
