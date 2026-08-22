@@ -76,7 +76,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.33"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.34"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -141,6 +141,7 @@ EDIT_FIELDS = [
     ("页边距 下(厘米)", [("spec", "page", "bottom_cm"), ("page", "bottom")], "text"),
     ("页边距 左(厘米)", [("spec", "page", "left_cm"), ("page", "left")], "text"),
     ("页边距 右(厘米)", [("spec", "page", "right_cm"), ("page", "right")], "text"),
+    ("参考文献格式", [("spec", "reference"), ("reference",)], "ref"),
 ]
 
 
@@ -402,19 +403,23 @@ class App:
         tk.Label(hdr, text="本机离线", bg="#e8f0f6", fg=ACCENT, font=F_FOOT,
                  padx=8, pady=2).pack(side="right")
 
-        self._thesis_box = self._file_row(
+        self._thesis_box, self._thesis_name = self._file_row(
             card, "论", "待处理论文", "必选", CINNABAR,
             "Word 文档 .docx / .doc / .wps", "选择…", self._pick_input)
-        self._template_box = self._file_row(
+        self._template_box, self._template_name = self._file_row(
             card, "模", "学校模板", "可选", MUTED,
             "用于按学校要求检查 / 修正，更贴合要求", "选择…", self._pick_template)
 
         # 底部选择状态
-        self._file_status_dot = tk.Label(card, text="●", bg=PANEL, fg="#b8b0a0", font=F_FOOT)
-        self._file_status_dot.pack(side="left", padx=(14, 6), pady=(10, 12))
-        self._file_status_lbl = tk.Label(card, text="未选择论文文件",
-                                         bg=PANEL, fg=MUTED, font=F_FOOT)
-        self._file_status_lbl.pack(side="left", pady=(10, 12))
+        # 选择状态：论文 / 模板 各自一行，选中后打对号
+        self._thesis_dot = tk.Label(card, text="○", bg=PANEL, fg=MUTED, font=F_FOOT)
+        self._thesis_dot.pack(side="left", padx=(14, 6), pady=(10, 2))
+        self._thesis_lbl = tk.Label(card, text="未选择论文", bg=PANEL, fg=MUTED, font=F_FOOT)
+        self._thesis_lbl.pack(side="left", pady=(10, 2))
+        self._tpl_dot = tk.Label(card, text="○", bg=PANEL, fg=MUTED, font=F_FOOT)
+        self._tpl_dot.pack(side="left", padx=(14, 6), pady=(2, 12))
+        self._tpl_lbl = tk.Label(card, text="模板未选（可选）", bg=PANEL, fg=MUTED, font=F_FOOT)
+        self._tpl_lbl.pack(side="left", pady=(2, 12))
 
         # 画像状态（提取后显示）
         self.profile_box = tk.Frame(card, bg="#f0f3ec",
@@ -447,9 +452,10 @@ class App:
         tl.pack(fill="x")
         tk.Label(tl, text=title, bg="#ffffff", fg=INK, font=F_SUBTITLE).pack(side="left")
         tk.Label(tl, text=" " + mark, bg="#ffffff", fg=mark_color, font=F_FOOT).pack(side="left")
-        tk.Label(txt, text=desc, bg="#ffffff", fg=MUTED, font=F_FOOT).pack(anchor="w")
+        name_lbl = tk.Label(txt, text=desc, bg="#ffffff", fg=MUTED, font=F_FOOT)
+        name_lbl.pack(anchor="w")
         ttk.Button(row, text=btn_text, style="Ghost.TButton", command=cmd).pack(side="right")
-        return box
+        return box, name_lbl
 
     # --------------------------------------------------------- right panel
     def _build_right(self, parent):
@@ -595,8 +601,9 @@ class App:
             filetypes=[("Word 文档", "*.docx *.doc *.wps"), ("所有文件", "*.*")])
         if p:
             self.thesis_path.set(p)
-            self._file_status_dot.config(fg=OKC)
-            self._file_status_lbl.config(text="已选择：" + os.path.basename(p), fg=INK)
+            self._thesis_name.config(text=os.path.basename(p), fg=INK)
+            self._thesis_dot.config(text="✓", fg=OKC)
+            self._thesis_lbl.config(text="论文已选择", fg=INK)
 
     def _pick_template(self):
         p = filedialog.askopenfilename(
@@ -604,9 +611,9 @@ class App:
             filetypes=[("Word 文档", "*.docx *.doc *.wps"), ("所有文件", "*.*")])
         if p:
             self.template_path.set(p)
-            if not self.thesis_path.get().strip():
-                self._file_status_dot.config(fg=OKC)
-                self._file_status_lbl.config(text="已选择：" + os.path.basename(p), fg=INK)
+            self._template_name.config(text=os.path.basename(p), fg=INK)
+            self._tpl_dot.config(text="✓", fg=OKC)
+            self._tpl_lbl.config(text="模板已选择", fg=INK)
 
     def _clear_profile(self):
         self.profile_path.set("")
@@ -653,10 +660,10 @@ class App:
             base = _base_no_ext(src)
             dst = filedialog.asksaveasfilename(
                 title="选择检查报告保存位置",
-                initialfile=os.path.basename(base) + "_格式检查报告.md",
+                initialfile=os.path.basename(base) + "_格式检查报告.docx",
                 initialdir=os.path.dirname(base) or None,
-                defaultextension=".md",
-                filetypes=[("Markdown 报告", "*.md"), ("所有文件", "*.*")])
+                defaultextension=".docx",
+                filetypes=[("Word 文档", "*.docx")])
             if not dst:
                 return
 
@@ -725,10 +732,14 @@ class App:
         if profile is None:
             self.profile_path.set("")
             return None
-        ok, edits = self._ask_profile_confirm(profile)
-        if not ok:
-            self.profile_path.set("")
-            return None
+        # 提取内容几乎为空（≤2 行）时直接使用，不弹空白确认页；有实质要求才让客户核对
+        if len(_profile_summary(profile)) <= 2:
+            ok, edits = True, []
+        else:
+            ok, edits = self._ask_profile_confirm(profile)
+            if not ok:
+                self.profile_path.set("")
+                return None
         if edits:
             for path_keys, value in edits:
                 _deep_set(profile, path_keys, value)
@@ -800,13 +811,16 @@ class App:
         tk.Label(top, text="如需修正，直接修改下列项目（留空表示保持提取结果）",
                  bg=PAPER, fg=ACCENT, font=F_SMALL).pack(anchor="w", padx=18, pady=(8, 2))
 
-        canvas = tk.Canvas(top, bg=PAPER, highlightthickness=0)
-        vbar = ttk.Scrollbar(top, orient="vertical", command=canvas.yview)
+        # 表单区：canvas 与滚动条同在一个 frame 内，滚动条贴右侧整个高度（不沉到右下角）
+        form_area = tk.Frame(top, bg=PAPER)
+        form_area.pack(fill="both", expand=True, padx=(18, 0), pady=3)
+        canvas = tk.Canvas(form_area, bg=PAPER, highlightthickness=0)
+        vbar = ttk.Scrollbar(form_area, orient="vertical", command=canvas.yview)
         form = tk.Frame(canvas, bg=PAPER)
         form.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=form, anchor="nw")
         canvas.configure(yscrollcommand=vbar.set)
-        canvas.pack(fill="both", expand=True, padx=(18, 0), pady=3)
+        canvas.pack(side="left", fill="both", expand=True)
         vbar.pack(side="right", fill="y")
 
         entries = {}
@@ -820,6 +834,14 @@ class App:
                                   values=list(ALIGN_DISPLAY.values()), state="readonly")
                 cb.grid(row=i, column=1, sticky="w", pady=3)
                 entries[i] = (candidates, var, "align")
+            elif kind == "ref":
+                has_ref = bool(cur)
+                var = tk.StringVar(value="已提取" if has_ref else "未提取（按通用规范检查）")
+                tk.Entry(form, textvariable=var, width=28, font=F_SMALL,
+                         relief="flat", bd=0, bg=PAPER, state="disabled",
+                         disabledforeground=OKC if has_ref else MUTED).grid(
+                    row=i, column=1, sticky="w", pady=3)
+                entries[i] = (candidates, var, "ref")
             else:
                 var = tk.StringVar(value=cur)
                 tk.Entry(form, textvariable=var, width=22, font=F_SMALL,
@@ -829,6 +851,8 @@ class App:
         def on_confirm():
             edits = []
             for (candidates, var, kind) in entries.values():
+                if kind == "ref":
+                    continue  # 参考文献格式为只读提示，不参与修改
                 text = var.get().strip()
                 if not text:
                     continue
@@ -862,25 +886,27 @@ class App:
         if out:
             self._debug("画像已保存：" + out)
 
-    def _do_check(self, src, docx_path, out_md=None):
-        if not out_md:
+    def _do_check(self, src, docx_path, out_docx=None):
+        if not out_docx:
             base = _base_no_ext(src)
-            out_md = base + "_格式检查报告.md"
+            out_docx = base + "_格式检查报告.docx"
         profile = self._ensure_profile_ready()
-        report = engine.run_check(docx_path, profile_path=profile, out_md=out_md)
+        report = engine.run_check(docx_path, profile_path=profile)
+        engine.md_to_docx(report, out_docx)
         self._debug(report)
-        self.root.after(0, lambda: self._show_check_done(out_md))
+        self.root.after(0, lambda: self._show_check_done(out_docx))
 
     def _do_fix(self, src, docx_path, dst):
         base_dst = _base_no_ext(dst)
         rep = base_dst + "_修改报告.docx"
-        chk = base_dst + "_检查报告.md"
+        chk = base_dst + "_检查报告.docx"
         profile = self._ensure_profile_ready()
         report = engine.run_fix_headings(
             docx_path, dst, profile_path=profile,
             report_docx=rep, add_comments=True)
         self._debug(report)
-        check_report = engine.run_check(dst, profile_path=profile, out_md=chk)
+        check_report = engine.run_check(dst, profile_path=profile)
+        engine.md_to_docx(check_report, chk)
         self._debug(check_report)
         self.root.after(0, lambda: self._show_fix_done(dst, chk, rep))
 
@@ -951,8 +977,12 @@ class App:
         self.thesis_path.set("")
         self.template_path.set("")
         self.profile_path.set("")
-        self._file_status_dot.config(fg="#b8b0a0")
-        self._file_status_lbl.config(text="未选择论文文件", fg=MUTED)
+        self._thesis_name.config(text="Word 文档 .docx / .doc / .wps", fg=MUTED)
+        self._template_name.config(text="用于按学校要求检查 / 修正，更贴合要求", fg=MUTED)
+        self._thesis_dot.config(text="○", fg=MUTED)
+        self._thesis_lbl.config(text="未选择论文", fg=MUTED)
+        self._tpl_dot.config(text="○", fg=MUTED)
+        self._tpl_lbl.config(text="模板未选（可选）", fg=MUTED)
         self._update_profile_box()
         self._set_status("请按步骤操作", MUTED)
         self._set_bar("idle")
