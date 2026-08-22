@@ -294,6 +294,77 @@ def extract(path):
     }
 
 
+def profile_summary_block(profile):
+    """把模板画像关键要素转成 Markdown 摘要块（模板驱动诊断/修改报告开头用）。
+
+    直接回答"从学校模板提取到了什么"：模板名、批注条数、各级标题样式 ID 与
+    字体字号、正文要求、页边距、参考文献。画像为空（无标准标题样式且批注未写
+    明要求）时给出明确警告，避免"静默退化为通用规范"造成客户困惑。
+    """
+    if not profile:
+        return ("⚠️ **未使用学校模板画像**：本次按【通用规范】处理。\n"
+                "> 如需按学校模板驱动，请在第①步选择学校模板并重新提取。\n")
+    L = []
+    src = profile.get("source") or "（未知）"
+    n_cmt = profile.get("comment_count", 0)
+    hs = profile.get("headingStyles") or {}
+    levels = profile.get("levels") or {}
+    L.append(f"### 学校模板画像摘要（来源：`{src}`）")
+    L.append(f"> 批注 {n_cmt} 条 ｜ 标题样式 {len(hs)} 级 ｜ per-level 要素 {len(levels)} 组")
+
+    def _pt(v):
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            return v
+        # 半磅（OOXML sz）转磅显示；20 以上视为半磅（小四=24 半磅等）
+        return ("%.1f" % (fv / 2.0)).rstrip("0").rstrip(".") if fv > 20 else ("%g" % fv)
+
+    _lvl_names = {"1": "一级标题", "2": "二级标题", "3": "三级标题"}
+    for lvl in ("1", "2", "3"):
+        h = hs.get(lvl) or {}
+        ls = levels.get(lvl) or {}
+        sid = h.get("styleId") or ""
+        font = ls.get("zh_font") or ls.get("font") or h.get("font") or ""
+        sz = ls.get("size") or ls.get("sz") or h.get("size") or ""
+        al = ls.get("align") or ""
+        _frag = []
+        if sid:
+            _frag.append("样式 `%s`" % sid)
+        else:
+            _frag.append("样式（未提取）")
+        _frag.append("字体 %s" % (font or "—"))
+        _frag.append("字号 %s" % (_pt(sz) if sz else "—"))
+        if al:
+            _frag.append("对齐 %s" % al)
+        L.append("- %s L%s：%s" % (_lvl_names.get(lvl, lvl), lvl, " ｜ ".join(_frag)))
+    b = levels.get("body") or {}
+    _bf = []
+    _bf.append("字体 %s" % (b.get("zh_font") or b.get("font") or "—"))
+    _bf.append("字号 %s" % (_pt(b.get("size") or b.get("sz")) if (b.get("size") or b.get("sz")) else "—"))
+    _bf.append("首行缩进 %s" % (b.get("indent_chars") or b.get("firstLineChars") or "—"))
+    _bf.append("行距 %s" % (b.get("line_val") or b.get("line") or "—"))
+    L.append("- 正文：%s" % " ｜ ".join(_bf))
+    pg = profile.get("page") or {}
+    if pg:
+        def _cm(v):
+            try:
+                return "%.2fcm" % (float(v) / 567.0)
+            except (TypeError, ValueError):
+                return str(v)
+        L.append("- 页边距：上 %s ｜ 下 %s ｜ 左 %s ｜ 右 %s" % (
+            _cm(pg.get("top")), _cm(pg.get("bottom")), _cm(pg.get("left")), _cm(pg.get("right"))))
+    refs = profile.get("refExample") or []
+    _has_ref = bool(refs) or bool(levels.get("reference")) or bool((profile.get("spec") or {}).get("reference"))
+    L.append("- 参考文献格式：%s" % ("已提取（%d 条例）" % len(refs) if _has_ref else "未提取"))
+    if not hs and not levels:
+        L.append("")
+        L.append("⚠️ **该模板未提取到格式要求**（无标准标题样式，且批注未写明要求）。")
+        L.append("> 本次修正/检查将退化为【通用规范】，可能无法满足学校精确要求。")
+        L.append("> 建议：① 确认模板是 Word 文档且内含标题样式或批注；② 换用学校官方模板文件重试。")
+    return "\n".join(L) + "\n"
+
+
 def _build_spec(comment_specs):
     """把 extract_comment_specs 的输出整理为 profile 的 spec 段（批注为准）。"""
     cats = comment_specs.get("cats", {})
