@@ -33,6 +33,7 @@ if HERE not in sys.path:
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+import tkinter.font as tkfont
 
 from . import engine, license
 
@@ -56,16 +57,48 @@ ERRC    = "#a0402f"   # 出错（朱红）
 RUN     = ACCENT      # 处理中（黛蓝）
 
 # 字体：标题 / 章节 / 状态用楷体（KaiTi，文艺调性），正文 / 按钮 / 页脚用微软雅黑（清晰）
-F_TITLE = ("KaiTi", 20, "bold")            # 主标题 20 号（楷体）
-F_SUB   = ("Microsoft YaHei", 12)          # 副标题 12 号
-F_HDR   = ("KaiTi", 13, "bold")            # 章节标题 13 号（楷体）
-F_BODY  = ("Microsoft YaHei", 12)          # 正文 / 步骤说明 12 号
-F_SMALL = ("Microsoft YaHei", 10)          # 底部提示 / 次要 10 号
-F_BTN   = ("Microsoft YaHei", 12, "bold")  # 按钮 12 号
-F_STAT  = ("KaiTi", 12)                    # 状态文字 12 号（楷体）
-F_SUBTITLE = ("Microsoft YaHei", 11)        # 副标题 / 元信息 11 号
-F_CARD_HDR = ("KaiTi", 13, "bold")         # 卡片标题 13 号（楷体）
-F_FOOT     = ("Microsoft YaHei", 11)        # 状态栏 / 页脚 11 号
+# 运行时由 _init_fonts() 变成 tkfont.Font 命名对象（name -> Font），随窗口大小整体缩放，
+# 任何 widget / ttk style 引用 F_XXX 都会自动级联更新，保证"窗口拉大内容跟着变大"。
+_FONT_BASE = {
+    "F_TITLE":      ("KaiTi", 20, "bold"),      # 主标题（楷体）
+    "F_SUB":        ("Microsoft YaHei", 12),    # 副标题
+    "F_HDR":        ("KaiTi", 13, "bold"),      # 章节标题（楷体）
+    "F_BODY":       ("Microsoft YaHei", 12),    # 正文 / 步骤说明
+    "F_SMALL":      ("Microsoft YaHei", 10),    # 底部提示 / 次要
+    "F_BTN":        ("Microsoft YaHei", 12, "bold"),  # 按钮
+    "F_STAT":       ("KaiTi", 12),              # 状态文字（楷体）
+    "F_SUBTITLE":   ("Microsoft YaHei", 11),    # 元信息
+    "F_CARD_HDR":   ("KaiTi", 13, "bold"),      # 卡片标题（楷体）
+    "F_FOOT":       ("Microsoft YaHei", 11),    # 状态栏 / 页脚
+    "F_MONO":       ("Consolas", 9),            # 机器码 / 离线码（等宽）
+    "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
+}
+_FONTS = {}      # name -> (Font, base_size)
+_CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.5）
+BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
+
+def _init_fonts(root):
+    """在 root 创建后调用：把 F_XXX 全局名替换为可缩放的 Font 命名对象。"""
+    for name, spec in _FONT_BASE.items():
+        kw = {"family": spec[0], "size": spec[1]}
+        if len(spec) > 2:
+            kw["weight"] = spec[2]
+        f = tkfont.Font(root=root, **kw)
+        _FONTS[name] = (f, spec[1])
+        globals()[name] = f
+
+def _apply_scale(factor):
+    """按宽度因子缩放全部字体字号（下限 9pt 保证可读，上限由 1.5 钳制）。"""
+    global _CUR_SCALE
+    factor = max(0.8, min(1.5, factor))
+    _CUR_SCALE = factor
+    for f, base in _FONTS.values():
+        f.configure(size=max(9, int(round(base * factor))))
+
+def _geo(w, h):
+    """弹窗固定尺寸按当前缩放比例换算，避免字体变大后内容溢出。"""
+    s = _CUR_SCALE
+    return "%dx%d" % (max(420, int(w * s)), max(380, int(h * s)))
 
 # 页边距字段：编辑厘米值时同步写 twips（top/bottom/left/right），兼容两套读取方
 _MARGIN_TWIPS = {
@@ -242,6 +275,10 @@ class App:
         except Exception:
             pass
 
+        # 随窗口缩放自适应：监听尺寸变化，按宽度比例整体缩放字体
+        self._last_scale = None
+        self.root.bind("<Configure>", self._on_resize)
+
         self.thesis_path = tk.StringVar()
         self.template_path = tk.StringVar()
         self.profile_path = tk.StringVar()
@@ -259,6 +296,20 @@ class App:
 
         self._build_style()
         self._build_widgets()
+
+    # -------------------------------------------------- 窗口缩放自适应
+    def _on_resize(self, _evt=None):
+        try:
+            w = self.root.winfo_width()
+        except Exception:
+            return
+        if w < 60:
+            return
+        factor = w / BASE_W
+        if self._last_scale is not None and abs(factor - self._last_scale) < 0.02:
+            return
+        self._last_scale = factor
+        _apply_scale(factor)
 
     # ------------------------------------------------------------- style
     def _build_style(self):
@@ -378,7 +429,7 @@ class App:
         row = tk.Frame(box, bg="#ffffff")
         row.pack(fill="x", padx=10, pady=8)
         ic = tk.Label(row, text=icon, bg="#e8f0f6", fg=ACCENT,
-                      font=("Microsoft YaHei", 12, "bold"), padx=9, pady=5)
+                      font=F_BTN, padx=9, pady=5)
         ic.pack(side="left", padx=(0, 8))
         txt = tk.Frame(row, bg="#ffffff")
         txt.pack(side="left", fill="x", expand=True)
@@ -682,11 +733,11 @@ class App:
         top.configure(bg=PAPER)
         top.transient(self.root)
         top.grab_set()
-        top.geometry("620x620+%d+%d" % (self.root.winfo_rootx() + 90,
-                                        self.root.winfo_rooty() + 30))
+        top.geometry(_geo(620, 620) + "+%d+%d" % (self.root.winfo_rootx() + 90,
+                                                  self.root.winfo_rooty() + 30))
 
         tk.Label(top, text="已提取出学校模板的格式要求", bg=PAPER, fg=INK,
-                 font=("KaiTi", 14, "bold")).pack(pady=(14, 2))
+                 font=F_DIALOG_TITLE).pack(pady=(14, 2))
         tk.Label(top, text="请核对是否与学校规定一致；如有不准，可直接修改后确认。",
                  bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(0, 6))
 
@@ -875,7 +926,7 @@ def show_activation(root):
     top.title("激活 · 论文格式医生")
     top.configure(bg=PAPER)
     top.resizable(False, False)
-    top.geometry("600x550")
+    top.geometry(_geo(600, 550))
 
     tk.Label(top, text="激 活 论 文 格 式 医 生", bg=PAPER, fg=INK,
              font=F_TITLE).pack(pady=(18, 4))
@@ -944,14 +995,14 @@ def show_activation(root):
 
     tk.Label(top, text="— 以下为特殊情形使用 —", bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(10, 4))
     mc = license.get_machine_code()
-    tk.Label(top, text="本机机器码：" + mc, bg=PAPER, fg=MUTED, font=("Consolas", 9)).pack()
+    tk.Label(top, text="本机机器码：" + mc, bg=PAPER, fg=MUTED, font=F_MONO).pack()
     ttk.Button(top, text="复制机器码", style="Ghost.TButton",
                command=lambda: top.clipboard_append(mc)).pack(pady=(3, 6))
 
     off_var = tk.StringVar()
     tk.Label(top, text="离线激活码（网络不通时，联系客服获取）：", bg=PAPER, fg=MUTED,
              font=F_SMALL).pack(pady=(4, 2))
-    tk.Entry(top, textvariable=off_var, width=46, font=("Consolas", 9),
+    tk.Entry(top, textvariable=off_var, width=46, font=F_MONO,
              relief="solid", bd=1).pack(pady=(2, 4))
 
     def do_offline():
@@ -987,6 +1038,7 @@ def main():
         except Exception:
             pass
     root = tk.Tk()
+    _init_fonts(root)
     root.withdraw()
     if not license.check_local_valid():
         if not show_activation(root):
