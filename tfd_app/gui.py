@@ -77,7 +77,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.43"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.44"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -1094,7 +1094,7 @@ class App:
         # 主交付物：修正后的论文 + 修改明细报告（run_fix_headings 内部已写盘）
         report = engine.run_fix_headings(
             docx_path, dst, profile_path=profile,
-            report_docx=rep, add_comments=False)
+            report_docx=rep, add_comments=True)
         self._debug(report)
         # 修改明细报告若因引擎内报告环节异常未落盘，置空（主交付物已修正论文不受影响）
         if rep and not os.path.isfile(rep):
