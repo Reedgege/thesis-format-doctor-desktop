@@ -74,9 +74,9 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.30"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.31"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
-_CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.5）
+_CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
 
 def _init_fonts(root):
@@ -90,9 +90,9 @@ def _init_fonts(root):
         globals()[name] = f
 
 def _apply_scale(factor):
-    """按宽度因子缩放全部字体字号（下限 9pt 保证可读，上限由 1.5 钳制）。"""
+    """按宽度因子缩放全部字体字号（下限 9pt 保证可读；上限 1.0：窗口拉大不放大字体）。"""
     global _CUR_SCALE
-    factor = max(0.8, min(1.5, factor))
+    factor = max(0.8, min(1.0, factor))
     _CUR_SCALE = factor
     for f, base in _FONTS.values():
         f.configure(size=max(9, int(round(base * factor))))
@@ -353,8 +353,8 @@ class App:
         # 主体两栏（文件选择 | 处理步骤）
         main = tk.Frame(self.root, bg=PAPER)
         main.pack(fill="both", expand=True, padx=20, pady=14)
-        main.columnconfigure(0, weight=3)
-        main.columnconfigure(1, weight=4)
+        main.columnconfigure(0, weight=1)
+        main.columnconfigure(1, weight=1)
         main.rowconfigure(0, weight=1)
         left = tk.Frame(main, bg=PAPER)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
