@@ -77,7 +77,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.45"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.46"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -445,6 +445,20 @@ class App:
         self._template_box, self._template_name = self._file_row(
             card, "模", "学校模板", "可选", MUTED,
             "用于按学校要求检查 / 修正，更贴合要求", "选择…", self._pick_template)
+
+        # v1.3.46：模板驱动说明常驻提示（防止客户上传无批注模板造成误解，减少纠纷）
+        tpl_note = tk.Frame(card, bg="#fdf3e7", highlightthickness=1,
+                            highlightbackground="#e6c794")
+        tpl_note.pack(fill="x", padx=14, pady=(4, 2))
+        tk.Label(tpl_note, text="⚠ 模板驱动：以学校模板【批注】写明的格式要求为准"
+                                "（批注优先于样式定义）。",
+                 bg="#fdf3e7", fg="#8a5a1a", font=F_SMALL,
+                 justify="left", anchor="w").pack(fill="x", padx=8, pady=(5, 1))
+        tk.Label(tpl_note, text="请优先使用学校官方模板（通常批注中写明了格式要求）；"
+                                "若模板无批注，将按模板样式定义 / 通用规范处理，"
+                                "可能与学校要求有出入。",
+                 bg="#fdf3e7", fg="#8a5a1a", font=F_FOOT,
+                 justify="left", anchor="w", wraplength=430).pack(fill="x", padx=8, pady=(0, 5))
 
         # 底部选择状态
         # 选择状态：论文 / 模板 上下两行、左对齐；选中后打对号
@@ -910,6 +924,25 @@ class App:
                  font=F_DIALOG_TITLE).pack(pady=(14, 2))
         tk.Label(top, text="请核对是否与学校规定一致；如有不准，可直接修改后确认。",
                  bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(0, 6))
+
+        # v1.3.46：批注来源提示——有批注=绿色"以批注为准"；无批注=红色警告（防误解、减纠纷）
+        _n_cmt = int((profile or {}).get("comment_count", 0) or 0)
+        if _n_cmt > 0:
+            src_note = tk.Frame(top, bg="#eef4ea", highlightthickness=1,
+                                highlightbackground="#b9cdaa")
+            src_txt = "✔ 已读取学校模板批注 %d 条 —— 以下要求以【批注】为准（最权威）。" % _n_cmt
+            src_fg = "#3f6b35"
+        else:
+            src_note = tk.Frame(top, bg="#fbeae8", highlightthickness=1,
+                                highlightbackground="#e0b4ae")
+            src_txt = ("⚠ 该模板【未检测到批注】。学校批注是最权威的格式要求；"
+                       "无批注时以下要求来自模板样式定义 / 通用规范，"
+                       "可能与学校规定有出入，请仔细核对后再确认。")
+            src_fg = "#9e3b30"
+        src_note.pack(fill="x", padx=16, pady=(0, 6))
+        tk.Label(src_note, text=src_txt, bg=src_note.cget("bg"), fg=src_fg,
+                 font=F_SMALL, justify="left", anchor="w",
+                 wraplength=560).pack(fill="x", padx=10, pady=6)
 
         sum_f = tk.Frame(top, bg=PANEL, highlightthickness=1, highlightbackground=LINE)
         sum_f.pack(fill="x", padx=16, pady=3)
