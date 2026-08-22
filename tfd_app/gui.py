@@ -76,7 +76,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.35"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.36"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -318,6 +318,7 @@ class App:
         self.status_var = tk.StringVar(value="请按步骤操作")
         self.running = False
         self._dialog_open = False   # 保存对话框打开期间防重复弹窗
+        self._profile_confirmed = False  # 画像是否已被客户确认（检查/修正前弹出确认页）
         self._errored = False
         self._msgs = []
         self.step_defs = [("profile", "提取学校模板要求"),
@@ -683,7 +684,7 @@ class App:
             messagebox.showerror("缺少输入", "请先选择“待处理论文”。")
             return
 
-        # 弹保存对话框期间锁住按钮，避免快速连点弹出多个对话框
+        # 弹对话框期间锁住按钮，避免快速连点弹出多个对话框
         self._dialog_open = True
         try:
             dst = None
@@ -695,17 +696,9 @@ class App:
                     initialdir=os.path.dirname(base) or None,
                     defaultextension=".docx",
                     filetypes=[("Word 文档", "*.docx")])
-            elif mode == "check":
-                base = _base_no_ext(src)
-                dst = filedialog.asksaveasfilename(
-                    title="选择检查报告保存位置",
-                    initialfile=os.path.basename(base) + "_格式检查报告.docx",
-                    initialdir=os.path.dirname(base) or None,
-                    defaultextension=".docx",
-                    filetypes=[("Word 文档", "*.docx")])
         finally:
             self._dialog_open = False
-        if mode in ("fix", "check") and not dst:
+        if mode == "fix" and not dst:
             return
 
         self._errored = False
@@ -726,15 +719,28 @@ class App:
         try:
             if mode == "profile":
                 self._do_profile(src)
+                self.root.after(0, lambda: self._on_step_done(idx, mode))
             else:
                 docx_path, note = engine.normalize_input(src)
                 if note:
                     self._debug(note)
                 if mode == "check":
-                    self._do_check(src, docx_path, dst)
+                    # 第二步：先在「学校模板要求」确认窗核对/修改（修改写回画像），
+                    # 确认后才开始检查；保存报告放到检查完成后由主线程弹框（_save_check_report）。
+                    confirmed = self._confirm_profile_if_needed()
+                    if confirmed is None:
+                        self.profile_path.set("")   # 客户放弃使用画像 → 按通用规范检查
+                    report = self._do_check(src, docx_path)
+                    self.root.after(0, lambda: self._save_check_report(report, idx))
                 elif mode == "fix":
+                    # 修正前同样先确认/修改画像（第一次进修正时）
+                    confirmed = self._confirm_profile_if_needed()
+                    if confirmed is None:
+                        self.profile_path.set("")
                     self._do_fix(src, docx_path, dst)
-            self.root.after(0, lambda: self._on_step_done(idx, mode))
+                    self.root.after(0, lambda: self._on_step_done(idx, mode))
+                    self._do_fix(src, docx_path, dst)
+                    self.root.after(0, lambda: self._on_step_done(idx, mode))
         except Exception as e:
             self._debug("[错误] " + str(e))
             self.root.after(0, lambda: self._on_step_error(idx, mode, str(e)))
@@ -773,27 +779,10 @@ class App:
         if profile is None:
             self.profile_path.set("")
             return None
-        # 提取内容几乎为空（≤2 行）时直接使用，不弹空白确认页；有实质要求才让客户核对
-        if len(_profile_summary(profile)) <= 2:
-            ok, edits = True, []
-        else:
-            ok, edits = self._ask_profile_confirm(profile)
-            if not ok:
-                self.profile_path.set("")
-                return None
-        if edits:
-            for path_keys, value in edits:
-                _deep_set(profile, path_keys, value)
-                twips_key = _MARGIN_TWIPS.get(tuple(path_keys))
-                if twips_key:
-                    try:
-                        _deep_set(profile, ("spec", "page", twips_key),
-                                  str(int(float(value) * _TWIPS_PER_CM)))
-                    except (ValueError, TypeError):
-                        pass
-            with open(out, "w", encoding="utf-8") as f:
-                json.dump(profile, f, ensure_ascii=False, indent=2)
+        # 提取成功先不弹确认页：确认页挪到「检查/修正」步骤执行前统一弹出，
+        # 客户在真正处理前核对/修改（修改会写回画像并生效）。
         self.profile_path.set(out)
+        self._profile_confirmed = False
         self.root.after(0, self._update_profile_box)
         return out
 
@@ -805,6 +794,41 @@ class App:
         if t and os.path.isfile(t):
             return self._extract_profile(t)
         return None
+
+    def _confirm_profile_if_needed(self):
+        """检查/修正前：若画像存在且尚未确认，弹「学校模板要求」确认窗（可修改）。
+
+        客户修改的字段会写回画像 json，后续检查/修正均按修改后的要求执行。
+        返回画像路径；客户选择“放弃”时返回 None（本次按通用规范处理）。
+        """
+        p = self._ensure_profile_ready()
+        if not p or not os.path.isfile(p) or self._profile_confirmed:
+            return p
+        try:
+            with open(p, encoding="utf-8") as f:
+                profile = json.load(f)
+        except Exception:
+            return p
+        ok, edits = self._ask_profile_confirm(profile)
+        if not ok:
+            return None
+        if edits:
+            for path_keys, value in edits:
+                _deep_set(profile, path_keys, value)
+                twips_key = _MARGIN_TWIPS.get(tuple(path_keys))
+                if twips_key:
+                    try:
+                        _deep_set(profile, ("spec", "page", twips_key),
+                                  str(int(float(value) * _TWIPS_PER_CM)))
+                    except (ValueError, TypeError):
+                        pass
+            try:
+                with open(p, "w", encoding="utf-8") as f:
+                    json.dump(profile, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+        self._profile_confirmed = True
+        return p
 
     def _ask_profile_confirm(self, profile):
         ev = threading.Event()
@@ -930,15 +954,32 @@ class App:
         if out:
             self._debug("画像已保存：" + out)
 
-    def _do_check(self, src, docx_path, out_docx=None):
-        if not out_docx:
-            base = _base_no_ext(src)
-            out_docx = base + "_格式检查报告.docx"
+    def _do_check(self, src, docx_path):
         profile = self._ensure_profile_ready()
         report = engine.run_check(docx_path, profile_path=profile)
-        engine.md_to_docx(report, out_docx)
         self._debug(report)
-        self.root.after(0, lambda: self._show_check_done(out_docx))
+        return report
+
+    def _save_check_report(self, report, idx):
+        """主线程：检查完成后让客户选择保存位置，写入 Word 报告并收尾该步骤。"""
+        base = _base_no_ext(self.thesis_path.get().strip() or "report")
+        dst = filedialog.asksaveasfilename(
+            title="选择检查报告保存位置",
+            initialfile=os.path.basename(base) + "_格式检查报告.docx",
+            initialdir=os.path.dirname(base) or None,
+            defaultextension=".docx",
+            filetypes=[("Word 文档", "*.docx")])
+        if dst:
+            try:
+                engine.md_to_docx(report, dst)
+            except Exception as e:
+                messagebox.showerror("保存失败", str(e))
+                dst = None
+        else:
+            self._debug("客户未选择保存位置，检查报告未落盘")
+        self._on_step_done(idx, "check")
+        if dst:
+            self._show_check_done(dst)
 
     def _do_fix(self, src, docx_path, dst):
         base_dst = _base_no_ext(dst)
@@ -1018,6 +1059,7 @@ class App:
         """“再处理一篇”：回到第 1 步并清空选择。"""
         self.step_index = 0
         self._errored = False
+        self._profile_confirmed = False
         self.thesis_path.set("")
         self.template_path.set("")
         self.profile_path.set("")
