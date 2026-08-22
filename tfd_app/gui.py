@@ -77,7 +77,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.38"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.39"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -324,6 +324,7 @@ class App:
         self._check_report_saved = None   # 第②步检查报告已保存路径
         self._fix_saved = set()           # 第③步修正产出文件已保存路径集合
         self._fix_out = None              # 第③步修正完成后的临时产出 (dst, chk, rep)
+        self._fix_phase = "idle"          # 第③步子状态：idle→fixed→saved（驱动按钮三态）
         self._errored = False
         self._msgs = []
         self.step_defs = [("profile", "提取学校模板要求"),
@@ -569,22 +570,26 @@ class App:
             self._step_title.append(title)
 
     def _refresh_wizard(self):
-        """根据 step_index / _errored 重绘时间线、计数与“下一步”按钮。"""
+        """根据 step_index / _errored / _fix_phase 重绘时间线、计数与按钮三态。"""
         n = len(self.step_defs)
         for i, (mode, label) in enumerate(self.step_defs):
             circ = self._step_circle[i]
             title = self._step_title[i]
             line = self._step_line[i]
-            if i < self.step_index:
+            # 第三步（最后一步）修正完成（fixed/saved）也视为完成态
+            is_done = i < self.step_index or (
+                i == n - 1 and self._fix_phase in ("fixed", "saved"))
+            if is_done:
                 circ.config(bg="#ffffff", fg=OKC, highlightbackground=OKC, text="✔")
                 title.config(fg=INK)
                 if line: line.config(bg=OKC)
+            elif i == self.step_index and self._errored:
+                circ.config(bg="#ffffff", fg=ERRC, highlightbackground=ERRC, text="✕")
+                title.config(fg=INK)
+                if line: line.config(bg="#e3dccb")
             elif i == self.step_index:
-                if self._errored:
-                    circ.config(bg="#ffffff", fg=ERRC, highlightbackground=ERRC, text="✕")
-                else:
-                    circ.config(bg="#ffffff", fg=ACCENT, highlightbackground=ACCENT,
-                               text=str(i + 1))
+                circ.config(bg="#ffffff", fg=ACCENT, highlightbackground=ACCENT,
+                           text=str(i + 1))
                 title.config(fg=INK)
                 if line: line.config(bg="#e3dccb")
             else:
@@ -594,14 +599,30 @@ class App:
                 if line: line.config(bg="#e3dccb")
         self._step_counter.config(text="%d / %d" % (min(self.step_index + 1, n), n))
         if self.step_index >= n:
-            self._next_btn.config(text="再处理一篇", state="normal")
-            self._prev_btn.config(state="disabled")
+            self._next_btn.config(text="再处理一篇", command=self._reset_wizard, state="normal")
+            self._prev_btn.config(text="上一步", state="disabled", command=self._go_prev)
+        elif self.step_index == n - 1:
+            # 第三步：一键修正 → 保存修正后论文 → 完成（由 _fix_phase 驱动）
+            if self._fix_phase == "idle":
+                self._next_btn.config(text="一键修正", command=self._run_step,
+                                      state="disabled" if self.running else "normal")
+                self._prev_btn.config(text="上一步",
+                                      state="disabled" if (self.running or self.step_index == 0) else "normal",
+                                      command=self._go_prev)
+            elif self._fix_phase == "fixed":
+                self._next_btn.config(text="保存修正后论文", command=self._export_fix,
+                                      state="disabled" if self.running else "normal")
+                self._prev_btn.config(text="上一步", state="normal", command=self._go_prev)
+            else:  # saved
+                self._next_btn.config(text="完成", state="disabled")
+                self._prev_btn.config(text="再处理一篇", state="normal",
+                                      command=self._reset_wizard)
         else:
-            label = "一键修正" if self.step_index == n - 1 else "下一步"
-            self._next_btn.config(text=label,
+            self._next_btn.config(text="下一步", command=self._run_step,
                                   state="disabled" if self.running else "normal")
-            self._prev_btn.config(
-                state="disabled" if (self.running or self.step_index == 0) else "normal")
+            self._prev_btn.config(text="上一步",
+                                  state="disabled" if (self.running or self.step_index == 0) else "normal",
+                                  command=self._go_prev)
 
     def _set_bar(self, state, hint=None):
         """底部状态栏：idle / running / done / error。"""
@@ -623,20 +644,35 @@ class App:
         self._step_title[idx].config(fg=INK)
         if self._step_line[idx]:
             self._step_line[idx].config(bg=OKC)
-        self.step_index = idx + 1
-        self._set_status("已完成", OKC)
-        self._set_bar("done")
         if mode == "fix":
-            # 修正已在后台完成，转到主线程让客户选择保存位置（先修正、后导出）
-            self._export_fix()
+            # 第三步：修正完成→进入“保存修正后论文”子状态（先修正、后导出）。
+            # 不前进到“再处理一篇”，按钮由 _fix_phase 驱动为「保存修正后论文」。
+            self._fix_phase = "fixed"
+            self._set_status("修正完成，请点击「保存修正后论文」", OKC)
+            self._set_bar("done")
+        else:
+            self.step_index = idx + 1
+            self._set_status("已完成", OKC)
+            self._set_bar("done")
         self._refresh_wizard()
 
     def _on_step_error(self, idx, mode, err):
         self._errored = True
+        if mode == "fix":
+            self._fix_phase = "idle"
         self._set_status("未能完成，请查看提示", ERRC)
         self._set_bar("error")
         self._refresh_wizard()
-        messagebox.showerror("处理出错", err)
+        title = "处理出错"
+        msg = err
+        if mode == "fix":
+            title = "一键修正失败"
+            log_path = os.path.join(tempfile.gettempdir(), "tfd_fix_error.log")
+            msg = ("一键修正未能完成，论文原文件未被改动。\n\n"
+                   "错误信息：\n%s\n\n"
+                   "完整报错已记录到：\n%s\n\n"
+                   "请把这段信息与该日志文件发给客服，以便定位原因。" % (err, log_path))
+        messagebox.showerror(title, msg)
 
     # --------------------------------------------------------------- picks
     def _pick_input(self):
@@ -665,8 +701,19 @@ class App:
 
     # ---------------------------------------------------------------- run（向导）
     def _go_prev(self):
-        """上一步：回退一个步骤，该步及其后的进度重置为待办，可重新执行。"""
+        """上一步：回退一个步骤，该步及其后的进度重置为待办，可重新执行。
+
+        第三步（修正）内的子状态：先退回“未修正”，停留在第三步便于重新修正，
+        而非跳回检查步骤。
+        """
         if self.running or self.step_index <= 0:
+            return
+        if self.step_index == len(self.step_defs) - 1 and self._fix_phase != "idle":
+            self._fix_phase = "idle"
+            self._errored = False
+            self._set_status("请按步骤操作", MUTED)
+            self._set_bar("idle")
+            self._refresh_wizard()
             return
         self.step_index -= 1
         self._errored = False
@@ -1023,13 +1070,22 @@ class App:
             rep = base_dst + "_修改报告.docx"
             chk = base_dst + "_检查报告.docx"
         profile = self._ensure_profile_ready()
+        # 主交付物：修正后的论文 + 修改明细报告（run_fix_headings 内部已写盘）
         report = engine.run_fix_headings(
             docx_path, dst, profile_path=profile,
             report_docx=rep, add_comments=False)
         self._debug(report)
-        check_report = engine.run_check(dst, profile_path=profile)
-        engine.md_to_docx(check_report, chk)
-        self._debug(check_report)
+        # 修改明细报告若因引擎内报告环节异常未落盘，置空（主交付物已修正论文不受影响）
+        if rep and not os.path.isfile(rep):
+            rep = None
+        # 次要交付物：修正后的检查报告（生成失败不应阻断主交付物）
+        try:
+            check_report = engine.run_check(dst, profile_path=profile)
+            engine.md_to_docx(check_report, chk)
+            self._debug(check_report)
+        except Exception as e:
+            self._debug("[检查报告生成失败，已跳过] " + str(e))
+            chk = None
         # 修正已落到临时文件，结果交给主线程在「修正完成」后导出（先修正、后导出）
         self._fix_out = (dst, chk, rep)
 
@@ -1042,10 +1098,12 @@ class App:
             self._open_folder(out_md)
 
     def _show_fix_done(self, dst, chk, rep):
-        k = self._modal("修正完成",
-                        "已为您保存以下文件：\n\n"
-                        "① 修正后论文：%s\n② 检查报告：%s\n③ 修改报告：%s\n\n"
-                        "全程在本机完成，原文件未改动。" % (dst, chk, rep),
+        lines = ["已为您保存以下文件：\n"]
+        lines.append("① 修正后论文：%s" % dst)
+        lines.append("② 修改报告：%s" % rep)
+        lines.append("③ 检查报告：%s" % (chk if chk else "（本次未生成，可点“再处理一篇”重试）"))
+        lines.append("\n全程在本机完成，原文件未改动。")
+        k = self._modal("修正完成", "\n".join(lines),
                         [("open", "打开所在文件夹"), ("ok", "完成")])
         if k == "open":
             self._open_folder(dst)
@@ -1081,13 +1139,23 @@ class App:
         try:
             base = _base_no_ext(dst)
             shutil.copy(tmp_dst, dst)
-            shutil.copy(rep, base + "_修改报告.docx")
-            shutil.copy(chk, base + "_检查报告.docx")
-            self._fix_saved = {dst, base + "_修改报告.docx", base + "_检查报告.docx"}
+            saved = {dst}
+            if rep:
+                shutil.copy(rep, base + "_修改报告.docx")
+                saved.add(base + "_修改报告.docx")
+            if chk:
+                shutil.copy(chk, base + "_检查报告.docx")
+                saved.add(base + "_检查报告.docx")
+            self._fix_saved = saved
         except Exception as e:
             messagebox.showerror("导出失败", str(e))
             return
-        self._show_fix_done(dst, base + "_检查报告.docx", base + "_修改报告.docx")
+        # 导出成功 → 进入“完成”子状态（按钮变“完成”，上一步变“再处理一篇”）
+        self._fix_phase = "saved"
+        self._set_status("已保存，可再处理一篇", OKC)
+        self._refresh_wizard()
+        self._show_fix_done(dst, (base + "_检查报告.docx") if chk else None,
+                           base + "_修改报告.docx")
 
     def _modal(self, title, text, buttons):
         result = {"v": None}
@@ -1140,6 +1208,7 @@ class App:
         self._check_report_saved = None
         self._fix_saved = set()
         self._fix_out = None
+        self._fix_phase = "idle"
         self.thesis_path.set("")
         self.template_path.set("")
         self.profile_path.set("")
