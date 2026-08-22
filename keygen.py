@@ -15,6 +15,8 @@
 import os
 import sys
 import time
+import hmac
+import hashlib
 
 import tkinter as tk
 from tkinter import messagebox
@@ -23,13 +25,22 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-# 直接加载 license.py（独立文件，无包依赖），开发 / 打包后均可运行，
-# 且避免 PyInstaller 打包时把整个 tfd_app 包（含主程序引擎）拖进来。
-import importlib.util
-_LIC_PATH = os.path.join(HERE, "tfd_app", "license.py")
-_spec = importlib.util.spec_from_file_location("tfd_license", _LIC_PATH)
-lic = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(lic)
+# ---------------------------------------------------------------------------
+# 离线备用码算法（与 tfd_app/license.py 共用同一密钥与签名方式，已内联，
+# 打包后不依赖任何外部文件，避免 onefile 解压时读 license.py 被系统拦截）
+# ---------------------------------------------------------------------------
+_OFFLINE_KEY = "|".join(("tfd", "kami", "offline", "2026", "sign", "v1")).encode("utf-8")
+
+
+def _offline_sign(payload):
+    return hmac.new(_OFFLINE_KEY, payload.encode("utf-8"), hashlib.sha256).hexdigest()[:24]
+
+
+def generate_offline_code(machine_code):
+    """machine_code + 时间戳 + 签名 → 离线码（与主程序 verify_offline_code 兼容）。"""
+    ts = int(time.time())
+    payload = "%s|%d" % (machine_code, ts)
+    return payload + "|" + _offline_sign(payload)
 
 # 学术文艺风配色（简版，与主程序呼应）
 BG = "#f7f3e9"        # 宣纸底
@@ -95,7 +106,7 @@ def build_ui(root):
             messagebox.showwarning("提示", "请先粘贴客户的机器码")
             return
         try:
-            code = lic.generate_offline_code(target)
+            code = generate_offline_code(target)
         except Exception as e:
             messagebox.showerror("生成失败", str(e))
             return
