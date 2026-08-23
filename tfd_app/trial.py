@@ -16,7 +16,7 @@ import json
 import hmac
 import hashlib
 
-from license import LICENSE_DIR, get_machine_code
+from .license import LICENSE_DIR, get_machine_code  # 相对导入：与 gui 同款，打包后可用
 
 # 试用总次数（可调：卖家用）
 TRIAL_LIMIT = 2
@@ -101,7 +101,7 @@ def is_licensed():
 
 # 延迟导入，避免 trial 与 license 循环依赖
 def check_local_valid():
-    import license as _lic
+    from . import license as _lic
     return _lic.check_local_valid()
 
 
