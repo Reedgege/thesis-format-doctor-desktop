@@ -34,6 +34,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
+import trial       # v1.3.56：试用计数（机器码绑定，2 次）
+import watermark   # v1.3.56：试用水印（页眉页脚+正文穿插）
+
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import tkinter.font as tkfont
@@ -78,7 +81,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.55"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.56"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -860,8 +863,12 @@ class App:
                     confirmed = self._confirm_profile_if_needed()
                     if confirmed is None:
                         self.profile_path.set("")
-                    self._do_fix(src, docx_path, dst)
-                    self.root.after(0, lambda: self._on_step_done(idx, mode))
+                    done = self._do_fix(src, docx_path, dst)
+                    if done:
+                        self.root.after(0, lambda: self._on_step_done(idx, mode))
+                    else:
+                        # 试用被拦截（次数用完/取消）：停留在当前步并提示
+                        self.root.after(0, self._on_trial_blocked)
         except Exception as e:
             self._debug("[错误] " + str(e))
             self.root.after(0, lambda: self._on_step_error(idx, mode, str(e)))
@@ -1197,6 +1204,19 @@ class App:
             self._show_check_done(dst)
 
     def _do_fix(self, src, docx_path, dst):
+        # v1.3.56 试用版：未激活时只能试 N 次，输出带水印；用完弹升级引导。
+        # 返回 True=已产出修正；False=被试用拦截（次数用完/客户取消），不进入完成态。
+        licensed = trial.is_licensed()
+        if not licensed:
+            left = trial.trials_left()
+            if left <= 0:
+                self._show_trial_exhausted()   # 主线程弹升级引导
+                return False
+            ok = self._ask_trial_confirm(left)  # 主线程弹"修正前提示"
+            if not ok:
+                return False
+            trial.consume_trial()
+
         # dst 为 None：先产出到临时目录，待修正完成（主线程 _export_fix）再让客户选保存位置。
         if not dst:
             tmp = tempfile.mkdtemp(prefix="tfd_fix_")
@@ -1213,6 +1233,13 @@ class App:
         report = engine.run_fix_headings(
             docx_path, dst, profile_path=profile,
             report_docx=rep, add_comments=True)
+        if not licensed:
+            # 试用版：给修正后的论文加水印，并让客户知道正式版无水印
+            if watermark.apply_watermark(dst):
+                report += ("\n\n> 本预览版带水印（页眉页脚+正文）；"
+                           "激活码解锁后输出无水印正式版，可一键交稿。\n")
+            else:
+                self._debug("[试用水印注入失败，已跳过]")
         self._debug(report)
         # 修改明细报告若因引擎内报告环节异常未落盘，置空（主交付物已修正论文不受影响）
         if rep and not os.path.isfile(rep):
@@ -1227,6 +1254,49 @@ class App:
             chk = None
         # 修正已落到临时文件，结果交给主线程在「修正完成」后导出（先修正、后导出）
         self._fix_out = (dst, chk, rep)
+        return True
+
+    def _ask_trial_confirm(self, left):
+        """修正前提示（worker 线程调用，主线程弹窗，Event 同步）。"""
+        ev = threading.Event()
+        box = {}
+
+        def show():
+            box["ok"] = messagebox.askyesno(
+                "试用版提示",
+                "当前为试用版（本机剩余 %d 次），修正后的论文将带水印，仅作效果预览。\n\n"
+                "正式版输出无水印文档，可一键交稿。\n\n是否继续？" % left,
+                parent=self.root)
+            ev.set()
+
+        self.root.after(0, show)
+        ev.wait(30)
+        return bool(box.get("ok", False))
+
+    def _show_trial_exhausted(self):
+        """试用次数用完：主线程弹升级引导（公众号/卡密通占位）。"""
+        ev = threading.Event()
+        box = {}
+
+        def show():
+            box["v"] = self._modal(
+                "试用次数已用完",
+                "本机试用已满 %d 次。\n\n"
+                "正式版激活后：不限次数修正、输出无水印文档、一键交稿。\n\n"
+                "获取激活码：\n· 卡密通店铺：请关注公众号或联系客服\n· 公众号：【论文格式医生】\n"
+                "（名称注册审核中，敬请关注）" % trial.TRIAL_LIMIT,
+                [("ok", "知道了")])
+            ev.set()
+
+        self.root.after(0, show)
+        ev.wait(30)
+
+    def _on_trial_blocked(self):
+        """试用被拦截（用完/取消）：停留在当前步，给友好提示。"""
+        self._errored = False
+        self._set_status("试用次数已用完，请激活后使用", ERRC)
+        self._set_bar("idle")
+        self._refresh_wizard()
 
     # ------------------------------------------------------------ 确认页
     def _show_check_done(self, out_md):
