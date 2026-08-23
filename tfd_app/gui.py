@@ -86,7 +86,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.75"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.76"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -1080,6 +1080,18 @@ class App:
         canvas.pack(side="left", fill="both", expand=True)
         vbar.pack(side="right", fill="y")
 
+        # v1.3.76：确认页表单滚动区同样支持滚轮（15 个字段，鼠标翻页更顺手）
+        def _form_wheel(e):
+            d = getattr(e, "delta", 0) or 0
+            step = -3 if d > 0 else 3
+            if abs(d) >= 120:
+                step = -int(d / 120) * 3
+            canvas.yview_scroll(step, "units")
+        for w in (canvas, form):
+            w.bind("<MouseWheel>", _form_wheel)
+            w.bind("<Button-4>", _form_wheel)
+            w.bind("<Button-5>", _form_wheel)
+
         entries = {}
         for i, (label, candidates, kind) in enumerate(EDIT_FIELDS):
             tk.Label(form, text=label, bg=PAPER, fg=INK, font=F_SMALL).grid(
@@ -1678,35 +1690,47 @@ def show_activation(root, show_trial=True):
 # 关于 / 帮助 窗口（v1.3.68：品牌署名 + 客服入口 + 主打论文安全·离线）
 # ---------------------------------------------------------------------------
 def _scroll_frame(parent, bg=PAPER):
-    """可滚动容器：Canvas + 常驻滚动条 + 滚轮/拖拽支持，内部宽度跟随画布。"""
+    """可滚动容器：Canvas + 常驻滚动条，滚轮/拖拽/箭头均可用，内部宽度跟随画布。"""
     cv = tk.Canvas(parent, bg=bg, highlightthickness=0)
     sb = ttk.Scrollbar(parent, orient="vertical", command=cv.yview)
     inner = tk.Frame(cv, bg=bg)
     win = cv.create_window((0, 0), window=inner, anchor="nw")
 
-    def _refresh(event=None):
+    def _sync(event=None):
+        # 先让内部布局稳定（wraplength 重排等），再按实际内容刷新滚动区域；
+        # 否则 bbox 高度滞后，滑块会显示成满格"一条"、拖不动（只能点箭头）。
+        try:
+            cv.update_idletasks()
+        except Exception:
+            pass
         cv.configure(scrollregion=cv.bbox("all"))
+
+    def _on_cv(event):
+        cv.itemconfig(win, width=event.width)
+        _sync()
 
     def _wheel(event):
         if getattr(event, "num", None) == 4:
-            cv.yview_scroll(-1, "units")
+            cv.yview_scroll(-3, "units")
         elif getattr(event, "num", None) == 5:
-            cv.yview_scroll(1, "units")
+            cv.yview_scroll(3, "units")
         else:
             d = getattr(event, "delta", 0) or 0
-            step = -1 if d > 0 else 1
+            step = -3 if d > 0 else 3
             if abs(d) >= 120:
-                step = -int(d / 120)
+                step = -int(d / 120) * 3
             cv.yview_scroll(step, "units")
 
-    inner.bind("<Configure>", _refresh)
-    cv.bind("<Configure>", lambda e: cv.itemconfig(win, width=e.width))
+    inner.bind("<Configure>", _sync)
+    cv.bind("<Configure>", _on_cv)
     cv.configure(yscrollcommand=sb.set)
     cv.grid(row=0, column=0, sticky="nsew")
     sb.grid(row=0, column=1, sticky="ns")
     parent.rowconfigure(0, weight=1)
     parent.columnconfigure(0, weight=1)
-    # 滚轮绑定到画布与内部帧（子控件事件会冒泡至此）
+    # 兜底：窗口显示、内容布局稳定后多次刷新滚动范围（滑块大小/上下界限由此决定）
+    parent.after(150, _sync)
+    parent.after(500, _sync)
     for w in (cv, inner):
         w.bind("<MouseWheel>", _wheel)
         w.bind("<Button-4>", _wheel)
@@ -1796,13 +1820,13 @@ def show_help(parent):
     top = tk.Toplevel(parent)
     top.title("使用帮助 · 论文格式医生")
     top.configure(bg=PAPER)
-    top.geometry("760x680")
+    top.geometry("805x680")
     top.resizable(True, True)
-    top.minsize(640, 560)
+    top.minsize(680, 560)
 
     inner = _scroll_frame(top)
     padx = 40
-    wrap = 620
+    wrap = 660
 
     def albl(text, fg, font, nowrap=False, **kw):
         """左对齐文本标签；nowrap=True 固定单行，否则换行宽度跟随窗口。"""
