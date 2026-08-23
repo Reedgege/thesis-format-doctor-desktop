@@ -80,7 +80,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.66"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.67"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -1623,6 +1623,18 @@ def show_activation(root, show_trial=True):
 
     tk.Label(top, text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制 · 合作联系：reedskill@126.com",
              bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(8, 10))
+
+    # v1.3.67：按内容实际所需高度自动伸缩窗口（Tk 自动测量，保证底部版权完整显示不截断），
+    # 仅设"不超过屏幕"上限。之前固定 600/690 高在字体缩放/DPI 差异下会截掉底部内容。
+    try:
+        top.update_idletasks()
+        _req_h = top.winfo_reqheight()
+        _req_w = top.winfo_reqwidth()
+        _w2 = min(max(_req_w, _w), _sw - 60)
+        _h2 = min(max(_req_h, _h), _sh - 120)
+        top.geometry("%dx%d" % (_w2, _h2))
+    except Exception:
+        pass
 
     top.wait_window()
     return result["v"]
