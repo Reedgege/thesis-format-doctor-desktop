@@ -80,7 +80,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.65"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.66"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -1476,7 +1476,7 @@ class App:
         if self.running:
             messagebox.showinfo("正在处理", "上一步还在处理中，请稍候…", parent=self.root)
             return
-        r = show_activation(self.root)
+        r = show_activation(self.root, show_trial=False)
         if r == "ok":
             self._update_trial_badge()
             self._set_status("已激活正式版，感谢支持", OKC)
@@ -1485,8 +1485,11 @@ class App:
             self._set_status("已进入试用模式", MUTED)
 
 
-def show_activation(root):
+def show_activation(root, show_trial=True):
     """激活窗口：卡密通在线激活（主） + 离线备用码（兜底）。
+
+    show_trial: 是否显示"先试用"入口。仅启动时首次弹窗为 True；
+    从主界面激活入口打开时客户已在试用模式，无需再显示（v1.3.66）。
 
     返回：
       "ok"     激活成功；
@@ -1506,7 +1509,9 @@ def show_activation(root):
         _sw, _sh = 1366, 768
     _s = _CUR_SCALE
     _w = max(420, min(int(620 * _s), _sw - 60))
-    _h = max(420, min(int(690 * _s), _sh - 120))
+    # v1.3.66：主界面激活入口无试用区，窗口更矮
+    _base_h = 690 if show_trial else 600
+    _h = max(420, min(int(_base_h * _s), _sh - 120))
     top.geometry("%dx%d" % (_w, _h))
 
     tk.Label(top, text="激 活 论 文 格 式 医 生", bg=PAPER, fg=INK,
@@ -1575,10 +1580,12 @@ def show_activation(root):
     btn_activate.pack(pady=(2, 4))
 
     # v1.3.58：试用入口放在显眼位置（激活按钮正下方，便于未购买客户先体验）
-    ttk.Button(top, text="还没有激活码？先试用（免费 2 次）", style="Ghost.TButton",
-               command=lambda: (result.update(v="trial"), top.destroy())).pack(pady=(4, 2))
-    tk.Label(top, text="试用版可完整体验一键修正，输出带水印且为只读预览；正式版可编辑无水印。",
-             bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=540).pack(pady=(0, 6))
+    # v1.3.66：仅启动时首次弹窗显示；从主界面激活入口打开时客户已在试用模式，无需再显示
+    if show_trial:
+        ttk.Button(top, text="还没有激活码？先试用（免费 2 次）", style="Ghost.TButton",
+                   command=lambda: (result.update(v="trial"), top.destroy())).pack(pady=(4, 2))
+        tk.Label(top, text="试用版可完整体验一键修正，输出带水印且为只读预览；正式版可编辑无水印。",
+                 bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=540).pack(pady=(0, 6))
 
     tk.Label(top, text="— 以下为特殊情形使用 —", bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(8, 4))
     mc = license.get_machine_code()
