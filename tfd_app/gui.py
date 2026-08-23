@@ -80,7 +80,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.58"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.59"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -1497,7 +1497,7 @@ def show_activation(root):
     top.title("激活 · 论文格式医生")
     top.configure(bg=PAPER)
     top.resizable(False, False)
-    top.geometry(_geo(600, 550))
+    top.geometry(_geo(620, 720))
 
     tk.Label(top, text="激 活 论 文 格 式 医 生", bg=PAPER, fg=INK,
              font=F_TITLE).pack(pady=(18, 4))
@@ -1564,6 +1564,12 @@ def show_activation(root):
                command=do_activate)
     btn_activate.pack(pady=(2, 4))
 
+    # v1.3.58：试用入口放在显眼位置（激活按钮正下方，便于未购买客户先体验）
+    ttk.Button(top, text="还没有激活码？先试用（免费 2 次）", style="Ghost.TButton",
+               command=lambda: (result.update(v="trial"), top.destroy())).pack(pady=(4, 2))
+    tk.Label(top, text="试用版可完整体验一键修正，输出带水印；正式版无水印。",
+             bg=PAPER, fg=MUTED, font=F_FOOT).pack(pady=(0, 8))
+
     tk.Label(top, text="— 以下为特殊情形使用 —", bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(10, 4))
     mc = license.get_machine_code()
     tk.Label(top, text="本机机器码：" + mc, bg=PAPER, fg=MUTED, font=F_MONO).pack()
@@ -1591,12 +1597,6 @@ def show_activation(root):
 
     ttk.Button(top, text="使用离线激活码激活", style="Ghost.TButton",
                command=do_offline).pack(pady=(2, 6))
-
-    # v1.3.58：试用入口——未激活也能先用（免费 2 次，输出带水印）
-    ttk.Button(top, text="先试用（暂不激活，免费 2 次）", style="Ghost.TButton",
-               command=lambda: (result.update(v="trial"), top.destroy())).pack(pady=(2, 4))
-    tk.Label(top, text="试用版修正后的论文带水印；正式版无水印。",
-             bg=PAPER, fg=MUTED, font=F_FOOT).pack(pady=(0, 4))
 
     ttk.Button(top, text="退出", command=lambda: top.destroy()).pack(pady=(2, 4))
 
