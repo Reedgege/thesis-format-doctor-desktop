@@ -86,7 +86,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.74"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.75"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -1678,7 +1678,7 @@ def show_activation(root, show_trial=True):
 # 关于 / 帮助 窗口（v1.3.68：品牌署名 + 客服入口 + 主打论文安全·离线）
 # ---------------------------------------------------------------------------
 def _scroll_frame(parent, bg=PAPER):
-    """可滚动容器：Canvas + 自动隐藏滚动条 + 滚轮/拖拽支持，内部宽度跟随画布。"""
+    """可滚动容器：Canvas + 常驻滚动条 + 滚轮/拖拽支持，内部宽度跟随画布。"""
     cv = tk.Canvas(parent, bg=bg, highlightthickness=0)
     sb = ttk.Scrollbar(parent, orient="vertical", command=cv.yview)
     inner = tk.Frame(cv, bg=bg)
@@ -1686,14 +1686,6 @@ def _scroll_frame(parent, bg=PAPER):
 
     def _refresh(event=None):
         cv.configure(scrollregion=cv.bbox("all"))
-        try:
-            bb = cv.bbox("all")
-            if bb and bb[3] > cv.winfo_height() + 2:
-                sb.grid()          # 内容超高 → 显示滚动条
-            else:
-                sb.grid_remove()   # 内容不超高 → 隐藏，保持干净
-        except Exception:
-            pass
 
     def _wheel(event):
         if getattr(event, "num", None) == 4:
@@ -1714,7 +1706,6 @@ def _scroll_frame(parent, bg=PAPER):
     sb.grid(row=0, column=1, sticky="ns")
     parent.rowconfigure(0, weight=1)
     parent.columnconfigure(0, weight=1)
-    sb.grid_remove()  # 默认隐藏，内容超高时再显示
     # 滚轮绑定到画布与内部帧（子控件事件会冒泡至此）
     for w in (cv, inner):
         w.bind("<MouseWheel>", _wheel)
@@ -1738,9 +1729,9 @@ def show_about(parent):
     top = tk.Toplevel(parent)
     top.title("关于 · 论文格式医生")
     top.configure(bg=PAPER)
-    top.geometry("520x680")
+    top.geometry("565x680")
     top.resizable(True, True)
-    top.minsize(480, 560)
+    top.minsize(520, 560)
 
     inner = _scroll_frame(top)
     padx = 44
@@ -1749,7 +1740,7 @@ def show_about(parent):
         """居中文本标签；nowrap=True 固定单行（短信息），否则换行宽度跟随窗口。"""
         opts = dict(bg=PAPER, fg=fg, font=font, justify="center")
         if not nowrap:
-            opts["wraplength"] = 380
+            opts["wraplength"] = 420
         lbl = tk.Label(inner, text=text, **opts)
         if not nowrap:
             _auto_wrap(lbl, inner, padx)
