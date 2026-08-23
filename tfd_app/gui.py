@@ -80,7 +80,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.63"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.64"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -1240,10 +1240,10 @@ class App:
             docx_path, dst, profile_path=profile,
             report_docx=rep, add_comments=True)
         if not licensed:
-            # 试用版：给修正后的论文加水印，并让客户知道正式版无水印
+            # 试用版：给修正后的论文加水印+只读保护，并让客户知道正式版可编辑无水印
             if watermark.apply_watermark(dst):
-                report += ("\n\n> 本预览版带水印（页眉页脚+正文）；"
-                           "激活码解锁后输出无水印正式版，可一键交稿。\n")
+                report += ("\n\n> 本预览版带水印且为【只读】文档（编辑需密码，仅作效果预览）；"
+                           "激活码解锁后输出可编辑无水印正式版，可一键交稿。\n")
             else:
                 self._debug("[试用水印注入失败，已跳过]")
         self._debug(report)
@@ -1270,8 +1270,9 @@ class App:
         def show():
             box["ok"] = messagebox.askyesno(
                 "试用版提示",
-                "当前为试用版（本机剩余 %d 次），修正后的论文将带水印，仅作效果预览。\n\n"
-                "正式版输出无水印文档，可一键交稿。\n\n是否继续？" % left,
+                "当前为试用版（本机剩余 %d 次），修正后的论文将带水印，且为只读预览文档"
+                "（编辑需密码）。\n\n"
+                "正式版输出可编辑无水印文档，可一键交稿。\n\n是否继续？" % left,
                 parent=self.root)
             ev.set()
 
