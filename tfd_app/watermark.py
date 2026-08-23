@@ -11,6 +11,8 @@
 正式版（有激活码）不调用本模块，输出无水印文档。
 """
 import os
+import base64
+import hashlib
 import zipfile
 import xml.etree.ElementTree as ET
 
@@ -38,8 +40,11 @@ ET.register_namespace("wp", WP)
 ET.register_namespace("a", A)
 ET.register_namespace("pic", PIC)
 
-_WM_HEADER = "试用版 · 论文格式医生（正式版无水印）"
-_WM_BODY = "【试用版】论文格式医生 · 一键按学校模板修正格式（正式版无水印）"
+_WM_HEADER = "试用版 · 只读预览 ｜ 论文格式医生 · 正式版可编辑无水印"
+_WM_BODY = "【试用版 · 只读预览】论文格式医生 · 正式版可编辑无水印"
+
+# v1.3.64：只读保护固定密码（用户设定，不对外公布；客户点编辑需密码才能解锁）
+_WM_PASSWORD = "reedskilllunwengeshiyisheng"
 
 _HDR_REL_ID = "rIdTfdHdr"
 _FTR_REL_ID = "rIdTfdFtr"
@@ -309,6 +314,78 @@ def _insert_image_paras(doc_root, step=14, cap=80):
     return len(positions)
 
 
+# CT_Settings 中排在 documentProtection 之后的元素（ECMA-376 §17.15.1.78 顺序），
+# 用于确定 documentProtection 的合法插入位置（严格顺序，避免 Word 报损坏）。
+_AFTER_DP = {
+    "autoFormatOverride", "styleLockTheme", "styleLockQFSet", "defaultTabStop",
+    "autoHyphenation", "consecutiveHyphenLimit", "hyphenationZone", "doNotHyphenateCaps",
+    "showEnvelope", "summaryLength", "clickAndTypeStyle", "defaultTableStyle",
+    "evenAndOddHeaders", "bookFoldRevPrinting", "bookFoldPrinting", "bookFoldPrintingSheets",
+    "drawingGridHorizontalSpacing", "drawingGridVerticalSpacing",
+    "displayHorizontalDrawingGridEvery", "displayVerticalDrawingGridEvery",
+    "doNotUseMarginsForDrawingGridOrigin", "drawingGridHorizontalOrigin",
+    "drawingGridVerticalOrigin", "doNotShadeFormData", "noPunctuationKerning",
+    "characterSpacingControl", "printTwoOnOne", "strictFirstAndLastChars",
+    "noLineBreaksAfter", "noLineBreaksBefore", "savePreviewPicture",
+    "doNotValidateAgainstSchema", "saveInvalidXml", "ignoreMixedContent",
+    "alwaysShowPlaceholderText", "doNotDemarcateInvalidXml", "saveXmlDataOnly",
+    "useXSLTWhenSaving", "saveThroughXslt", "showXMLTags", "alwaysMergeEmptyNamespace",
+    "updateFields", "hdrShapeDefaults", "footnotePr", "endnotePr", "compat", "rsids",
+    "mathPr", "uiCompat97To2003",
+}
+
+
+def _readonly_protection_xml():
+    """生成 w:documentProtection（只读+密码哈希）元素对象。
+
+    v1.3.64：试用版文档只读，编辑需密码——防客户删除水印/篡改内容。
+    算法：Word 2007+ 标准 legacy hash（SHA-1(salt+UTF16密码) + 100000 次迭代），
+    Word/WPS 均支持。密码固定（_WM_PASSWORD），不对外公布。
+    注：必须用 ET.Element 构建（自带命名空间），不能用字符串片段 fromstring
+    （无 xmlns 声明会报 unbound prefix）。
+    """
+    salt = os.urandom(4)
+    h = hashlib.sha1(salt + _WM_PASSWORD.encode("utf-16-le")).digest()
+    for i in range(100000):
+        h = hashlib.sha1(("%08x" % i).encode("ascii") + h).digest()
+    el = ET.Element(WR + "documentProtection")
+    el.set(WR + "edit", "readOnly")
+    el.set(WR + "enforcement", "1")
+    el.set(WR + "cryptProviderType", "rsaFull")
+    el.set(WR + "cryptAlgorithmClass", "hash")
+    el.set(WR + "cryptAlgorithmType", "typeAny")
+    el.set(WR + "cryptAlgorithmSid", "4")
+    el.set(WR + "cryptSpinCount", "100000")
+    el.set(WR + "hash", base64.b64encode(h).decode("ascii"))
+    el.set(WR + "salt", base64.b64encode(salt).decode("ascii"))
+    return el
+
+
+def _apply_readonly(parts):
+    """在 word/settings.xml 注入只读保护（documentProtection）。"""
+    settings_path = "word/settings.xml"
+    settings_xml = parts.get(settings_path)
+    if settings_xml is None:
+        return False
+    root = ET.fromstring(settings_xml)
+    # 移除已有 documentProtection（防重复 / 替换文档自带保护）
+    for dp in list(root.iter(WR + "documentProtection")):
+        root.remove(dp)
+    prot_el = _readonly_protection_xml()
+    # 按 CT_Settings 顺序插入：找第一个"排在 documentProtection 之后"的元素，插到其前
+    insert_at = None
+    for i, el in enumerate(list(root)):
+        if el.tag.replace(WR, "") in _AFTER_DP:
+            insert_at = i
+            break
+    if insert_at is None:
+        root.append(prot_el)
+    else:
+        root.insert(insert_at, prot_el)
+    parts[settings_path] = _xml_str(root).encode("utf-8")
+    return True
+
+
 def apply_watermark(path):
     """给修正后的 docx 就地加试用水印（重写 zip）。返回 True 成功；异常返回 False。"""
     tmp = path + ".wm.tmp"
@@ -325,6 +402,9 @@ def apply_watermark(path):
         _insert_image_paras(doc_root)   # v1.3.62：正文插入水印图片（WPS 必显示）
         _insert_sect_refs(doc_root)
         parts["word/document.xml"] = _xml_str(doc_root).encode("utf-8")
+
+        # v1.3.64：只读保护（编辑需密码）——防客户删水印/改内容，正式版不调用本模块
+        _apply_readonly(parts)
 
         # 页眉（VML 红色斜向大水印 + 红字）/ 页脚（红字）
         parts["word/header1.xml"] = _header_xml(_WM_HEADER).encode("utf-8")
