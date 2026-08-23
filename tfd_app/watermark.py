@@ -45,13 +45,20 @@ _HDR_REL_ID = "rIdTfdHdr"
 _FTR_REL_ID = "rIdTfdFtr"
 _IMG_REL_ID = "rIdTfdWmImg"
 _IMG_NAME = "watermark.png"
-# 水印图显示尺寸（px→EMU：1px@96dpi=9525EMU；520x150 → 保持宽约 360pt）
-_IMG_EMU_W = int(360 * 12700)      # 360pt = 4572000 EMU
-_IMG_EMU_H = int(_IMG_EMU_W * 150 / 520)
+_BG_IMG_REL_ID = "rIdTfdBgImg"
+_BG_IMG_NAME = "watermark_bg.png"
+
+# 正文穿插水印图显示尺寸（260x75 → 宽约 200pt）
+_IMG_EMU_W = int(200 * 12700)      # 200pt = 2540000 EMU
+_IMG_EMU_H = int(_IMG_EMU_W * 75 / 260)
+
+# 页眉背景水印图显示尺寸（800x800 透明底 → 显示约 300pt 大图，页面背景居中）
+_BG_EMU = int(300 * 12700)         # 300pt 方形
 
 # 水印图片资源（与 gui 同包；打包后经 assets 数据目录携带）
-_IMG_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "assets", _IMG_NAME)
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_IMG_SRC = os.path.join(_HERE, "assets", _IMG_NAME)
+_BG_IMG_SRC = os.path.join(_HERE, "assets", _BG_IMG_NAME)
 
 
 def _wm_run(text, sz="20", color="C00000", bold=True):
@@ -110,13 +117,35 @@ def _wm_shape(xml_id, top, width, height, rot, opacity=".4"):
         '</v:shape>' % (xml_id, 1025 + xml_id, top, width, height, rot, opacity, xml_id))
 
 
-def _header_xml(text):
-    """页眉 XML：每页 3 个红色斜向/水平大背景水印（删起来麻烦）+ 页眉红字。
+def _bg_anchor_xml():
+    """浮动图片背景水印：wp:anchor 相对页面水平+垂直居中，behindDoc 置于文字后方。
 
-    v1.3.61：修正 VML 标准写法（font-size:1pt + mso-fit-shape-to-text 自动放大），
-    并放 3 个 shape（上/中/下三个位置，斜向 315° ×2 + 水平 ×1），
-    使每页正文背景出现多个大红"试用版"水印。
+    v1.3.63：新增——WPS 不渲染 VML 背景水印，改用标准 drawing 浮动图片
+    （透明底红色大字图），Word/WPS/Pages 均显示，每页背景中央出现大红"试用版"。
     """
+    cx = cy = str(_BG_EMU)
+    return ('<w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" '
+            'simplePos="0" relativeHeight="251658240" behindDoc="1" locked="0" '
+            'layoutInCell="1" allowOverlap="1">'
+            '<wp:simplePos x="0" y="0"/>'
+            '<wp:positionH relativeFrom="page"><wp:align>center</wp:align></wp:positionH>'
+            '<wp:positionV relativeFrom="page"><wp:align>center</wp:align></wp:positionV>'
+            '<wp:extent cx="%s" cy="%s"/>'
+            '<wp:effectExtent l="0" t="0" r="0" b="0"/>'
+            '<wp:wrapNone/>'
+            '<wp:docPr id="1" name="TfdBgWm"/>'
+            '<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+            '<a:graphic><a:graphicData uri="%s">'
+            '<pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="tfd_bg_wm"/><pic:cNvPicPr/></pic:nvPicPr>'
+            '<pic:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+            '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%s" cy="%s"/></a:xfrm>'
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
+            '</a:graphicData></a:graphic></wp:anchor></w:drawing>'
+            % (cx, cy, PIC, _BG_IMG_REL_ID, cx, cy))
+
+
+def _header_xml(text):
+    """页眉 XML：VML 红色大背景水印(Word 增强层) + 浮动图片背景水印(通用核心层) + 红字。"""
     esc = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
     shapes = "".join([
         _wm_shape(1, 0, 415, 160, 315),     # 上部：斜向
@@ -124,13 +153,20 @@ def _header_xml(text):
         _wm_shape(3, 340, 415, 160, 0),     # 下部：水平
     ]) % (esc, esc, esc)                    # 3 个 shape 各有一个 string 占位
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-            '<w:hdr xmlns:w="%s" xmlns:v="urn:schemas-microsoft-com:vml" '
-            'xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="%s">'
+            '<w:hdr xmlns:w="%s" xmlns:r="%s" xmlns:wp="%s" xmlns:a="%s" xmlns:pic="%s" '
+            'xmlns:v="urn:schemas-microsoft-com:vml" '
+            'xmlns:o="urn:schemas-microsoft-com:office:office">'
+            # ① VML 背景水印（Word 显示，每页 3 个大字）
             '<w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr><w:r><w:rPr><w:noProof/></w:rPr>'
             '<w:pict>%s</w:pict></w:r></w:p>'
+            # ② 浮动图片背景水印（Word/WPS/Pages 均显示，页面背景居中大红字）
+            '<w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr><w:r><w:rPr><w:noProof/></w:rPr>'
+            '%s</w:r></w:p>'
+            # ③ 页眉红字
             '<w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr><w:r><w:rPr>'
             '<w:color w:val="C00000"/><w:sz w:val="20"/><w:b/></w:rPr>'
-            '<w:t>%s</w:t></w:r></w:p></w:hdr>' % (W, R, shapes, esc))
+            '<w:t>%s</w:t></w:r></w:p></w:hdr>' % (W, R, WP, A, PIC, shapes,
+                                                   _bg_anchor_xml(), esc))
 
 
 def _xml_str(root):
@@ -155,19 +191,28 @@ def _insert_sect_refs(doc_root):
     return added
 
 
-def _insert_body_paras(doc_root):
-    """正文穿插：按密度每 8 段插一处红色水印行（开头必插），最多 30 处。
+def _is_wm_para(p):
+    """判断段落是否已是水印段（文字水印行 或 水印图片段），避免重复计数/重复插入。"""
+    if p.find(WR + "drawing") is not None:
+        return True
+    txt = "".join(t.text or "" for t in p.iter(WR + "t"))
+    return _WM_BODY in txt
 
-    v1.3.61：水印"多而难删"——正文几十处红色水印行，删起来很麻烦。
+
+def _insert_body_paras(doc_root, step=8, cap=150):
+    """正文穿插：按全文密度每 step 段插一处红色水印行（开头必插）。
+
+    v1.3.63：修复"只覆盖前几页"根因——原实现 [:30] 硬上限，长论文(如石墨V7
+    933段)只覆盖到第 232 段；改为按全文均匀分布，软上限 cap 防极端文档爆量。
+    插入位置基于【原始正文段落】计算（过滤已插入的水印段），保证全文覆盖。
     """
     body = doc_root.find(WR + "body")
     if body is None:
         return 0
-    paras = list(body.findall(WR + "p"))
+    paras = [p for p in body.findall(WR + "p") if not _is_wm_para(p)]
     if not paras:
         return 0
-    step = 8
-    positions = list(range(0, len(paras), step))[:30]
+    positions = list(range(0, len(paras), step))[:cap]
     all_p = list(body)
     for pos in reversed(positions):
         idx = pos
@@ -182,8 +227,8 @@ def _insert_body_paras(doc_root):
     return len(positions)
 
 
-def _image_para():
-    """含水印图片的段落（居中，带红色边框的水印图）。"""
+def _image_para(doc_id):
+    """含水印图片的段落（居中，带红色边框的水印图）。doc_id：文档级唯一图片 id。"""
     p = ET.Element(WR + "p")
     ppr = ET.SubElement(p, WR + "pPr")
     jc = ET.SubElement(ppr, WR + "jc")
@@ -197,7 +242,7 @@ def _image_para():
     extent.set("cx", str(_IMG_EMU_W))
     extent.set("cy", str(_IMG_EMU_H))
     docpr = ET.SubElement(inline, WPR + "docPr")
-    docpr.set("id", "1")
+    docpr.set("id", str(doc_id))
     docpr.set("name", "TFDWatermark")
     graphic = ET.SubElement(inline, AR + "graphic")
     gdata = ET.SubElement(graphic, AR + "graphicData")
@@ -205,7 +250,7 @@ def _image_para():
     pic = ET.SubElement(gdata, PICR + "pic")
     nv = ET.SubElement(pic, PICR + "nvPicPr")
     cnvpr = ET.SubElement(nv, PICR + "cNvPr")
-    cnvpr.set("id", "1")
+    cnvpr.set("id", str(doc_id))
     cnvpr.set("name", "tfd_wm")
     ET.SubElement(nv, PICR + "cNvPicPr")
     blipfill = ET.SubElement(pic, PICR + "blipFill")
@@ -227,15 +272,28 @@ def _image_para():
     return p
 
 
-def _insert_image_paras(doc_root):
-    """正文按密度（每 14 段）插入水印图片段落（WPS/Word 必显示，逐张难删）。"""
+def _insert_image_paras(doc_root, step=14, cap=80):
+    """正文按全文密度（每 step 段）插入水印图片段落（WPS/Word 必显示，逐张难删）。
+
+    v1.3.63：修复"只覆盖前几页"——原实现 [:15] 硬上限，长论文只覆盖到第 196 段；
+    改为全文均匀分布。水印图已缩小为 260x75(约7KB)，80 张约 0.6MB，体积可控。
+    图片 id 从文档现有最大 docPr id 递增，避免与原文图片冲突。
+    """
     body = doc_root.find(WR + "body")
     if body is None:
         return 0
-    paras = list(body.findall(WR + "p"))
+    paras = [p for p in body.findall(WR + "p") if not _is_wm_para(p)]
     if not paras:
         return 0
-    positions = list(range(0, len(paras), 14))[:15]   # 最多 15 张
+    # 文档现有最大图片 id（wp:docPr / a:graphic 里的 cNvPr id）
+    max_id = 0
+    for el in body.iter():
+        if el.tag in (WPR + "docPr",):
+            try:
+                max_id = max(max_id, int(el.get("id") or 0))
+            except (TypeError, ValueError):
+                pass
+    positions = list(range(0, len(paras), step))[:cap]
     all_p = list(body)
     for pos in reversed(positions):
         idx = pos
@@ -245,7 +303,8 @@ def _insert_image_paras(doc_root):
                 if el.tag == WR + "sectPr":
                     idx = j
                     break
-        body.insert(idx, _image_para())
+        max_id += 1
+        body.insert(idx, _image_para(max_id))
         all_p = list(body)
     return len(positions)
 
@@ -291,7 +350,7 @@ def apply_watermark(path):
             d.set("ContentType", "image/png")
             parts["[Content_Types].xml"] = _xml_str(ct_root).encode("utf-8")
 
-        # document.xml.rels 注册（header/footer/图片）
+        # document.xml.rels 注册（header/footer/正文水印图/背景水印图）
         rels_path = "word/_rels/document.xml.rels"
         rels_xml = parts.get(rels_path, b"")
         if _HDR_REL_ID.encode("utf-8") not in rels_xml:
@@ -301,6 +360,8 @@ def apply_watermark(path):
                                      (_FTR_REL_ID, "footer1.xml",
                                       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"),
                                      (_IMG_REL_ID, "media/" + _IMG_NAME,
+                                      "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"),
+                                     (_BG_IMG_REL_ID, "media/" + _BG_IMG_NAME,
                                       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image")):
                 rel = ET.SubElement(rels_root, PRR + "Relationship")
                 rel.set("Id", rid)
@@ -308,20 +369,29 @@ def apply_watermark(path):
                 rel.set("Target", target)
             parts[rels_path] = _xml_str(rels_root).encode("utf-8")
 
-        # 水印图片媒体文件
-        if os.path.isfile(_IMG_SRC):
-            with open(_IMG_SRC, "rb") as f:
-                parts["word/media/" + _IMG_NAME] = f.read()
+        # 水印图片媒体文件（正文穿插图 + 页眉背景图）
+        for name, src in ((_IMG_NAME, _IMG_SRC), (_BG_IMG_NAME, _BG_IMG_SRC)):
+            if os.path.isfile(src):
+                with open(src, "rb") as f:
+                    parts["word/media/" + name] = f.read()
 
-        # 重写 zip（新增条目：header1/footer1/media 水印图）
+        # 重写 zip（新增条目：header1/footer1/media 两张水印图）
+        # v1.3.63：用 set 去重——原文档可能已有 header1/footer1（如石墨V7），
+        # 若重复写入会生成 Duplicate name zip 条目，Word/WPS 打开可能异常。
         extra = ["word/header1.xml", "word/footer1.xml",
-                 "word/media/" + _IMG_NAME]
+                 "word/media/" + _IMG_NAME, "word/media/" + _BG_IMG_NAME]
+        written = set()
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
             for n in names:
+                if n in written:
+                    continue
                 zout.writestr(n, parts[n])
+                written.add(n)
             for n in extra:
-                if n in parts:
-                    zout.writestr(n, parts[n])
+                if n in written:
+                    continue
+                zout.writestr(n, parts[n])
+                written.add(n)
         os.replace(tmp, path)
         return True
     except Exception:
