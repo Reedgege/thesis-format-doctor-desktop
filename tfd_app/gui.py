@@ -80,7 +80,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.64"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.65"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -1498,12 +1498,21 @@ def show_activation(root):
     top.title("激活 · 论文格式医生")
     top.configure(bg=PAPER)
     top.resizable(False, False)
-    top.geometry(_geo(620, 720))
+    # v1.3.65：窗口尺寸自适应屏幕（笔记本 768 高屏幕时 720 高的窗口底部会被截在屏外）
+    try:
+        _sw = top.winfo_screenwidth()
+        _sh = top.winfo_screenheight()
+    except Exception:
+        _sw, _sh = 1366, 768
+    _s = _CUR_SCALE
+    _w = max(420, min(int(620 * _s), _sw - 60))
+    _h = max(420, min(int(690 * _s), _sh - 120))
+    top.geometry("%dx%d" % (_w, _h))
 
     tk.Label(top, text="激 活 论 文 格 式 医 生", bg=PAPER, fg=INK,
-             font=F_TITLE).pack(pady=(18, 4))
+             font=F_TITLE).pack(pady=(14, 4))
     tk.Label(top, text="请输入您购买的卡密以激活；激活仅需联网一次，之后完全离线使用。",
-             bg=PAPER, fg=MUTED, font=F_SMALL, wraplength=440, justify="center").pack(pady=(0, 12))
+             bg=PAPER, fg=MUTED, font=F_SMALL, wraplength=440, justify="center").pack(pady=(0, 10))
 
     card_var = tk.StringVar()
     tk.Entry(top, textvariable=card_var, width=40, font=F_BODY,
@@ -1568,18 +1577,22 @@ def show_activation(root):
     # v1.3.58：试用入口放在显眼位置（激活按钮正下方，便于未购买客户先体验）
     ttk.Button(top, text="还没有激活码？先试用（免费 2 次）", style="Ghost.TButton",
                command=lambda: (result.update(v="trial"), top.destroy())).pack(pady=(4, 2))
-    tk.Label(top, text="试用版可完整体验一键修正，输出带水印；正式版无水印。",
-             bg=PAPER, fg=MUTED, font=F_FOOT).pack(pady=(0, 8))
+    tk.Label(top, text="试用版可完整体验一键修正，输出带水印且为只读预览；正式版可编辑无水印。",
+             bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=540).pack(pady=(0, 6))
 
-    tk.Label(top, text="— 以下为特殊情形使用 —", bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(10, 4))
+    tk.Label(top, text="— 以下为特殊情形使用 —", bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(8, 4))
     mc = license.get_machine_code()
-    tk.Label(top, text="本机机器码：" + mc, bg=PAPER, fg=MUTED, font=F_MONO).pack()
-    ttk.Button(top, text="复制机器码", style="Ghost.TButton",
-               command=lambda: top.clipboard_append(mc)).pack(pady=(3, 6))
+    # 机器码 + 复制按钮并排一行（省高度）
+    mc_row = tk.Frame(top, bg=PAPER)
+    mc_row.pack(pady=(0, 6))
+    tk.Label(mc_row, text="本机机器码：" + mc, bg=PAPER, fg=MUTED,
+             font=F_MONO).pack(side="left")
+    ttk.Button(mc_row, text="复制", style="Ghost.TButton",
+               command=lambda: top.clipboard_append(mc)).pack(side="left", padx=(8, 0))
 
     off_var = tk.StringVar()
     tk.Label(top, text="离线激活码（网络不通时，联系客服获取）：", bg=PAPER, fg=MUTED,
-             font=F_SMALL).pack(pady=(4, 2))
+             font=F_SMALL).pack(pady=(2, 2))
     tk.Entry(top, textvariable=off_var, width=46, font=F_MONO,
              relief="solid", bd=1).pack(pady=(2, 4))
 
@@ -1597,12 +1610,12 @@ def show_activation(root):
             msg_var.set("离线激活码无效，请核对后重试")
 
     ttk.Button(top, text="使用离线激活码激活", style="Ghost.TButton",
-               command=do_offline).pack(pady=(2, 6))
+               command=do_offline).pack(pady=(2, 4))
 
-    ttk.Button(top, text="退出", command=lambda: top.destroy()).pack(pady=(2, 4))
+    ttk.Button(top, text="退出", command=lambda: top.destroy()).pack(pady=(0, 4))
 
     tk.Label(top, text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制 · 合作联系：reedskill@126.com",
-             bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(16, 12))
+             bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(8, 10))
 
     top.wait_window()
     return result["v"]
