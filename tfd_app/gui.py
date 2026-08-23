@@ -86,7 +86,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.71"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.72"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -1692,7 +1692,7 @@ def _scroll_frame(parent, bg=PAPER):
 
 
 def show_about(parent):
-    """关于页：产品定位 + 主打（论文安全·离线）+ 品牌署名 + 公众号二维码 + 客服入口。"""
+    """关于页：名片式居中排版，细线分隔，文艺学术风。"""
     top = tk.Toplevel(parent)
     top.title("关于 · 论文格式医生")
     top.configure(bg=PAPER)
@@ -1700,34 +1700,29 @@ def show_about(parent):
     top.resizable(True, True)
 
     inner = _scroll_frame(top)
-    padx = 30
-    wrap = 400
+    padx = 40
+    wrap = 380
 
-    # —— 头部：题名 + 版本 + 细线 ——
+    def rule(pady=(0, 14)):
+        tk.Frame(inner, bg=LINE, height=1).pack(fill="x", padx=padx, pady=pady)
+
+    # —— 头部：题名 + 版本 ——
     tk.Label(inner, text="论 文 格 式 医 生", bg=PAPER, fg=INK,
-             font=F_TITLE).pack(padx=padx, pady=(22, 2))
+             font=F_TITLE).pack(padx=padx, pady=(24, 2))
     tk.Label(inner, text="版本 v%s" % APP_VERSION, bg=PAPER, fg=MUTED,
-             font=F_SUBTITLE).pack(padx=padx, pady=(0, 10))
-    tk.Frame(inner, bg=LINE, height=1).pack(fill="x", padx=padx, pady=(0, 14))
+             font=F_SUBTITLE).pack(padx=padx, pady=(0, 12))
+    rule()
 
-    # —— 一句话定位 ——
-    tk.Label(inner, text=("以学校模板为准绳，为论文格式把脉。\n"
-                          "标题层级、字体字号、页边距、行距、参考文献、三线表——\n"
-                          "逐一对照模板，改到合乎规范。"),
-             bg=PAPER, fg=BODY, font=F_BODY, justify="left", anchor="w",
-             wraplength=wrap).pack(fill="x", padx=padx, pady=(0, 14))
+    # —— 定位 ——
+    tk.Label(inner, text="以学校模板为准绳，为论文格式把脉。",
+             bg=PAPER, fg=INK, font=F_HDR).pack(padx=padx, pady=(0, 8))
+    tk.Label(inner, text=("标题层级、字体字号、页边距、行距、\n"
+                          "参考文献与三线表，逐一对照，改至合乎规范。"),
+             bg=PAPER, fg=BODY, font=F_BODY, justify="center",
+             wraplength=wrap).pack(padx=padx, pady=(0, 14))
+    rule()
 
-    # —— 主打两点（卡片）——
-    card = tk.Frame(inner, bg=PANEL)
-    card.pack(fill="x", padx=padx, pady=(0, 14))
-    tk.Label(card, text="论文安全 · 完全离线本地处理",
-             bg=PANEL, fg=ACCENT, font=F_HDR).pack(padx=18, pady=(14, 4), anchor="w")
-    tk.Label(card, text=("论文全程在你自己的电脑上完成修正：\n"
-                         "不联网、不上传、不收集，断网亦可放心使用。"),
-             bg=PANEL, fg=BODY, font=F_BODY, justify="left", anchor="w",
-             wraplength=wrap - 28).pack(padx=18, pady=(0, 14))
-
-    # —— 品牌 + 关注（居中）——
+    # —— 品牌 + 关注 ——
     tk.Label(inner, text="芦 苇 不 熬 夜  出 品", bg=PAPER, fg=INK,
              font=F_HDR).pack(padx=padx, pady=(2, 8))
     try:
@@ -1736,34 +1731,37 @@ def show_about(parent):
             qr = qr.subsample(max(1, round(qr.width() / 150)))  # 缩到约 150px
             ql = tk.Label(inner, image=qr, bg=PAPER)
             ql.image = qr
-            ql.pack(pady=(0, 6))
+            ql.pack(pady=(0, 8))
     except Exception:
         pass
     tk.Label(inner, text="微信公众号：【%s】（ID：%s）" % (WECHAT_NAME, WECHAT_ID),
              bg=PAPER, fg=BODY, font=F_BODY).pack(padx=padx, pady=(0, 2))
     tk.Label(inner, text="联系邮箱：%s" % ABOUT_MAIL,
-             bg=PAPER, fg=BODY, font=F_BODY).pack(padx=padx, pady=(0, 4))
-    tk.Label(inner, text=("使用中如有疑问，欢迎关注公众号留言，\n"
-                          "或发邮件至 %s，我们看到即回。" % ABOUT_MAIL),
+             bg=PAPER, fg=BODY, font=F_BODY).pack(padx=padx, pady=(0, 6))
+    tk.Label(inner, text=("使用中若有疑问，欢迎关注公众号留言，\n"
+                          "或致信 %s，我们看到即复。" % ABOUT_MAIL),
              bg=PAPER, fg=MUTED, font=F_SMALL, justify="center",
-             wraplength=wrap).pack(padx=padx, pady=(0, 12))
-    tk.Frame(inner, bg=LINE, height=1).pack(fill="x", padx=padx, pady=(0, 12))
+             wraplength=wrap).pack(padx=padx, pady=(0, 14))
+    rule()
 
-    # —— 关于本软件（卡片）——
-    card2 = tk.Frame(inner, bg=PANEL)
-    card2.pack(fill="x", padx=padx, pady=(0, 12))
-    tk.Label(card2, text="关于本软件", bg=PANEL, fg=INK, font=F_HDR).pack(padx=18, pady=(14, 6), anchor="w")
-    tk.Label(card2, text=("· 论文安全：论文仅在本机完成修正，不联网、不上传、不收集。\n"
-                          "· 模板驱动：格式要求取自你上传的学校模板，以批注说明为先，样式定义次之。"),
-             bg=PANEL, fg=BODY, font=F_SMALL, justify="left", anchor="w",
-             wraplength=wrap - 28).pack(padx=18, pady=(0, 14))
+    # —— 关于本软件 ——
+    tk.Label(inner, text="关于本软件", bg=PAPER, fg=ACCENT,
+             font=F_HDR).pack(padx=padx, pady=(0, 8))
+    tk.Label(inner, text=("论文安全 · 所有修正均在本机完成，\n"
+                          "论文不联网、不上传、不被收集。"),
+             bg=PAPER, fg=BODY, font=F_SMALL, justify="center",
+             wraplength=wrap).pack(padx=padx, pady=(0, 4))
+    tk.Label(inner, text=("模板驱动 · 格式要求取自学校模板，\n"
+                          "批注说明为先，样式定义次之。"),
+             bg=PAPER, fg=BODY, font=F_SMALL, justify="center",
+             wraplength=wrap).pack(padx=padx, pady=(0, 12))
 
     tk.Label(inner, text="© 2026 芦苇不熬夜", bg=PAPER, fg=MUTED,
-             font=F_FOOT).pack(padx=padx, pady=(4, 18))
+             font=F_FOOT).pack(padx=padx, pady=(0, 18))
 
 
 def show_help(parent):
-    """使用帮助：向导式分步 + FAQ + 客服引导，文艺学术风分区排版。"""
+    """使用帮助：文档式左对齐排版，分区细线，文艺学术风。"""
     top = tk.Toplevel(parent)
     top.title("使用帮助 · 论文格式医生")
     top.configure(bg=PAPER)
@@ -1771,86 +1769,82 @@ def show_help(parent):
     top.resizable(True, True)
 
     inner = _scroll_frame(top)
-    padx = 30
+    padx = 34
     wrap = 600
 
-    # —— 头部：题名 + 一句话 + 细线 ——
-    tk.Label(inner, text="论文格式医生 · 使用帮助", bg=PAPER, fg=INK,
-             font=F_TITLE).pack(padx=padx, pady=(20, 4))
-    tk.Label(inner, text=("把学校的格式模板告诉软件，导入论文后跟着向导走完每一步，\n"
-                          "格式自会妥帖。"),
+    # —— 头部（居中）——
+    tk.Label(inner, text="使 用 帮 助", bg=PAPER, fg=INK,
+             font=F_TITLE).pack(padx=padx, pady=(22, 4))
+    tk.Label(inner, text="将学校模板告知软件，导入论文后依向导循序而行，格式自可妥帖。",
              bg=PAPER, fg=BODY, font=F_BODY, justify="center",
              wraplength=wrap).pack(padx=padx, pady=(0, 12))
-    tk.Frame(inner, bg=LINE, height=1).pack(fill="x", padx=padx, pady=(0, 10))
+    tk.Frame(inner, bg=LINE, height=1).pack(fill="x", padx=padx, pady=(0, 8))
 
     def section(title):
         tk.Label(inner, text=title, bg=PAPER, fg=ACCENT, font=F_HDR,
-                 anchor="w").pack(fill="x", padx=padx, pady=(12, 4))
-        tk.Frame(inner, bg=LINE, height=1).pack(fill="x", padx=padx, pady=(0, 6))
+                 anchor="w").pack(fill="x", padx=padx, pady=(14, 4))
+        tk.Frame(inner, bg=LINE, height=1).pack(fill="x", padx=padx, pady=(0, 4))
 
-    def item(title, body, body_font=F_BODY):
-        if title:
-            tk.Label(inner, text=title, bg=PAPER, fg=INK, font=("KaiTi", 12, "bold"),
-                     justify="left", anchor="w", wraplength=wrap).pack(fill="x", padx=padx, pady=(6, 1))
-        tk.Label(inner, text=body, bg=PAPER, fg=BODY, font=body_font,
-                 justify="left", anchor="w", wraplength=wrap).pack(fill="x", padx=padx, pady=(0, 5))
+    def item(title, body):
+        tk.Label(inner, text=title, bg=PAPER, fg=INK, font=("KaiTi", 12, "bold"),
+                 justify="left", anchor="w", wraplength=wrap).pack(fill="x", padx=padx, pady=(8, 1))
+        tk.Label(inner, text=body, bg=PAPER, fg=BODY, font=F_SUBTITLE,
+                 justify="left", anchor="w", wraplength=wrap).pack(fill="x", padx=padx, pady=(0, 4))
 
     # —— 一、怎么用 ——
-    section("一 · 怎么用（跟着向导走）")
+    section("一、怎么用")
     steps = [
-        ("1 · 导入论文",
-         "在主界面「文件选择」中，先选择你的论文文件（.docx / .doc）。"
-         "导入后软件进入向导模式，引导你完成后续各步。"),
-        ("2 · 导入学校模板（带批注者最佳）",
-         "仍在「文件选择」处，选择学校下发的论文格式要求文件（Word 模板或格式规范文档皆可）。\n"
-         "若模板带有批注，效果最佳：批注中常写明具体要求，如「一级标题用黑体小二、居中」。"
-         "软件读取时以批注说明为先，故带批注的模板，修正最贴近学校要求。"),
-        ("3 · 生成模板画像",
-         "软件读取模板中的格式要求，生成「模板画像」（字体、字号、行距、页边距、标题层级等）。"),
-        ("4 · 逐步确认",
-         "软件分步呈现各项设定（模板画像、标题层级、字体字号、页边距/缩进/行距、参考文献、三线表），"
-         "你逐一过目、确认即可。"),
-        ("5 · 生成报告",
-         "确认完毕，软件按模板修正论文，并生成一份报告，说明改动之处与未能确定之处（如模板未写明者）。"),
+        ("1. 导入论文",
+         "在主界面「文件选择」中，先选择论文文件（.docx / .doc）。"
+         "导入后软件进入向导模式，引领你完成后续各步。"),
+        ("2. 导入学校模板",
+         "仍在「文件选择」处，选择学校下发的格式要求文件（Word 模板或格式规范文档均可）。"
+         "模板若带批注更佳：批注常写明具体要求，如「一级标题用黑体小二、居中」；"
+         "软件以批注说明为先，故带批注者修正最贴近学校要求。"),
+        ("3. 生成模板画像",
+         "软件读取模板中的格式要求，生成「模板画像」——字体、字号、行距、页边距、标题层级等要素。"),
+        ("4. 逐步确认",
+         "软件分步呈现各项设定（标题层级、字体字号、页边距、缩进、行距、参考文献、三线表），"
+         "逐一过目、确认即可。"),
+        ("5. 生成报告",
+         "确认完毕后，软件依模板修正论文，并生成报告，注明改动之处与未能确定之处。"),
     ]
     for title, body in steps:
         item(title, body)
 
     # —— 二、常见问题 ——
-    section("二 · 常见问题")
+    section("二、常见问题")
     faqs = [
         ("Q1 · 什么是「模板驱动」？没有模板可用吗？",
-         "可用。未上传模板时，软件以通用规范（通用毕业论文格式）兜底。"
-         "但各校要求不一，上传本校模板，修正方能贴合要求。"),
+         "可用。未上传模板时，软件以通用规范（通用毕业论文格式）兜底；"
+         "各校要求不一，上传本校模板，修正方更贴合。"),
         ("Q2 · 什么样的模板最好？一定要带批注吗？",
-         "并非必须，但带批注的学校官方模板效果最佳。软件定格式时，批注说明优先于样式定义："
-         "批注有明确要求则遵批注；无批注则读样式定义；样式亦无，方以通用规范兜底。"),
+         "非必带，但带批注的学校官方模板效果最佳。软件定格式时，批注说明优先于样式定义："
+         "批注有明确要求则遵批注，无批注则读样式定义，样式亦无则以通用规范兜底。"),
         ("Q3 · 试用版与正式版有何区别？",
-         "· 试用版：免费试用 2 次，输出带水印的只读预览（不可直接编辑）。\n"
-         "· 正式版：无水印、可正常编辑，一次付费、永久使用。"),
+         "试用版：免费试用 2 次，输出带水印的只读预览（不可直接编辑）。\n"
+         "正式版：无水印、可编辑，一次付费、永久使用。"),
         ("Q4 · 试用输出为只读，如何修改？",
-         "试用文档设有只读保护。正式版输出为可编辑文档，更为便捷，建议直接激活正式版。"),
+         "试用文档设有只读保护；正式版输出可编辑文档，更为便捷，建议直接激活正式版。"),
         ("Q5 · 如何激活？",
          "在激活窗口输入购买的激活码，验证通过即为正式版，永久有效；此后完全离线使用，无需联网。"),
-        ("Q6 · 论文安全吗？会被上传吗？",
-         "放心。所有修正均在本机完成，论文不联网、不上传任何服务器，亦不收集你的论文内容；断网亦可使用。"),
+        ("Q6 · 论文安全吗？会上传吗？",
+         "请放心。所有修正均在本机完成，论文不联网、不上传任何服务器，亦不收集论文内容；断网亦可使用。"),
         ("Q7 · 学校模板特殊，或修正结果不尽如人意？",
-         "欢迎关注公众号【%s】留言，告知你的学校情况，我们协助处理。" % WECHAT_NAME),
+         "欢迎关注公众号【%s】留言，告知贵校情况，我们协助处理。" % WECHAT_NAME),
     ]
     for title, body in faqs:
-        item(title, body, body_font=F_SMALL)
+        item(title, body)
 
-    # —— 三、联系我们（卡片）——
-    section("三 · 联系我们")
-    card = tk.Frame(inner, bg=PANEL)
-    card.pack(fill="x", padx=padx, pady=(2, 0))
-    tk.Label(card, text=("使用疑问、模板咨询、购买事宜，均可通过以下方式联系：\n"
-                         "· 微信搜索公众号【%s】（ID：%s），关注后留言\n"
-                         "· 公众号设有关键词自动回复（试用 / 激活 / 水印 / 报错），常见问题即时应答\n"
-                         "· 较为复杂的问题，我们会人工回复\n"
-                         "· 联系邮箱：%s") % (WECHAT_NAME, WECHAT_ID, ABOUT_MAIL),
-             bg=PANEL, fg=BODY, font=F_SMALL, justify="left", anchor="w",
-             wraplength=wrap - 40).pack(padx=18, pady=14)
+    # —— 三、联系我们 ——
+    section("三、联系我们")
+    tk.Label(inner, text=("使用疑问、模板咨询、购买事宜，均可通过以下方式联系：\n"
+                          "· 微信公众号：【%s】（ID：%s），关注后留言\n"
+                          "· 公众号设关键词自动回复（试用 / 激活 / 水印 / 报错），常见问题即时应答\n"
+                          "· 较复杂的问题，由人工回复\n"
+                          "· 联系邮箱：%s") % (WECHAT_NAME, WECHAT_ID, ABOUT_MAIL),
+             bg=PAPER, fg=BODY, font=F_SUBTITLE, justify="left", anchor="w",
+             wraplength=wrap).pack(fill="x", padx=padx, pady=(8, 0))
 
     tk.Label(inner, text="", bg=PAPER).pack(pady=(0, 18))
 
