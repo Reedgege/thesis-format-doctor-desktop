@@ -53,6 +53,8 @@ HIDDEN = [
     "docxutils", "format_checker", "headings_fix",
     "ref_reformat", "format_profile", "report_docx", "format_check",
     "tfd_app.engine", "tfd_app.gui", "tfd_app.license",
+    # v1.3.56 试用版：计数 + 水印（gui 静态 import，但显式声明更稳）
+    "trial", "watermark",
     # Windows 专用：进程内调用本机 Word/WPS 转换 .doc/.wps（pywin32 COM）
     "win32com", "win32com.client", "pythoncom", "pywintypes",
 ]
