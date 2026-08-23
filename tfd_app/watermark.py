@@ -72,26 +72,45 @@ def _wm_body_para():
     return p
 
 
+def _wm_shape(xml_id, top, width, height, rot, opacity=".4"):
+    """单个 VML 背景水印 shape（Word 标准写法：font-size:1pt + mso-fit-shape-to-text 自动放大）。
+
+    每个 shape 独立 id，可在一个页眉里放多个 → 每页多个大背景水印。
+    """
+    return (
+        '<v:shape id="PowerPlusWaterMarkObject%s" o:spid="_x0000_s%s" type="#_x0000_t136" '
+        'style="position:absolute;margin-left:0;margin-top:%s;width:%spt;height:%spt;'
+        'z-index:-251654144;rotation:%s;'
+        'mso-position-horizontal:center;mso-position-horizontal-relative:margin;'
+        'mso-position-vertical:center;mso-position-vertical-relative:margin" '
+        'o:allowincell="f" filled="f" stroked="f">'
+        '<v:fill color="#C00000" opacity="%s"/>'
+        '<v:textpath style="font-family:&quot;微软雅黑&quot;;font-size:1pt;'
+        'mso-fit-shape-to-text:t;color:#C00000" string="%%s" id="PowerPlusWaterMarkObjectPath%s"/>'
+        '</v:shape>' % (xml_id, 1025 + xml_id, top, width, height, rot, opacity, xml_id))
+
+
 def _header_xml(text):
-    """页眉 XML：VML 红色斜向大水印（Word 标准水印，每页背景显示）+ 页眉红字。"""
+    """页眉 XML：每页 3 个红色斜向/水平大背景水印（删起来麻烦）+ 页眉红字。
+
+    v1.3.61：修正 VML 标准写法（font-size:1pt + mso-fit-shape-to-text 自动放大），
+    并放 3 个 shape（上/中/下三个位置，斜向 315° ×2 + 水平 ×1），
+    使每页正文背景出现多个大红"试用版"水印。
+    """
     esc = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    shapes = "".join([
+        _wm_shape(1, 0, 415, 160, 315),     # 上部：斜向
+        _wm_shape(2, 180, 415, 160, 315),   # 中部：斜向
+        _wm_shape(3, 340, 415, 160, 0),     # 下部：水平
+    ]) % (esc, esc, esc)                    # 3 个 shape 各有一个 string 占位
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
             '<w:hdr xmlns:w="%s" xmlns:v="urn:schemas-microsoft-com:vml" '
             'xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="%s">'
-            '<w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr><w:r><w:rPr><w:noProof/></w:rPr><w:pict>'
-            '<v:shape id="PowerPlusWaterMarkObject" o:spid="_x0000_s1025" type="#_x0000_t136" '
-            'style="position:absolute;margin-left:0;margin-top:0;width:415.5pt;height:258.75pt;'
-            'z-index:-251654144;rotation:315;'
-            'mso-position-horizontal:center;mso-position-horizontal-relative:margin;'
-            'mso-position-vertical:center;mso-position-vertical-relative:margin" '
-            'o:allowincell="f" filled="f" stroked="f">'
-            '<v:fill color="#C00000" opacity=".35"/>'
-            '<v:textpath style="font-family:&quot;微软雅黑&quot;;font-size:80pt;color:#C00000" '
-            'string="%s" id="PowerPlusWaterMarkObjectPath"/>'
-            '</v:shape></w:pict></w:r></w:p>'
+            '<w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr><w:r><w:rPr><w:noProof/></w:rPr>'
+            '<w:pict>%s</w:pict></w:r></w:p>'
             '<w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr><w:r><w:rPr>'
             '<w:color w:val="C00000"/><w:sz w:val="20"/><w:b/></w:rPr>'
-            '<w:t>%s</w:t></w:r></w:p></w:hdr>' % (W, R, esc, esc))
+            '<w:t>%s</w:t></w:r></w:p></w:hdr>' % (W, R, shapes, esc))
 
 
 def _xml_str(root):
@@ -117,38 +136,30 @@ def _insert_sect_refs(doc_root):
 
 
 def _insert_body_paras(doc_root):
-    """正文穿插：开头 1 处 + 中段 1 处 + 参考文献前 1 处（找不到则插到末尾 sectPr 前）。"""
+    """正文穿插：按密度每 8 段插一处红色水印行（开头必插），最多 30 处。
+
+    v1.3.61：水印"多而难删"——正文几十处红色水印行，删起来很麻烦。
+    """
     body = doc_root.find(WR + "body")
     if body is None:
         return 0
     paras = list(body.findall(WR + "p"))
     if not paras:
         return 0
-    # 找"参考文献"段落
-    ref_idx = None
-    for i, p in enumerate(paras):
-        txt = "".join(t.text or "" for t in p.iter(WR + "t"))
-        if "参考文献" in txt:
-            ref_idx = i
-            break
-    # 按索引插入（从后往前插避免索引漂移）
-    inserts = [(0, _wm_body_para()),                          # 开头
-               (len(paras) // 2, _wm_body_para())]            # 中段
-    if ref_idx is not None:
-        inserts.append((ref_idx, _wm_body_para()))            # 参考文献前
+    step = 8
+    positions = list(range(0, len(paras), step))[:30]
     all_p = list(body)
-    for pos, para in sorted(inserts, key=lambda x: -x[0]):
+    for pos in reversed(positions):
         idx = pos
         if idx >= len(all_p):
-            # 末尾：插到 sectPr 之前
             idx = len(all_p)
             for j, el in enumerate(all_p):
                 if el.tag == WR + "sectPr":
                     idx = j
                     break
-        body.insert(idx, para)
+        body.insert(idx, _wm_body_para())
         all_p = list(body)
-    return len(inserts)
+    return len(positions)
 
 
 def apply_watermark(path):
