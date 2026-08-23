@@ -44,6 +44,12 @@ from . import engine, license
 
 
 ICON = os.path.join(HERE, "assets", "icon.png")
+QRCODE = os.path.join(HERE, "assets", "qrcode.png")
+# 品牌 / 客服（文案统一来源，避免散落硬编码）
+WECHAT_NAME = "芦苇不熬夜"
+WECHAT_ID = "reedskill"
+ABOUT_MAIL = "reedskill@126.com"
+HELP_HINT = "\n\n遇到问题？看帮助或关注公众号【%s】留言。" % WECHAT_NAME
 
 # ---------------------------------------------------------------------------
 # 配色：宣纸 / 墨 / 黛蓝 / 朱砂 —— 学术范 + 文艺感
@@ -80,7 +86,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.67"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.68"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -350,6 +356,14 @@ class App:
         self._last_scale = None
         self.root.bind("<Configure>", self._on_resize)
 
+        # 菜单栏：帮助 → 关于 / 使用帮助（v1.3.68）
+        menubar = tk.Menu(self.root)
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label="使用帮助", command=lambda: show_help(self.root))
+        help_menu.add_command(label="关于", command=lambda: show_about(self.root))
+        menubar.add_cascade(label="帮助", menu=help_menu)
+        self.root.config(menu=menubar)
+
         self.thesis_path = tk.StringVar()
         self.template_path = tk.StringVar()
         self.profile_path = tk.StringVar()
@@ -446,7 +460,7 @@ class App:
         tk.Label(footer, text="论文格式医生 · 桌面版 — 完全离线，文件不会上传任何服务器",
                  bg=PAPER, fg=MUTED, font=F_FOOT).pack()
         tk.Label(footer,
-                 text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制 · 合作联系：reedskill@126.com",
+                 text="© 2026 论文格式医生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：reedskill@126.com",
                  bg=PAPER, fg=MUTED, font=F_FOOT).pack(pady=(3, 0))
 
         # 状态栏（顶部细线 + 单行，绝不与其他文字重叠）
@@ -756,7 +770,8 @@ class App:
             msg = ("一键修正未能完成，论文原文件未被改动。\n\n"
                    "错误信息：\n%s\n\n"
                    "完整报错已记录到：\n%s\n\n"
-                   "请把这段信息与该日志文件发给客服，以便定位原因。" % (err, log_path))
+                   "请把这段信息与该日志文件发给客服，以便定位原因。"
+                   % (err, log_path)) + HELP_HINT
         messagebox.showerror(title, msg)
 
     # --------------------------------------------------------------- picks
@@ -1281,7 +1296,7 @@ class App:
         return bool(box.get("ok", False))
 
     def _show_trial_exhausted(self):
-        """试用次数用完：主线程弹升级引导（公众号/卡密通占位）。"""
+        """试用次数用完：主线程弹升级引导（公众号引导）。"""
         ev = threading.Event()
         box = {}
 
@@ -1290,8 +1305,8 @@ class App:
                 "试用次数已用完",
                 "本机试用已满 %d 次。\n\n"
                 "正式版激活后：不限次数修正、输出无水印文档、一键交稿。\n\n"
-                "获取激活码：\n· 卡密通店铺：请关注公众号或联系客服\n· 公众号：【论文格式医生】\n"
-                "（名称注册审核中，敬请关注）" % trial.TRIAL_LIMIT,
+                "获取激活码：请关注公众号【芦苇不熬夜】（ID：reedskill）或联系客服。\n"
+                "激活码购买与激活问题，公众号留言即可。" % trial.TRIAL_LIMIT,
                 [("ok", "知道了")])
             ev.set()
 
@@ -1364,7 +1379,7 @@ class App:
                 saved.add(base + "_检查报告.docx")
             self._fix_saved = saved
         except Exception as e:
-            messagebox.showerror("导出失败", str(e))
+            messagebox.showerror("导出失败", str(e) + HELP_HINT)
             return
         # 导出完成：清理修正临时产出目录（系统 temp，客户无感，不残留 tfd_fix_*）
         try:
@@ -1486,7 +1501,7 @@ class App:
 
 
 def show_activation(root, show_trial=True):
-    """激活窗口：卡密通在线激活（主） + 离线备用码（兜底）。
+    """激活窗口：在线激活（主） + 离线备用码（兜底）。
 
     show_trial: 是否显示"先试用"入口。仅启动时首次弹窗为 True；
     从主界面激活入口打开时客户已在试用模式，无需再显示（v1.3.66）。
@@ -1516,7 +1531,7 @@ def show_activation(root, show_trial=True):
 
     tk.Label(top, text="激 活 论 文 格 式 医 生", bg=PAPER, fg=INK,
              font=F_TITLE).pack(pady=(14, 4))
-    tk.Label(top, text="请输入您购买的卡密以激活；激活仅需联网一次，之后完全离线使用。",
+    tk.Label(top, text="请输入您购买的激活码以激活；激活仅需联网一次，之后完全离线使用。",
              bg=PAPER, fg=MUTED, font=F_SMALL, wraplength=440, justify="center").pack(pady=(0, 10))
 
     card_var = tk.StringVar()
@@ -1529,7 +1544,7 @@ def show_activation(root, show_trial=True):
     def do_activate():
         card = card_var.get().strip()
         if not card:
-            msg_var.set("请输入卡密")
+            msg_var.set("请输入激活码")
             return
         btn_activate.config(state="disabled")
         msg_var.set("正在验证您的授权，请稍候…（首次激活需联网校验，通常需要 20~40 秒）")
@@ -1621,7 +1636,16 @@ def show_activation(root, show_trial=True):
 
     ttk.Button(top, text="退出", command=lambda: top.destroy()).pack(pady=(0, 4))
 
-    tk.Label(top, text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制 · 合作联系：reedskill@126.com",
+    hl = tk.Frame(top, bg=PAPER)
+    hl.pack(pady=(4, 2))
+    tk.Button(hl, text="关于", bg=PAPER, fg=ACCENT, font=F_SMALL,
+              relief="flat", cursor="hand2",
+              command=lambda: show_about(top)).pack(side="left", padx=14)
+    tk.Button(hl, text="使用帮助", bg=PAPER, fg=ACCENT, font=F_SMALL,
+              relief="flat", cursor="hand2",
+              command=lambda: show_help(top)).pack(side="left", padx=14)
+
+    tk.Label(top, text="© 2026 论文格式医生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：reedskill@126.com",
              bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(8, 10))
 
     # v1.3.67：按内容实际所需高度自动伸缩窗口（Tk 自动测量，保证底部版权完整显示不截断），
@@ -1638,6 +1662,148 @@ def show_activation(root, show_trial=True):
 
     top.wait_window()
     return result["v"]
+
+
+# ---------------------------------------------------------------------------
+# 关于 / 帮助 窗口（v1.3.68：品牌署名 + 客服入口 + 主打论文安全·离线）
+# ---------------------------------------------------------------------------
+def show_about(parent):
+    """关于页：产品定位 + 主打（论文安全·离线）+ 品牌署名 + 公众号二维码 + 客服入口。"""
+    top = tk.Toplevel(parent)
+    top.title("关于 · 论文格式医生")
+    top.configure(bg=PAPER)
+    top.resizable(False, False)
+
+    tk.Label(top, text="论 文 格 式 医 生", bg=PAPER, fg=INK,
+             font=F_TITLE).pack(pady=(18, 2))
+    tk.Label(top, text="版本 v%s" % APP_VERSION, bg=PAPER, fg=MUTED,
+             font=F_SUBTITLE).pack(pady=(0, 10))
+
+    tk.Label(top, text=("照着你们学校的模板，把论文格式改对。\n"
+                        "专治标题层级乱、字体字号不对、页边距/缩进/行距不符、\n"
+                        "参考文献格式错、三线表不规范——毕业格式那些老大难。"),
+             bg=PAPER, fg=BODY, font=F_BODY, justify="center").pack(pady=(0, 10))
+
+    # 主打两点（醒目）
+    tk.Label(top, text="主打两点：论文安全 · 完全离线本地处理",
+             bg=PAPER, fg=CINNABAR, font=F_HDR).pack(pady=(2, 2))
+    tk.Label(top, text=("你的论文只在自己电脑上完成修正，\n"
+                        "不联网、不上传，谁也拿不走、谁也看不到。"),
+             bg=PAPER, fg=BODY, font=F_BODY, justify="center").pack(pady=(0, 10))
+
+    tk.Frame(top, bg=LINE, height=1).pack(fill="x", padx=22, pady=(0, 10))
+
+    tk.Label(top, text="芦 苇 不 熬 夜  出 品", bg=PAPER, fg=INK,
+             font=F_HDR).pack(pady=(0, 6))
+
+    # 公众号二维码（PNG，与 icon.png 同加载方式；tk.PhotoImage 支持 PNG）
+    try:
+        if os.path.isfile(QRCODE):
+            qr = tk.PhotoImage(file=QRCODE)
+            qr = qr.subsample(max(1, round(qr.width() / 170)))  # 缩到约 170px
+            ql = tk.Label(top, image=qr, bg=PAPER)
+            ql.image = qr
+            ql.pack(pady=(2, 4))
+    except Exception:
+        pass
+
+    tk.Label(top, text="微信公众号：【%s】（ID：%s）" % (WECHAT_NAME, WECHAT_ID),
+             bg=PAPER, fg=BODY, font=F_BODY).pack(pady=(2, 0))
+    tk.Label(top, text="联系邮箱：%s" % ABOUT_MAIL,
+             bg=PAPER, fg=BODY, font=F_BODY).pack(pady=(2, 6))
+
+    tk.Label(top, text=("使用中有任何问题，关注公众号【%s】留言，\n"
+                        "或发邮件到 %s，我们看到就回。" % (WECHAT_NAME, ABOUT_MAIL)),
+             bg=PAPER, fg=MUTED, font=F_SMALL, justify="center").pack(pady=(0, 8))
+
+    tk.Frame(top, bg=LINE, height=1).pack(fill="x", padx=22, pady=(0, 8))
+
+    tk.Label(top, text="关于本软件", bg=PAPER, fg=INK, font=F_HDR).pack(pady=(0, 4))
+    tk.Label(top, text=("· 论文安全 · 完全离线本地处理：论文全程在本机完成修正，\n"
+                        "  不联网、不上传任何服务器；我们不收集、不存储你的论文内容。\n"
+                        "· 模板驱动：格式要求全部来自你上传的学校模板画像。"),
+             bg=PAPER, fg=BODY, font=F_SMALL, justify="left").pack(pady=(0, 10))
+
+    tk.Label(top, text="© %s" % WECHAT_NAME, bg=PAPER, fg=MUTED,
+             font=F_FOOT).pack(pady=(0, 14))
+
+    top.update_idletasks()
+    w = max(380, min(top.winfo_reqwidth(), 520))
+    h = min(top.winfo_reqheight(), top.winfo_screenheight() - 80)
+    top.geometry("%dx%d" % (w, h))
+
+
+def show_help(parent):
+    """使用帮助：向导式分步 + FAQ + 客服引导，可滚动文本。"""
+    top = tk.Toplevel(parent)
+    top.title("使用帮助 · 论文格式医生")
+    top.configure(bg=PAPER)
+    top.geometry("640x560")
+    top.resizable(True, True)
+
+    txt = tk.Text(top, bg=PANEL, fg=BODY, font=F_BODY, wrap="word",
+                  padx=18, pady=14, relief="flat", bd=0)
+    txt.pack(fill="both", expand=True)
+    sb = ttk.Scrollbar(top, command=txt.yview)
+    sb.pack(side="right", fill="y")
+    txt.config(yscrollcommand=sb.set)
+
+    content = (
+        "论文格式医生 · 使用帮助\n"
+        "================================\n\n"
+        "【一句话】把你学校的格式模板告诉软件，导入论文后跟着向导一步步走，\n"
+        "最后确认一下，格式就按模板改好了。\n\n"
+        "—— 怎么用（跟着向导走）——\n\n"
+        "1. 准备学校模板（最好用带批注的那版）\n"
+        "   就是你学校发的“论文格式要求”文件（Word 模板或格式规范文档都行）。\n"
+        "   强烈建议用学校发的、带批注的模板：Word 里那些文档旁边带颜色的框框\n"
+        "（批注），常写着“一级标题用黑体小二、居中”这类要求。软件读模板时\n"
+        "批注优先——会先按批注里的要求来定格式，所以带批注的模板改得最准。\n\n"
+        "2. 打开软件，导入模板\n"
+        "   软件会读取模板里的格式要求，生成一份“模板画像”\n"
+        "（字体、字号、行距、页边距、标题层级等要素）。\n\n"
+        "3. 导入你的论文\n"
+        "   选择你的 .docx / .doc 论文文件。导入后，软件会进入向导模式，\n"
+        "按步骤带你走完整个修正流程。\n\n"
+        "4. 跟着向导一步步确认\n"
+        "   不用自己研究格式。软件会分步引导你逐项确认\n"
+        "（模板画像对不对、标题层级、字体字号、页边距/缩进/行距、\n"
+        "参考文献、三线表等），你看一眼、确认即可。\n\n"
+        "5. 最后一步点确认，生成报告\n"
+        "   全部确认无误后，软件按模板把论文格式改好，并生成一份报告，\n"
+        "告诉你改了哪些地方、哪些地方它拿不准（比如模板没写清楚的）。\n\n"
+        "—— 常见问题（FAQ）——\n\n"
+        "Q1：什么是“模板驱动”？我没模板也能用吗？\n"
+        "能。没传模板时，软件用“通用规范”兜底（通用毕业论文格式）。\n"
+        "但每个学校要求不一样，传了你们学校模板，改得才最准。\n\n"
+        "Q：什么样的模板最好用？一定要带批注吗？\n"
+        "不一定非要批注，但带批注的学校官方模板效果最好。原因：软件定格式时，\n"
+        "模板里的“批注说明”比“样式定义”优先级更高（批注优先）。\n"
+        "学校发的模板常在批注里写死具体要求（如“摘要二字用黑体小二”），\n"
+        "这些最准；没批注就退而求其次读样式定义；样式也没有，才用通用规范兜底。\n"
+        "所以：能拿到带批注的官方模板，就尽量用它。\n\n"
+        "Q2：试用版和正式版有什么区别？\n"
+        "· 试用版：免费试用 2 次，输出带水印，且是只读预览（不能直接编辑）。\n"
+        "· 正式版：无水印、可正常编辑，一次付费、永久使用。\n\n"
+        "Q3：试用版输出是只读，我想改怎么办？\n"
+        "试用文档设了只读保护。但正式版输出的是可编辑文档，更省事。建议直接激活正式版。\n\n"
+        "Q4：怎么激活？\n"
+        "在激活窗口输入购买的激活码，验证通过即成为正式版，永久有效，\n"
+        "之后完全离线使用，不用联网。\n\n"
+        "Q5：我的论文安全吗？会不会被上传？\n"
+        "绝对安全。所有修正都在你本机完成，论文不联网、不上传任何服务器，\n"
+        "我们也不收集你的论文内容。断网也能用，放心。\n\n"
+        "Q6：我们学校模板很特殊 / 修正结果不满意？\n"
+        "关注公众号【%s】留言，告诉我们你学校的情况，我们帮你处理。\n\n"
+        "—— 更多帮助 / 客服 ——\n\n"
+        "使用问题、模板疑问、购买咨询，都可以：\n"
+        "· 微信搜索公众号【%s】（ID：%s）关注后留言\n"
+        "· 后台设了关键词自动回复（试用 / 激活 / 水印 / 报错），常见问题秒回\n"
+        "· 复杂问题我们人工回复\n"
+    ) % (WECHAT_NAME, WECHAT_NAME, WECHAT_ID)
+
+    txt.insert("1.0", content)
+    txt.config(state="disabled")
 
 
 def main():
