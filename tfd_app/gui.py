@@ -80,7 +80,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.57"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.58"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -600,6 +600,13 @@ class App:
         self.status_lbl = tk.Label(card, textvariable=self.status_var, bg=PANEL, fg=INK,
                                    font=F_STAT)
         self.status_lbl.pack(side="left", pady=(8, 4))
+
+        # v1.3.58：激活/试用状态与入口（未激活=试用版，可随时点激活）
+        self._licensed = trial.is_licensed()
+        self._trial_btn = ttk.Button(card, text="", style="Ghost.TButton",
+                                     command=self._open_activation)
+        self._trial_btn.pack(side="right", padx=(6, 14), pady=(6, 2))
+        self._update_trial_badge()
 
         btn_row = tk.Frame(card, bg=PANEL)
         btn_row.pack(fill="x", padx=14, pady=(10, 14))
@@ -1448,10 +1455,44 @@ class App:
                                     self.status_lbl.config(fg=color),
                                     self.status_dot.config(fg=color)))
 
+    def _update_trial_badge(self):
+        """刷新右下角激活/试用标识。"""
+        try:
+            self._licensed = trial.is_licensed()
+        except Exception:
+            self._licensed = False
+        if self._licensed:
+            self._trial_btn.config(text="正式版 ✓", state="disabled")
+        else:
+            left = trial.trials_left()
+            if left > 0:
+                self._trial_btn.config(text="试用版（剩 %d 次）· 激活" % left, state="normal")
+            else:
+                self._trial_btn.config(text="试用已用完 · 激活", state="normal")
+
+    def _open_activation(self):
+        """主界面右上角激活入口：打开激活窗，成功后刷新状态。"""
+        if self.running:
+            messagebox.showinfo("正在处理", "上一步还在处理中，请稍候…", parent=self.root)
+            return
+        r = show_activation(self.root)
+        if r == "ok":
+            self._update_trial_badge()
+            self._set_status("已激活正式版，感谢支持", OKC)
+        elif r == "trial":
+            self._update_trial_badge()
+            self._set_status("已进入试用模式", MUTED)
+
 
 def show_activation(root):
-    """激活窗口：卡密通在线激活（主） + 离线备用码（兜底）。返回是否成功。"""
-    result = {"ok": False}
+    """激活窗口：卡密通在线激活（主） + 离线备用码（兜底）。
+
+    返回：
+      "ok"     激活成功；
+      "trial"  客户选择"先试用"（暂不激活，进入试用模式）；
+      "quit"   直接关闭窗口（退出程序）。
+    """
+    result = {"v": "quit"}
     top = tk.Toplevel(root)
     top.title("激活 · 论文格式医生")
     top.configure(bg=PAPER)
@@ -1512,7 +1553,7 @@ def show_activation(root):
             if ok:
                 license.save_local_license(card, mc)
                 license._log("gui: 授权已写入本机")
-                result["ok"] = True
+                result["v"] = "ok"
                 top.destroy()
             else:
                 msg_var.set(note)
@@ -1543,20 +1584,27 @@ def show_activation(root):
         mc2 = license.get_machine_code()
         if license.verify_offline_code(code, mc2):
             license.save_offline_license(code, mc2)
-            result["ok"] = True
+            result["v"] = "ok"
             top.destroy()
         else:
             msg_var.set("离线激活码无效，请核对后重试")
 
     ttk.Button(top, text="使用离线激活码激活", style="Ghost.TButton",
                command=do_offline).pack(pady=(2, 6))
+
+    # v1.3.58：试用入口——未激活也能先用（免费 2 次，输出带水印）
+    ttk.Button(top, text="先试用（暂不激活，免费 2 次）", style="Ghost.TButton",
+               command=lambda: (result.update(v="trial"), top.destroy())).pack(pady=(2, 4))
+    tk.Label(top, text="试用版修正后的论文带水印；正式版无水印。",
+             bg=PAPER, fg=MUTED, font=F_FOOT).pack(pady=(0, 4))
+
     ttk.Button(top, text="退出", command=lambda: top.destroy()).pack(pady=(2, 4))
 
     tk.Label(top, text="© 2026 论文格式医生 · 高校批量授权 & 期刊格式定制 · 合作联系：reedskill@126.com",
              bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(16, 12))
 
     top.wait_window()
-    return result["ok"]
+    return result["v"]
 
 
 def main():
@@ -1571,7 +1619,9 @@ def main():
     _init_fonts(root)
     root.withdraw()
     if not license.check_local_valid():
-        if not show_activation(root):
+        # v1.3.58：未激活时弹激活窗，但提供"先试用"入口（不进主界面则退出）
+        r = show_activation(root)
+        if r not in ("ok", "trial"):
             root.destroy()
             return
     root.deiconify()
