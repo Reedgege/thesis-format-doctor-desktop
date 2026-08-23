@@ -86,7 +86,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.69"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.70"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -356,14 +356,6 @@ class App:
         self._last_scale = None
         self.root.bind("<Configure>", self._on_resize)
 
-        # 菜单栏：帮助 → 关于 / 使用帮助（v1.3.68）
-        menubar = tk.Menu(self.root)
-        help_menu = tk.Menu(menubar, tearoff=0)
-        help_menu.add_command(label="使用帮助", command=lambda: show_help(self.root))
-        help_menu.add_command(label="关于", command=lambda: show_about(self.root))
-        menubar.add_cascade(label="帮助", menu=help_menu)
-        self.root.config(menu=menubar)
-
         self.thesis_path = tk.StringVar()
         self.template_path = tk.StringVar()
         self.profile_path = tk.StringVar()
@@ -427,23 +419,24 @@ class App:
                         background=PANEL, foreground=ACCENT)
         style.map("Ghost.TButton",
                   background=[("active", "#efe9db"), ("disabled", "#f4f0e6")])
-        # 右上角“帮助”按钮：朱砂红底白字、字号偏大，更显眼（v1.3.69）
-        style.configure("Help.TButton", font=("Microsoft YaHei", 14, "bold"),
-                        padding=(20, 9), background=CINNABAR, foreground="white")
-        style.map("Help.TButton",
-                  background=[("active", CINNABAR_D), ("disabled", "#c8a79f")],
-                  foreground=[("disabled", "#f5e9e6")])
 
     # ------------------------------------------------------------- layout
     def _build_widgets(self):
         self.root.configure(bg=PAPER)
 
-        # 右上角醒目“帮助”按钮（v1.3.69）
+        # 右上角文字链接：关于 / 帮助（无底色，朱砂红字，更克制）
         topbar = tk.Frame(self.root, bg=PAPER)
         topbar.pack(fill="x", padx=20, pady=(10, 0))
         tk.Label(topbar, text="", bg=PAPER).pack(side="left", expand=True)
-        ttk.Button(topbar, text="帮 助", command=lambda: show_help(self.root),
-                   style="Help.TButton", cursor="hand2").pack(side="right")
+
+        def _link(parent, text, cmd):
+            lbl = tk.Label(parent, text=text, bg=PAPER, fg=CINNABAR,
+                           font=("Microsoft YaHei", 12, "bold"), cursor="hand2")
+            lbl.bind("<Button-1>", lambda e: cmd())
+            return lbl
+
+        _link(topbar, "关 于", lambda: show_about(self.root)).pack(side="right", padx=(0, 16))
+        _link(topbar, "帮 助", lambda: show_help(self.root)).pack(side="right")
 
         # 顶部标题区
         header = tk.Frame(self.root, bg=PAPER)
