@@ -34,14 +34,16 @@ _HDR_REL_ID = "rIdTfdHdr"
 _FTR_REL_ID = "rIdTfdFtr"
 
 
-def _wm_run(text, sz="16", color="999999"):
-    """页眉/页脚里的灰字 run。"""
+def _wm_run(text, sz="20", color="C00000", bold=True):
+    """页眉/页脚里的红字 run（v1.3.60：加大、加粗、红色）。"""
     r = ET.Element(WR + "r")
     rpr = ET.SubElement(r, WR + "rPr")
     c = ET.SubElement(rpr, WR + "color")
     c.set(WR + "val", color)
+    if bold:
+        ET.SubElement(rpr, WR + "b")
     s = ET.SubElement(rpr, WR + "sz")
-    s.set(WR + "val", sz)            # 8pt（页眉页脚用）
+    s.set(WR + "val", sz)            # 10pt（页眉页脚用）
     s2 = ET.SubElement(rpr, WR + "szCs")
     s2.set(WR + "val", sz)
     t = ET.SubElement(r, WR + "t")
@@ -50,7 +52,7 @@ def _wm_run(text, sz="16", color="999999"):
 
 
 def _wm_body_para():
-    """正文穿插的显眼试用水印段落（居中、灰字、小号）。"""
+    """正文穿插的试用水印段落（v1.3.60：红色、加粗、加大、居中）。"""
     p = ET.Element(WR + "p")
     ppr = ET.SubElement(p, WR + "pPr")
     jc = ET.SubElement(ppr, WR + "jc")
@@ -58,16 +60,38 @@ def _wm_body_para():
     r = ET.SubElement(p, WR + "r")
     rpr = ET.SubElement(r, WR + "rPr")
     c = ET.SubElement(rpr, WR + "color")
-    c.set(WR + "val", "A6A6A6")
+    c.set(WR + "val", "C00000")
+    ET.SubElement(rpr, WR + "b")
     s = ET.SubElement(rpr, WR + "sz")
-    s.set(WR + "val", "18")          # 9pt
+    s.set(WR + "val", "26")          # 13pt
     s2 = ET.SubElement(rpr, WR + "szCs")
-    s2.set(WR + "val", "18")
-    i = ET.SubElement(rpr, WR + "i")
+    s2.set(WR + "val", "26")
     t = ET.SubElement(r, WR + "t")
     t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
     t.text = _WM_BODY
     return p
+
+
+def _header_xml(text):
+    """页眉 XML：VML 红色斜向大水印（Word 标准水印，每页背景显示）+ 页眉红字。"""
+    esc = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+            '<w:hdr xmlns:w="%s" xmlns:v="urn:schemas-microsoft-com:vml" '
+            'xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="%s">'
+            '<w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr><w:r><w:rPr><w:noProof/></w:rPr><w:pict>'
+            '<v:shape id="PowerPlusWaterMarkObject" o:spid="_x0000_s1025" type="#_x0000_t136" '
+            'style="position:absolute;margin-left:0;margin-top:0;width:415.5pt;height:258.75pt;'
+            'z-index:-251654144;rotation:315;'
+            'mso-position-horizontal:center;mso-position-horizontal-relative:margin;'
+            'mso-position-vertical:center;mso-position-vertical-relative:margin" '
+            'o:allowincell="f" filled="f" stroked="f">'
+            '<v:fill color="#C00000" opacity=".35"/>'
+            '<v:textpath style="font-family:&quot;微软雅黑&quot;;font-size:80pt;color:#C00000" '
+            'string="%s" id="PowerPlusWaterMarkObjectPath"/>'
+            '</v:shape></w:pict></w:r></w:p>'
+            '<w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr><w:r><w:rPr>'
+            '<w:color w:val="C00000"/><w:sz w:val="20"/><w:b/></w:rPr>'
+            '<w:t>%s</w:t></w:r></w:p></w:hdr>' % (W, R, esc, esc))
 
 
 def _xml_str(root):
@@ -93,32 +117,38 @@ def _insert_sect_refs(doc_root):
 
 
 def _insert_body_paras(doc_root):
-    """正文穿插：开头 1 处 + 参考文献前 1 处（找不到则插到末尾 sectPr 前）。"""
+    """正文穿插：开头 1 处 + 中段 1 处 + 参考文献前 1 处（找不到则插到末尾 sectPr 前）。"""
     body = doc_root.find(WR + "body")
     if body is None:
         return 0
-    p1 = _wm_body_para()
-    p2 = _wm_body_para()
-    body.insert(0, p1)
-    # 找"参考文献"段落，插到其前
-    ref_p = None
-    for p in body.findall(WR + "p"):
+    paras = list(body.findall(WR + "p"))
+    if not paras:
+        return 0
+    # 找"参考文献"段落
+    ref_idx = None
+    for i, p in enumerate(paras):
         txt = "".join(t.text or "" for t in p.iter(WR + "t"))
         if "参考文献" in txt:
-            ref_p = p
+            ref_idx = i
             break
-    if ref_p is not None:
-        idx = list(body).index(ref_p)
-        body.insert(idx, p2)
-    else:
-        # 插到最后一个非 sectPr 元素之后（sectPr 之前）
-        idx = len(list(body))
-        for i, el in enumerate(list(body)):
-            if el.tag == WR + "sectPr":
-                idx = i
-                break
-        body.insert(idx, p2)
-    return 2
+    # 按索引插入（从后往前插避免索引漂移）
+    inserts = [(0, _wm_body_para()),                          # 开头
+               (len(paras) // 2, _wm_body_para())]            # 中段
+    if ref_idx is not None:
+        inserts.append((ref_idx, _wm_body_para()))            # 参考文献前
+    all_p = list(body)
+    for pos, para in sorted(inserts, key=lambda x: -x[0]):
+        idx = pos
+        if idx >= len(all_p):
+            # 末尾：插到 sectPr 之前
+            idx = len(all_p)
+            for j, el in enumerate(all_p):
+                if el.tag == WR + "sectPr":
+                    idx = j
+                    break
+        body.insert(idx, para)
+        all_p = list(body)
+    return len(inserts)
 
 
 def apply_watermark(path):
@@ -137,9 +167,8 @@ def apply_watermark(path):
         _insert_sect_refs(doc_root)
         parts["word/document.xml"] = _xml_str(doc_root).encode("utf-8")
 
-        # 页眉 / 页脚
-        parts["word/header1.xml"] = _xml_str(
-            _header_footer("hdr", _WM_HEADER)).encode("utf-8")
+        # 页眉（VML 红色斜向大水印 + 红字）/ 页脚（红字）
+        parts["word/header1.xml"] = _header_xml(_WM_HEADER).encode("utf-8")
         parts["word/footer1.xml"] = _xml_str(
             _header_footer("ftr", _WM_HEADER)).encode("utf-8")
 
