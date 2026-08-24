@@ -602,6 +602,27 @@ def check_structural_pages(paras, stats):
     else:
         issues.append(('info', f'检测到 {heading_styled} 处使用标题样式的段落，Word 可据此生成目录。'))
 
+    # ---- 5. 致谢 / 附录（结构页，修正工具可按学校模板套格式；此处仅提示存在性）----
+    # v1.3.77：此前致谢/附录仅被识别后跳过、诊断报告不单列。现补存在性提示，
+    # 并引导用户用修正工具按模板套格式（仍只读、不修改文件，符合合规边界）。
+    _ack_norm = lambda t: re.sub(r"\s+", "", (t or "")).lower()
+    ack_hit = any(_ack_norm(p.get('text')).strip('：:；;') in
+                  ("致谢", "acknowledgements", "acknowledgment", "acknowledgments")
+                  for p in paras)
+    if ack_hit:
+        issues.append(('info', '检测到「致谢」页（修正工具可按学校模板套用其格式）。'))
+    else:
+        issues.append(('低', '未检测到「致谢」页（部分学校要求论文含致谢，请按学校要求确认）。'))
+    appx_hit = any(
+        (re.sub(r"\s+", "", (p.get('text') or "")).lower().strip('：:；;') in ("附录", "appendix", "appendices"))
+        or bool(re.match(r"^附录[a-z0-9一二三四五六七八九十]?$",
+                         re.sub(r"\s+", "", (p.get('text') or "")).lower().strip('：:；;')))
+        for p in paras)
+    if appx_hit:
+        issues.append(('info', '检测到「附录」页（修正工具可按学校模板套用其格式）。'))
+    else:
+        issues.append(('低', '未检测到「附录」页（若论文含附录，修正工具可按学校模板套用格式）。'))
+
     return issues
 
 
