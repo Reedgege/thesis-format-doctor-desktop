@@ -1710,6 +1710,12 @@ def fix(src, dst, profile=None, add_comments=True):
                         "conf": 0.9, "_para": _p,
                     })
                     continue
+                # v1.3.84：关键词内容段不套用——"关键词："标签加粗 vs 具体关键词
+                # 内容不加粗无法可靠拆分（run 结构不可控），与附录同策略：只提示
+                # 不修改（同行结构由 keywords_note 批注提示；纯标题行结构此处跳过
+                # 内容 sweep，避免内容被 keywords spec 的 bold 误加粗）。
+                if _cat in ("keywords", "en_keywords"):
+                    continue
                 # 内容段：从 _i+1 到下一结构页标题（同区域）或区域边界。
                 _next = _struct_titles[_k + 1][0] if _k + 1 < len(_struct_titles) else None
                 if _cat in ("abstract", "keywords", "en_abstract", "en_keywords"):

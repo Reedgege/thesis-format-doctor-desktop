@@ -77,8 +77,18 @@ def _log(msg):
 _OFFLINE_KEY = "|".join(("tfd", "kami", "offline", "2026", "sign", "v1")).encode("utf-8")
 
 
+_MC_CACHE = None  # v1.3.84：进程内缓存——机器码运行期不变，避免每次调用重复跑子进程
+
+
 def get_machine_code():
-    """计算本机指纹（硬件级，尽量稳定）。失败有兜底。"""
+    """计算本机指纹（硬件级，尽量稳定）。失败有兜底。
+
+    v1.3.84：结果进程内缓存（wmic/powershell 子进程每次约 0.5~1.5s，
+    GUI 启动/激活/徽章/每次修正多处调用，缓存后不再重复开销）。
+    """
+    global _MC_CACHE
+    if _MC_CACHE:
+        return _MC_CACHE
     parts = []
 
     # 磁盘序列号（优先 wmic，失败退 PowerShell）
@@ -120,7 +130,8 @@ def get_machine_code():
             parts.append("rand:" + uuid.uuid4().hex)
 
     raw = "|".join(parts)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32].upper()
+    _MC_CACHE = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32].upper()
+    return _MC_CACHE
 
 
 # ---------------------------------------------------------------------------

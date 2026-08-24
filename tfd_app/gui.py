@@ -86,7 +86,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.83"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.84"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -1280,7 +1280,12 @@ class App:
             ok = self._ask_trial_confirm(left)  # 主线程弹"修正前提示"
             if not ok:
                 return False
-            trial.consume_trial()
+            if not trial.consume_trial():
+                # v1.3.84：扣减失败（计数文件被篡改锁定/损坏/写入失败）→ 按已用完拦截。
+                # 此前返回值被忽略：篡改 trial.json 使其"损坏"后，每次都不扣次数仍放行，
+                # 锁定机制形同虚设、可无限试用——安全边界修复。
+                self._show_trial_exhausted()
+                return False
 
         # dst 为 None：先产出到临时目录，待修正完成（主线程 _export_fix）再让客户选保存位置。
         if not dst:
