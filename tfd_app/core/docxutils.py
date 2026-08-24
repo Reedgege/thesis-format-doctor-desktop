@@ -699,10 +699,19 @@ def classify_structural_title(text, seen_en_abstract=False):
 
 
 def categorize_comment(text):
-    """返回批注所属类别 key；无法归类返回 'misc'。"""
+    """返回批注所属类别 key；无法归类返回 'misc'。
+
+    v1.3.82：类别词须出现在批注【开头 20 字符内】。此前用全文子串匹配，
+    模板说明句（如目录批注末尾"目录中的摘要，致谢，附录均不要空格"）会因
+    含"致谢/附录/摘要"字样被误归到 ack/appendix/abstract——实测致谢正文被
+    套成"宋体小三加粗居中"标题格式（用户反馈"正文还是加粗"的根因之一）。
+    正常批注均为"类别词+要求"结构，类别词几乎总在开头；开头限定不影响
+    合法批注归类，仅排除"提及性"句子。
+    """
     t = text or ""
+    head = t[:20]
     for key, token in _COMMENT_CATS:
-        if token in t:
+        if token in t and token in head:
             return key
     return 'misc'
 
