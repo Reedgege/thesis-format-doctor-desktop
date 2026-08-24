@@ -1261,6 +1261,34 @@ def _remove_numbering_pass(root, first_chap, ref_start, tbl_ps, cap_targets,
     return changes
 
 
+def _classify_structural_title(text, seen_en_abstract=False):
+    """把结构页标题文本映射到 profile.levels 的类别 key；非结构页返回 None。
+
+    专用于「结构页格式套用」pass：识别 摘要/关键词/英文摘要/Key words/致谢/附录，
+    按对应类别套用模板画像 spec。跨校通用——大小写不敏感、去空白、去首尾标点。
+    v1.3.77 新增。
+    """
+    t = re.sub(r"\s+", "", (text or "").strip()).lower()
+    t = t.strip("：:；;,.，。")
+    # 摘要（含「摘要ABSTRACT」等中英混排标题）
+    if t == "摘要" or (t.startswith("摘要") and len(t) <= 8):
+        return "abstract"
+    # 关键词 / Key words / Keywords（英文摘要之后的 Key words 归为 en_keywords）
+    if t in ("关键词", "key words", "keywords"):
+        return "en_keywords" if seen_en_abstract else "keywords"
+    # 英文摘要 / Abstract
+    if t == "英文摘要" or t == "abstract":
+        return "en_abstract"
+    # 致谢 / Acknowledgements / Acknowledgment
+    if t in ("致谢", "acknowledgements", "acknowledgment", "acknowledgments"):
+        return "ack"
+    # 附录 / Appendix / Appendices（含 附录A / 附录1 等带字母/数字写法）
+    if t == "附录" or t in ("appendix", "appendices") \
+            or re.match(r"^附录[a-z0-9一二三四五六七八九十]", t):
+        return "appendix"
+    return None
+
+
 def fix(src, dst, profile=None, add_comments=True):
     z, root = load(src)
 
@@ -1593,6 +1621,100 @@ def fix(src, dst, profile=None, add_comments=True):
             except Exception:
                 pass
 
+    # ===== 结构页（摘要/关键词/英文摘要/Key words/致谢/附录）：按模板套格式 =====
+    # v1.3.77：此前结构页仅诊断、不修改。现按学校模板画像 levels 里对应类别套用格式。
+    # 模板驱动铁律：只有 profile.levels 含该类别 spec 才处理；无批注则跳过（跨校安全）。
+    # 范围守卫：摘要族位于正文区之前（idx < first_chap）；致谢/附录位于参考文献之后
+    # （idx > ref_start）。封面/目录/正文区/参考文献区不碰，避免误套或越界。
+    if profile and profile.get("levels"):
+        levels = profile["levels"]
+        _struct_specs = {
+            "abstract": levels.get("abstract"),
+            "keywords": levels.get("keywords"),
+            "en_abstract": levels.get("en_abstract"),
+            "en_keywords": levels.get("en_keywords"),
+            "ack": levels.get("ack"),
+            "appendix": levels.get("appendix"),
+        }
+        _struct_specs = {k: v for k, v in _struct_specs.items() if v}
+        if _struct_specs:
+            _seen_en_abstract = False
+            # 先收集本篇中落入正确区域的结构页标题（idx, cat, spec, 段落），再套标题+内容。
+            _struct_titles = []
+            for i, p in enumerate(paras_list):
+                if p in tbl_ps:
+                    continue
+                _t = _text_of(p).strip()
+                if not _t:
+                    continue
+                _cat = _classify_structural_title(_t, _seen_en_abstract)
+                if _cat is None:
+                    continue
+                if _cat == "en_abstract":
+                    _seen_en_abstract = True
+                _spec = _struct_specs.get(_cat)
+                if not _spec:
+                    continue
+                # 范围守卫：摘要族必须在正文区之前；致谢/附录必须在参考文献之后
+                if _cat in ("abstract", "keywords", "en_abstract", "en_keywords"):
+                    if first_chap is not None and i >= first_chap:
+                        continue
+                else:  # ack / appendix
+                    if ref_start is not None and i <= ref_start:
+                        continue
+                _struct_titles.append((i, _cat, _spec, p))
+            # 套用：标题行套 字体/字号/加粗/对齐 子集；内容段套完整 spec。
+            for _k, (_i, _cat, _spec, _p) in enumerate(_struct_titles):
+                # 标题行：避免给「摘要/致谢」两字强加首行缩进或固定值行距，
+                # 只套字体/字号/加粗/对齐（与章节标题的处理一致）。
+                _title_spec = {kk: _spec[kk] for kk in
+                               ("zh_font", "en_font", "sz", "bold", "align") if kk in _spec}
+                if _para_needs_fix(_p, _spec) or (_title_spec and _para_needs_fix(_p, _title_spec)):
+                    if _title_spec:
+                        _format_runs(_p, _title_spec)
+                        _set_para_format(_p, _title_spec)
+                    else:
+                        _format_runs(_p, _spec)
+                        _set_para_format(_p, _spec)
+                    changes.append({
+                        "kind": "structural_title", "text": _text_of(_p).strip()[:50],
+                        "level": 0, "old": _current_fmt(_p, _spec),
+                        "new": _fmt_summary(_spec), "new_name": _fmt_summary(_spec),
+                        "conf": 0.9, "_para": _p,
+                    })
+                # 内容段：从 _i+1 到下一结构页标题（同区域）或区域边界。
+                _next = _struct_titles[_k + 1][0] if _k + 1 < len(_struct_titles) else None
+                if _cat in ("abstract", "keywords", "en_abstract", "en_keywords"):
+                    # 不越过正文起点（首个一级标题）
+                    _end = _next if _next is not None else (
+                        first_chap if first_chap is not None else len(paras_list))
+                    if first_chap is not None and _end > first_chap:
+                        _end = first_chap
+                else:
+                    _end = _next if _next is not None else len(paras_list)
+                for _j in range(_i + 1, _end):
+                    _cp = paras_list[_j]
+                    if _cp in tbl_ps:
+                        continue
+                    _ct = _text_of(_cp).strip()
+                    if not _ct or _has_image(_cp):
+                        continue
+                    # 边界守卫：结构页内容区不含章节标题/参考文献标题/下一个结构页标题，
+                    # 一旦遇到立即停止 sweep，避免关键词区溢出污染正文（v1.3.77 修复）。
+                    _lv, _ = detect_heading(_ct)
+                    if _lv in (1, 2, 3, 4, 5, 6) or is_reference_heading(_ct) \
+                            or is_structural_title(_ct):
+                        break
+                    if _para_needs_fix(_cp, _spec):
+                        _format_runs(_cp, _spec)
+                        _set_para_format(_cp, _spec)
+                        changes.append({
+                            "kind": "structural", "text": _ct[:50],
+                            "level": 0, "old": _current_fmt(_cp, _spec),
+                            "new": _fmt_summary(_spec), "new_name": _fmt_summary(_spec),
+                            "conf": 0.9, "_para": _cp,
+                        })
+
     # ===== 参考文献区：标题套 reference_heading spec，条目套 reference spec =====
     # v1.3.4 修复：山大等学校在同一条批注中写明两套格式（标题黑体小三加粗居中，
     # 条目宋体/TNR/小四/两端对齐/固定值20磅/按编号位数多档悬挂缩进）。此前整段
@@ -1915,6 +2037,10 @@ def _type_label(r):
         return "表/图注"
     if kind == "footnote":
         return "脚注"
+    if kind == "structural_title":
+        return "结构页标题"
+    if kind == "structural":
+        return "结构页正文"
     return _lvl(r.get("level", 0))
 
 
