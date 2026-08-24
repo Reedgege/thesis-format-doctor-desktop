@@ -956,6 +956,20 @@ def _normalize_images(root, profile=None, skip_paras=None):
     return changes
 
 
+def _is_keywords_line(text):
+    """"关键词：kw1；kw2"同行结构识别（标签+内容同一行）。
+
+    v1.3.83：此类行不自动修改（"关键词："标签加粗 vs 具体关键词内容不加粗无法
+    可靠拆分——run 结构不可控），只挂说明批注请客户核对。纯"关键词"标题
+    （无冒号）由 classify_structural_title 正常识别，不在此列。
+    """
+    t = re.sub(r"\s+", "", (text or "").strip()).lower()
+    for prefix in ("关键词：", "key words:", "keywords:"):
+        if t.startswith(prefix) and len(t) > len(prefix):
+            return True
+    return False
+
+
 def _comment_text_for_change(c):
     """根据一条 change 生成简洁的 Word 批注文字。"""
     kind = c.get("kind", "")
@@ -992,6 +1006,9 @@ def _comment_text_for_change(c):
     if kind == "appendix_note":
         return ("附录：已按模板修正标题格式。附录正文格式各异（数据表/图片/问卷等），"
                 "软件不自动修改，请对照学校要求自行处理。")
+    if kind == "keywords_note":
+        return ('关键词：此行格式未自动修改。请对照学校模板核对"关键词："标签的加粗设置'
+                '（一般标签加粗、具体关键词内容不加粗）。')
     return "格式修正：按模板调整"
 
 
@@ -1014,7 +1031,14 @@ def _apply_comments(z, root, changes, replacements):
         if p is None:
             continue
         text = _comment_text_for_change(c)
-        add_comment_marker(p, next_id, text, comments_root)
+        # v1.3.83：提示类批注（只说明不修改：附录/关键词/疑似题注）用独立作者名，
+        # Word 会按作者分配不同的气泡颜色，与"已修改"批注（论文格式医生）区分开。
+        _kind = c.get("kind", "")
+        if _kind.endswith("_note") or _kind == "suspected_caption":
+            add_comment_marker(p, next_id, text, comments_root,
+                               author="论文格式医生·提示", initials="TS")
+        else:
+            add_comment_marker(p, next_id, text, comments_root)
         next_id += 1
         n += 1
     # 把 comments.xml 写入 replacements（无论新建还是修改）
@@ -1619,6 +1643,20 @@ def fix(src, dst, profile=None, add_comments=True):
             "appendix": levels.get("appendix"),
         }
         _struct_specs = {k: v for k, v in _struct_specs.items() if v}
+        # v1.3.83：关键词行（"关键词：kw1；kw2"同行）——标签加粗/内容不加粗无法
+        # 可靠拆分（run 结构不可控），不自动修改，挂说明批注请客户核对。
+        # 独立于 _struct_specs：即使模板无 keywords spec 也提示。
+        if add_comments:
+            for _p in paras_list:
+                if _p in tbl_ps:
+                    continue
+                _kt = _text_of(_p).strip()
+                if _kt and _is_keywords_line(_kt):
+                    changes.append({
+                        "kind": "keywords_note", "text": _kt[:50],
+                        "level": 0, "old": "", "new": "", "new_name": "",
+                        "conf": 0.9, "_para": _p,
+                    })
         if _struct_specs:
             _seen_en_abstract = False
             # 先收集本篇中落入正确区域的结构页标题（idx, cat, spec, 段落），再套标题+内容。
@@ -1696,7 +1734,8 @@ def fix(src, dst, profile=None, add_comments=True):
                     # 标题而提前 break，导致附录正文不被套用。
                     _lv, _ = detect_heading(_ct)
                     if _lv in (1, 2, 3, 4, 5, 6) or is_reference_heading(_ct) \
-                            or classify_structural_title(_ct) is not None:
+                            or classify_structural_title(_ct) is not None \
+                            or _is_keywords_line(_ct):
                         break
                     if _para_needs_fix(_cp, _spec):
                         _format_runs(_cp, _spec)
