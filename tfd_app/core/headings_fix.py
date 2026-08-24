@@ -983,6 +983,9 @@ def _comment_text_for_change(c):
         return "页边距：按模板修正为 %s" % (c.get("new") or "")
     if kind == "suspected_caption":
         return c.get("note") or "此段紧邻表格/图片且字号较小，可能是题注或来源说明，已保留原格式，请确认"
+    if kind == "appendix_note":
+        return ("附录：已按模板修正标题格式。附录正文格式各异（数据表/图片/问卷等），"
+                "软件不自动修改，请对照学校要求自行处理。")
     return "格式修正：按模板调整"
 
 
@@ -1653,6 +1656,16 @@ def fix(src, dst, profile=None, add_comments=True):
                         "new": _fmt_summary(_tspec), "new_name": _fmt_summary(_tspec),
                         "conf": 0.9, "_para": _p,
                     })
+                # v1.3.79：附录只改标题，正文一律不自动改——各校附录正文差异极大
+                # （数据表/图片/问卷/程序清单等"各种各样的都有"），统一套格式反而添乱。
+                # 在附录标题处加说明批注，明确告知客户"正文不用管、请对照学校要求自处"。
+                if _cat == "appendix":
+                    changes.append({
+                        "kind": "appendix_note", "text": _text_of(_p).strip()[:50],
+                        "level": 0, "old": "", "new": "", "new_name": "",
+                        "conf": 0.9, "_para": _p,
+                    })
+                    continue
                 # 内容段：从 _i+1 到下一结构页标题（同区域）或区域边界。
                 _next = _struct_titles[_k + 1][0] if _k + 1 < len(_struct_titles) else None
                 if _cat in ("abstract", "keywords", "en_abstract", "en_keywords"):
