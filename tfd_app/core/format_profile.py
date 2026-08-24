@@ -552,6 +552,7 @@ def _build_spec(comment_specs):
         "h1": cats.get("h1"), "h2": cats.get("h2"), "h3": cats.get("h3"),
         "body": cats.get("body"),
         "abstract": cats.get("abstract"),
+        "abstract_title": cats.get("abstract_title"),
         "keywords": cats.get("keywords"),
         "toc": cats.get("toc"),
         "reference": cats.get("reference"),
