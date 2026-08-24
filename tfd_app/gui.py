@@ -86,7 +86,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.78"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.79"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -181,7 +181,8 @@ EDIT_FIELDS = [
                     ("levels", "appendix", "zh_font")], "text"),
     ("附录标题字号", [("levels", "appendix_title", "sz"), ("levels", "appendix_title", "size"),
                     ("spec", "appendix_title", "sz"), ("levels", "appendix", "sz")], "text"),
-    ("附录正文字体", [("levels", "appendix", "zh_font"), ("spec", "appendix", "zh_font")], "text"),
+    # v1.3.79：附录正文一律不自动修改（各校差异极大），故不提供"附录正文字体"确认项，
+    # 避免客户修改后不生效造成误导；附录标题处会以批注说明正文请自行对照学校要求处理。
 ]
 
 
