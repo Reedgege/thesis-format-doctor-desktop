@@ -654,6 +654,36 @@ def is_body_style_name(name):
     return _kw_hit(name, BODY_STYLE_NAMES)
 
 
+def classify_structural_title(text, seen_en_abstract=False):
+    """把结构页标题文本映射到 profile.levels 的类别 key；非结构页返回 None。
+
+    v1.3.78 起自 headings_fix._classify_structural_title 迁入，供 format_profile
+    （模板画像提取标题/正文双 spec）与 headings_fix（结构页格式套用 pass）单一来源复用，
+    避免两份逻辑漂移。跨校通用——大小写不敏感、去空白、去首尾标点。
+    """
+    t = re.sub(r"\s+", "", (text or "").strip()).lower()
+    t = t.strip("：:；;,.，。")
+    # 摘要（含「摘要ABSTRACT」等中英混排标题）
+    if t == "摘要" or (t.startswith("摘要") and len(t) <= 8):
+        return "abstract"
+    # 关键词 / Key words / Keywords（英文摘要之后的 Key words 归为 en_keywords）
+    if t in ("关键词", "key words", "keywords"):
+        return "en_keywords" if seen_en_abstract else "keywords"
+    # 英文摘要 / Abstract
+    if t == "英文摘要" or t == "abstract":
+        return "en_abstract"
+    # 致谢 / Acknowledgements / Acknowledgment
+    if t in ("致谢", "acknowledgements", "acknowledgment", "acknowledgments"):
+        return "ack"
+    # 附录 / Appendix / Appendices（含 附录A / 附录1 等带字母/数字写法）
+    # v1.3.78：变体必须限制标题长度——"附录A的内容…"这类正文以"附录A"开头，
+    # 无限长会整段误判成标题并被套成标题格式（冒烟测试抓到的真实 bug）。
+    if t == "附录" or t in ("appendix", "appendices") \
+            or (re.match(r"^附录[a-z0-9一二三四五六七八九十]", t) and len(t) <= 10):
+        return "appendix"
+    return None
+
+
 def categorize_comment(text):
     """返回批注所属类别 key；无法归类返回 'misc'。"""
     t = text or ""
