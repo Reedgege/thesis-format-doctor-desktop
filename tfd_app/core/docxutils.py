@@ -435,10 +435,15 @@ def parse_comment_spec(text):
     else:
         # 兜底：批注开头直接写"黑体小三号，加粗..."时，识别常见中文字体名。
         # 仅在已有字号/加粗等格式信号时触发，避免正文中出现"黑体"二字被误判。
+        # v1.3.80：格式信号须含"小四"等中文字号名（不含"号"字）——此前只认
+        # "号/pt/加粗"，"摘要：宋体小四…"里的宋体识别不出来（用户实测致谢/附录
+        # 正文字体判断不对的又一环节）。
         _KNOWN_ZH_FONTS = ('微软雅黑', '方正小标宋', '华文行楷', '华文新魏',
                            '黑体', '宋体', '楷体', '仿宋', '隶书', '幼圆')
+        _has_fmt_signal = ('号' in t or 'pt' in t.lower() or '加粗' in t
+                           or any(sn in t for sn in _SIZE_ORDER))
         for fn in _KNOWN_ZH_FONTS:
-            if fn in t and ('号' in t or 'pt' in t.lower() or '加粗' in t):
+            if fn in t and _has_fmt_signal:
                 # 字体名必须出现在字号名之前（批注惯例：字体→字号→加粗→对齐...）
                 _size_pos = -1
                 for sn in _SIZE_ORDER:
@@ -584,7 +589,16 @@ _COMMENT_CATS = [
     ('h2', '一级节标题'), ('h2', '一级节'),
     ('h2', '二级标题'), ('h2', '节标题'),
     ('h3', '三级标题'), ('h3', '小节标题'),
-    ('conclusion', '结论标题'), ('ack', '致谢标题'), ('appendix', '附录标题'),
+    ('conclusion', '结论标题'),
+    # v1.3.80：致谢/附录「标题」类别必须排在主体类别之前（categorize 先匹配先返回）。
+    # 此前只有 ('ack','致谢标题')/('appendix','附录标题')——"致谢标题：…"被归到主体类
+    # ack，双 spec 机制把标题要求当正文 spec 用，致谢正文被套成黑体三号加粗；
+    # 且缺少"致谢/附录"本身关键词，批注写"致谢：…"会一路匹配到 ('body','正文') 或
+    # misc，正文要求直接丢失（用户实测"改的不对/弹窗值不对/正文被加粗"的根因）。
+    ('ack_title', '致谢标题'), ('appendix_title', '附录标题'),
+    ('ack', '致谢'), ('ack', 'Acknowledgement'), ('ack', 'Acknowledgements'),
+    ('ack', 'Acknowledgment'), ('ack', 'Acknowledgments'),
+    ('appendix', '附录'), ('appendix', 'Appendix'), ('appendix', 'Appendices'),
     ('toc', '目录'),
     ('figure_note', '图注'), ('figure_note', '图片来源'), ('figure_note', '图源'), ('figure_note', '图下说明'),
     ('figure', '图题'), ('figure', '图名'), ('figure', '图标题'), ('figure', '图表标题'), ('figure', '插图标题'),

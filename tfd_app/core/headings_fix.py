@@ -361,13 +361,19 @@ def _para_needs_fix(p, spec):
         if rpr is None:
             return True
         rf = rpr.find(WR + 'rFonts')
-        if spec.get('zh_font') and rf is not None and rf.get(WR + 'eastAsia') \
-                and rf.get(WR + 'eastAsia') != spec['zh_font']:
-            return True
+        # v1.3.80：字体漏判修复——run 无 rFonts 或无 eastAsia（中文字体继承、
+        # 西文显式设置的常见形态）都必须视为需改；旧逻辑只在 eastAsia 存在且
+        # 不同时才判 True，导致"该改的字体没改"（用户实测致谢/附录字体判断不对）。
+        if spec.get('zh_font'):
+            _cur_zh = rf.get(WR + 'eastAsia') if rf is not None else None
+            if _cur_zh != spec['zh_font']:
+                return True
         sz = rpr.find(WR + 'sz')
-        if spec.get('sz') and sz is not None and sz.get(WR + 'val') \
-                and int(sz.get(WR + 'val')) != int(spec['sz']):
-            return True
+        # v1.3.80：字号漏判修复——run 无 <w:sz>（字号继承自样式）同样视为需改。
+        if spec.get('sz'):
+            _cur_sz = sz.get(WR + 'val') if sz is not None else None
+            if _cur_sz is None or int(_cur_sz) != int(spec['sz']):
+                return True
     ppr = p.find(WR + 'pPr')
     # 首行缩进（v1.3.47：indent_type 缺失时只要有 indent_chars 即视为首行缩进，
     # 否则客户在确认弹窗填了"缩进2字符"而画像无 indent_type 时不会生效）

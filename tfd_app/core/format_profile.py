@@ -210,7 +210,10 @@ def _para_xml_spec(p):
                         if v:
                             rpr["sz"] = v
                     elif xt == "b":
-                        rpr["bold"] = True
+                        # v1.3.80：<w:b w:val="0"/> 是显式关闭加粗，不能判为加粗；
+                        # 只有 <w:b/>（无 val）或 val 非 0/false 才算加粗。
+                        _bv = x.get(WR + "val")
+                        rpr["bold"] = _bv not in ("0", "false")
                 break
     return _style_spec({"rPr": rpr, "pPr": ppr})
 
@@ -510,7 +513,9 @@ def _build_spec(comment_specs):
         "title": cats.get("title"),
         "conclusion": cats.get("conclusion"),
         "ack": cats.get("ack"),
+        "ack_title": cats.get("ack_title"),
         "appendix": cats.get("appendix"),
+        "appendix_title": cats.get("appendix_title"),
         "en_abstract": cats.get("en_abstract"),
         "en_keywords": cats.get("en_keywords"),
     }
