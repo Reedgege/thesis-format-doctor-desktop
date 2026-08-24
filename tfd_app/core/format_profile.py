@@ -55,7 +55,8 @@ import xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from docxutils import (load_styles, load, margins, tables, WR, detect_heading,
                        is_toc_residue, style_xml, comments, extract_comment_specs,
-                       is_body_style_name, is_reference_heading)
+                       is_body_style_name, is_reference_heading, is_structural_title,
+                       classify_structural_title)
 
 __author__ = "芦苇"
 __copyright__ = "Copyright (c) 2026 芦苇（山东大学 MBA）"
@@ -150,6 +151,117 @@ def _style_spec(info):
     return spec
 
 
+# 结构页类别（标题 spec 键 = 类别 + "_title"；正文 spec 键 = 类别本身）
+_STRUCT_CATS = ("abstract", "keywords", "en_abstract", "en_keywords", "ack", "appendix")
+
+
+def _para_xml_spec(p):
+    """从模板实际段落 XML 提取格式 spec（标题段/正文段通用）。
+
+    把 <w:pPr> 与段落**首个 run 的 <w:rPr>** 抽成与 _style_spec 同构的 {rPr, pPr}
+    字典后复用 _style_spec，键名保持一致（eastAsia/ascii/hAnsi/sz/bold/jc/
+    firstLineChars/firstLine/line/lineRule/before/after），保证与批注 spec
+    结构一致、可被引擎统一消费（引擎套用同样作用于 runs）。
+    v1.3.78 新增：供结构页标题/正文双 spec 提取使用。
+    注意：WR 常量已含 Clark 记法花括号（WR="{uri}"），直接 WR+name 拼接即可；
+    rPr 位于 <w:r><w:rPr>，不是 <w:p> 的直接子元素。
+    """
+    rpr = {}
+    ppr = {}
+    for child in p:
+        tag = child.tag.split("}")[-1]
+        if tag == "pPr":
+            for pc in child:
+                pt = pc.tag.split("}")[-1]
+                if pt == "jc":
+                    v = pc.get(WR + "val")
+                    if v:
+                        ppr["jc"] = v
+                elif pt == "ind":
+                    v = pc.get(WR + "firstLineChars")
+                    if v:
+                        ppr["firstLineChars"] = v
+                    else:
+                        v = pc.get(WR + "firstLine")
+                        if v:
+                            ppr["firstLine"] = v
+                elif pt == "spacing":
+                    for k in ("line", "before", "after"):
+                        v = pc.get(WR + k)
+                        if v:
+                            ppr[k] = v
+                    lr = pc.get(WR + "lineRule")
+                    if lr:
+                        ppr["lineRule"] = lr
+        elif tag == "r" and not rpr:
+            # 取段落首个 run 的 rPr（引擎套用同样作用于 runs）
+            for rc in child:
+                if rc.tag.split("}")[-1] != "rPr":
+                    continue
+                for x in rc:
+                    xt = x.tag.split("}")[-1]
+                    if xt == "rFonts":
+                        for k in ("eastAsia", "ascii", "hAnsi"):
+                            v = x.get(WR + k)
+                            if v:
+                                rpr[k] = v
+                    elif xt == "sz":
+                        v = x.get(WR + "val")
+                        if v:
+                            rpr["sz"] = v
+                    elif xt == "b":
+                        rpr["bold"] = True
+                break
+    return _style_spec({"rPr": rpr, "pPr": ppr})
+
+
+def _extract_structural_dual_specs(root, cats):
+    """用模板实际段落补齐结构页「标题 spec + 正文 spec」（模板驱动，批注优先）。
+
+    v1.3.78 修复：v1.3.77 结构页套用时每类只有一套 spec（批注通常只写明一种格式
+    或只批注正文），导致标题与正文共用一套格式（如摘要标题被套成宋体小四）。
+    这里直接扫描模板文档中的结构页标题段（"摘 要"等，含空格写法）抓标题 spec，
+    其下首个正文段抓正文 spec；**仅当批注未提供对应类别时补齐**（批注优先铁律不变）。
+    产出：cats["abstract_title"]/cats["abstract"]、cats["ack_title"]/cats["ack"]、
+    cats["appendix_title"]/cats["appendix"] 等，随后被 levels 构建自动纳入画像。
+    """
+    if not root:
+        return
+    paras = [p for p in root.iter(WR + "p")]
+    _seen_en_abstract = False
+    for i, p in enumerate(paras):
+        txt = "".join(t.text or "" for t in p.iter(WR + "t")).strip()
+        if not txt:
+            continue
+        cat = classify_structural_title(txt, _seen_en_abstract)
+        if cat is None or cat not in _STRUCT_CATS:
+            continue
+        if cat == "en_abstract":
+            _seen_en_abstract = True
+        # 标题 spec：批注未提供（无"摘要标题"等批注）才用模板实际标题段格式补齐
+        tkey = cat + "_title"
+        if not cats.get(tkey):
+            ts = _para_xml_spec(p)
+            if ts:
+                cats[tkey] = ts
+        # 正文 spec：向后扫首个正文段（跳过下一个标题/参考文献标题/章节标题）
+        # v1.3.78：用带长度限制的精细分类替代宽松 is_structural_title——
+        # 否则"附录A的数据表…"等以"附录A"开头的正文会被 startswith 误判为标题而跳过。
+        if not cats.get(cat):
+            for q in paras[i + 1:]:
+                qt = "".join(t.text or "" for t in q.iter(WR + "t")).strip()
+                if not qt:
+                    continue
+                qcat = classify_structural_title(qt, _seen_en_abstract)
+                if qcat is not None or is_reference_heading(qt) \
+                        or detect_heading(qt)[0] in (1, 2, 3, 4, 5, 6):
+                    continue
+                bs = _para_xml_spec(q)
+                if bs:
+                    cats[cat] = bs
+                break
+
+
 def _merge_specs(base, override):
     """批注(override)优先、样式定义(base)兜底，合并为完整 per-level 要素字典。"""
     out = dict(base or {})
@@ -216,6 +328,9 @@ def extract(path):
     # 批注驱动规范（用户明确要求：以批注写明的要求为准，优先于样式定义）
     # ------------------------------------------------------------------
     comment_specs = extract_comment_specs(comments(path))
+    # v1.3.78：用模板实际段落补齐结构页「标题/正文双 spec」（仅批注缺失时），
+    # 解决结构页标题与正文共用一套 spec 的根因；批注优先铁律不变。
+    _extract_structural_dual_specs(root, comment_specs.setdefault("cats", {}))
     spec = _build_spec(comment_specs)
 
     # 用批注中的权威字号/字体/大纲级别覆盖 headingStyles（批注优先）

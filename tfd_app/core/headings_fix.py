@@ -31,6 +31,7 @@ import xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from docxutils import (load, detect_heading, write_docx_files, to_doc_xml, WR,
                        is_toc_residue, reg_ns, is_reference_heading, is_structural_title,
+                       classify_structural_title,
                        load_styles, WPR, AR, PICR, EMU_PER_TWIP, EMU_PER_CM,
                        _DEFAULT_TEXT_WIDTH_EMU,
                        replace_punct_in_paragraph, punct_counts_summary, punct_total,
@@ -1261,34 +1262,6 @@ def _remove_numbering_pass(root, first_chap, ref_start, tbl_ps, cap_targets,
     return changes
 
 
-def _classify_structural_title(text, seen_en_abstract=False):
-    """把结构页标题文本映射到 profile.levels 的类别 key；非结构页返回 None。
-
-    专用于「结构页格式套用」pass：识别 摘要/关键词/英文摘要/Key words/致谢/附录，
-    按对应类别套用模板画像 spec。跨校通用——大小写不敏感、去空白、去首尾标点。
-    v1.3.77 新增。
-    """
-    t = re.sub(r"\s+", "", (text or "").strip()).lower()
-    t = t.strip("：:；;,.，。")
-    # 摘要（含「摘要ABSTRACT」等中英混排标题）
-    if t == "摘要" or (t.startswith("摘要") and len(t) <= 8):
-        return "abstract"
-    # 关键词 / Key words / Keywords（英文摘要之后的 Key words 归为 en_keywords）
-    if t in ("关键词", "key words", "keywords"):
-        return "en_keywords" if seen_en_abstract else "keywords"
-    # 英文摘要 / Abstract
-    if t == "英文摘要" or t == "abstract":
-        return "en_abstract"
-    # 致谢 / Acknowledgements / Acknowledgment
-    if t in ("致谢", "acknowledgements", "acknowledgment", "acknowledgments"):
-        return "ack"
-    # 附录 / Appendix / Appendices（含 附录A / 附录1 等带字母/数字写法）
-    if t == "附录" or t in ("appendix", "appendices") \
-            or re.match(r"^附录[a-z0-9一二三四五六七八九十]", t):
-        return "appendix"
-    return None
-
-
 def fix(src, dst, profile=None, add_comments=True):
     z, root = load(src)
 
@@ -1647,7 +1620,7 @@ def fix(src, dst, profile=None, add_comments=True):
                 _t = _text_of(p).strip()
                 if not _t:
                     continue
-                _cat = _classify_structural_title(_t, _seen_en_abstract)
+                _cat = classify_structural_title(_t, _seen_en_abstract)
                 if _cat is None:
                     continue
                 if _cat == "en_abstract":
@@ -1663,23 +1636,21 @@ def fix(src, dst, profile=None, add_comments=True):
                     if ref_start is not None and i <= ref_start:
                         continue
                 _struct_titles.append((i, _cat, _spec, p))
-            # 套用：标题行套 字体/字号/加粗/对齐 子集；内容段套完整 spec。
+            # 套用：标题行套 <类别>_title spec（模板"摘 要"标题段格式，v1.3.78 起）。
+            # 无标题 spec 则保持原样——此前用正文 spec 的子集凑标题格式，正是
+            # "摘要标题与内容一个格式 / 致谢附录改乱"的 bug 根源（v1.3.77 教训）。
+            # 内容段套 <类别>（正文）spec。
+            _struct_title_specs = {_c: levels.get(_c + "_title") for _c in _struct_specs}
             for _k, (_i, _cat, _spec, _p) in enumerate(_struct_titles):
-                # 标题行：避免给「摘要/致谢」两字强加首行缩进或固定值行距，
-                # 只套字体/字号/加粗/对齐（与章节标题的处理一致）。
-                _title_spec = {kk: _spec[kk] for kk in
-                               ("zh_font", "en_font", "sz", "bold", "align") if kk in _spec}
-                if _para_needs_fix(_p, _spec) or (_title_spec and _para_needs_fix(_p, _title_spec)):
-                    if _title_spec:
-                        _format_runs(_p, _title_spec)
-                        _set_para_format(_p, _title_spec)
-                    else:
-                        _format_runs(_p, _spec)
-                        _set_para_format(_p, _spec)
+                # 标题行：只套模板标题 spec（字体/字号/加粗/对齐等），绝不套正文 spec
+                _tspec = _struct_title_specs.get(_cat)
+                if _tspec and _para_needs_fix(_p, _tspec):
+                    _format_runs(_p, _tspec)
+                    _set_para_format(_p, _tspec)
                     changes.append({
                         "kind": "structural_title", "text": _text_of(_p).strip()[:50],
-                        "level": 0, "old": _current_fmt(_p, _spec),
-                        "new": _fmt_summary(_spec), "new_name": _fmt_summary(_spec),
+                        "level": 0, "old": _current_fmt(_p, _tspec),
+                        "new": _fmt_summary(_tspec), "new_name": _fmt_summary(_tspec),
                         "conf": 0.9, "_para": _p,
                     })
                 # 内容段：从 _i+1 到下一结构页标题（同区域）或区域边界。
@@ -1701,9 +1672,12 @@ def fix(src, dst, profile=None, add_comments=True):
                         continue
                     # 边界守卫：结构页内容区不含章节标题/参考文献标题/下一个结构页标题，
                     # 一旦遇到立即停止 sweep，避免关键词区溢出污染正文（v1.3.77 修复）。
+                    # v1.3.78：用带长度限制的精细分类代替宽松 is_structural_title——
+                    # 否则"附录A的内容…"等以"附录A"开头的正文会被 startswith 误判为
+                    # 标题而提前 break，导致附录正文不被套用。
                     _lv, _ = detect_heading(_ct)
                     if _lv in (1, 2, 3, 4, 5, 6) or is_reference_heading(_ct) \
-                            or is_structural_title(_ct):
+                            or classify_structural_title(_ct) is not None:
                         break
                     if _para_needs_fix(_cp, _spec):
                         _format_runs(_cp, _spec)

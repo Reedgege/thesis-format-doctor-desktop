@@ -86,7 +86,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.77"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.78"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -161,6 +161,27 @@ EDIT_FIELDS = [
     ("页边距 右(厘米)", [("spec", "page", "right_cm"), ("page", "right")], "text"),
     ("参考文献格式", [("levels", "reference"), ("spec", "reference"),
                      ("refExample",), ("reference",)], "ref"),
+    # v1.3.78：结构页（摘要/致谢/附录）确认项——模板画像已拆「标题/正文」双 spec，
+    # 弹窗中可逐项核对与修改；写回 levels.xxx_title / levels.xxx 供引擎套用。
+    ("摘要标题字体", [("levels", "abstract_title", "zh_font"),
+                     ("spec", "abstract_title", "zh_font"),
+                     ("levels", "abstract", "zh_font")], "text"),
+    ("摘要标题字号", [("levels", "abstract_title", "sz"), ("levels", "abstract_title", "size"),
+                     ("spec", "abstract_title", "sz"), ("levels", "abstract", "sz")], "text"),
+    ("摘要正文字体", [("levels", "abstract", "zh_font"), ("spec", "abstract", "zh_font")], "text"),
+    ("摘要正文字号", [("levels", "abstract", "sz"), ("levels", "abstract", "size"),
+                     ("spec", "abstract", "sz")], "text"),
+    ("摘要正文行距(磅)", [("levels", "abstract", "line_val"), ("spec", "abstract", "line_val")], "text"),
+    ("致谢标题字体", [("levels", "ack_title", "zh_font"), ("spec", "ack_title", "zh_font"),
+                    ("levels", "ack", "zh_font")], "text"),
+    ("致谢标题字号", [("levels", "ack_title", "sz"), ("levels", "ack_title", "size"),
+                    ("spec", "ack_title", "sz"), ("levels", "ack", "sz")], "text"),
+    ("致谢正文字体", [("levels", "ack", "zh_font"), ("spec", "ack", "zh_font")], "text"),
+    ("附录标题字体", [("levels", "appendix_title", "zh_font"), ("spec", "appendix_title", "zh_font"),
+                    ("levels", "appendix", "zh_font")], "text"),
+    ("附录标题字号", [("levels", "appendix_title", "sz"), ("levels", "appendix_title", "size"),
+                    ("spec", "appendix_title", "sz"), ("levels", "appendix", "sz")], "text"),
+    ("附录正文字体", [("levels", "appendix", "zh_font"), ("spec", "appendix", "zh_font")], "text"),
 ]
 
 
