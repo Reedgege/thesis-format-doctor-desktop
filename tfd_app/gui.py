@@ -1702,6 +1702,8 @@ def show_activation(root, show_trial=True):
               command=lambda: show_help(top)).pack(side="left", padx=14)
     _site_label(hl).pack(side="left", padx=14)
 
+    tk.Label(top, text="未签名程序提示：Windows 可能弹出 SmartScreen 拦截，点击「详细信息」→「仍要运行」即可打开（官网激活教程有图文演示）。",
+             bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(2, 6))
     tk.Label(top, text="© 2026 论文格式医生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：reedskill@126.com",
              bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(8, 10))
 
@@ -1855,6 +1857,8 @@ def show_about(parent):
          BODY, F_SMALL, (0, 4))
     wlbl("模板驱动 · 格式要求取自学校模板，批注说明为先，样式定义次之。",
          BODY, F_SMALL, (0, 12))
+    wlbl("未签名程序 · 首次打开时 Windows 可能弹出 SmartScreen 拦截，点击「详细信息」→「仍要运行」即可（官网激活教程有图文演示）。",
+         MUTED, F_SMALL, (0, 12))
 
     tk.Label(inner, text="© 2026 芦苇不熬夜", bg=PAPER, fg=MUTED,
              font=F_FOOT).pack(padx=padx, pady=(0, 18))
@@ -1942,6 +1946,9 @@ def show_help(parent):
          "请放心。所有修正均在本机完成，论文不联网、不上传任何服务器，亦不收集论文内容；断网亦可使用。"),
         ("Q7 · 学校模板特殊，或修正结果不尽如人意？",
          "欢迎关注公众号【%s】留言，告知贵校情况，我们协助处理。" % WECHAT_NAME),
+        ("Q8 · 打开软件时 Windows 弹出“已保护你的电脑 / 已拦截”提示？",
+         "本软件为未签名程序（省去每年数百元代码签名证书费用，让价格更亲民），Windows SmartScreen 会拦截提示，属正常现象，不代表软件有害。\n"
+         "处理方式：在拦截框点击【详细信息】→ 再点击【仍要运行】即可正常打开；官网 reedskill.com 的“激活教程”页有图文演示。"),
     ]
     for title, body in faqs:
         item(title, body)
