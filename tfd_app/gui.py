@@ -28,6 +28,7 @@ import hashlib
 import threading
 import subprocess
 import shutil
+import webbrowser
 
 # 把 tfd_app 加入搜索路径（打包成 exe 后 sys.path 已含，但开发态下保险）
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -50,6 +51,8 @@ WECHAT_NAME = "芦苇不熬夜"
 WECHAT_ID = "reedskill"
 ABOUT_MAIL = "reedskill@126.com"
 HELP_HINT = "\n\n遇到问题？看帮助或关注公众号【%s】留言。" % WECHAT_NAME
+OFFICIAL_SITE = "https://reedskill.com"        # 官网（大本营）；给人看的省略 https，代码里打开用全址
+OFFICIAL_SITE_TEXT = "官网：reedskill.com"
 
 # ---------------------------------------------------------------------------
 # 配色：宣纸 / 墨 / 黛蓝 / 朱砂 —— 学术范 + 文艺感
@@ -491,9 +494,12 @@ class App:
         footer.pack(side="bottom", fill="x", pady=(0, 18))
         tk.Label(footer, text="论文格式医生 · 桌面版 — 完全离线，文件不会上传任何服务器",
                  bg=PAPER, fg=MUTED, font=F_FOOT).pack()
-        tk.Label(footer,
+        f2 = tk.Frame(footer, bg=PAPER)
+        f2.pack(pady=(3, 0))
+        tk.Label(f2,
                  text="© 2026 论文格式医生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：reedskill@126.com",
-                 bg=PAPER, fg=MUTED, font=F_FOOT).pack(pady=(3, 0))
+                 bg=PAPER, fg=MUTED, font=F_FOOT).pack(side="left")
+        _site_label(f2).pack(side="left", padx=(6, 0))
 
         # 状态栏（顶部细线 + 单行，绝不与其他文字重叠）
         tk.Frame(self.root, bg=LINE, height=1).pack(fill="x", side="bottom", padx=20)
@@ -1355,6 +1361,7 @@ class App:
                 "本机试用已满 %d 次。\n\n"
                 "正式版激活后：不限次数修正、输出无水印文档、一键交稿。\n\n"
                 "获取激活码：请关注公众号【芦苇不熬夜】（ID：reedskill）或联系客服。\n"
+                "激活教程与购买方式详见官网 reedskill.com。\n"
                 "激活码购买与激活问题，公众号留言即可。" % trial.TRIAL_LIMIT,
                 [("ok", "知道了")])
             ev.set()
@@ -1693,6 +1700,7 @@ def show_activation(root, show_trial=True):
     tk.Button(hl, text="使用帮助", bg=PAPER, fg=ACCENT, font=F_SMALL,
               relief="flat", cursor="hand2",
               command=lambda: show_help(top)).pack(side="left", padx=14)
+    _site_label(hl).pack(side="left", padx=14)
 
     tk.Label(top, text="© 2026 论文格式医生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：reedskill@126.com",
              bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(8, 10))
@@ -1711,6 +1719,15 @@ def show_activation(root, show_trial=True):
 
     top.wait_window()
     return result["v"]
+
+
+def _site_label(parent, text=OFFICIAL_SITE_TEXT, bg=PAPER):
+    """可点击的官网链接标签：点一下用默认浏览器打开官网。"""
+    lbl = tk.Label(parent, text=text, bg=bg, fg="#185FA5", font=F_SMALL, cursor="hand2")
+    lbl.bind("<Button-1>", lambda e: webbrowser.open(OFFICIAL_SITE))
+    lbl.bind("<Enter>", lambda e: lbl.config(fg="#0c447c"))
+    lbl.bind("<Leave>", lambda e: lbl.config(fg="#185FA5"))
+    return lbl
 
 
 # ---------------------------------------------------------------------------
@@ -1829,6 +1846,7 @@ def show_about(parent):
     wlbl("联系邮箱：%s" % ABOUT_MAIL, BODY, F_BODY, (0, 6), nowrap=True)
     wlbl("使用中若有疑问，欢迎关注公众号留言，或致信 %s，我们看到即复。" % ABOUT_MAIL,
          MUTED, F_SMALL, (0, 14))
+    _site_label(inner, text="官网 reedskill.com · 产品介绍与激活教程").pack(padx=padx, pady=(0, 6))
     rule()
 
     # —— 关于本软件 ——
@@ -1932,10 +1950,12 @@ def show_help(parent):
     section("三、联系我们")
     cl = albl(("使用疑问、模板咨询、购买事宜，均可通过以下方式联系：\n"
                "· 微信公众号：【%s】（ID：%s），关注后留言\n"
+               "· 官网：reedskill.com（产品介绍 · 激活教程 · 购买方式）\n"
                "· 公众号设关键词自动回复（试用 / 激活 / 水印 / 报错），常见问题即时应答\n"
                "· 较复杂的问题，由人工回复\n"
                "· 联系邮箱：%s") % (WECHAT_NAME, WECHAT_ID, ABOUT_MAIL), BODY, F_SUBTITLE)
     cl.pack(fill="x", padx=padx, pady=(8, 0))
+    _site_label(inner, text="前往官网 reedskill.com →").pack(padx=padx, pady=(8, 0))
 
     tk.Label(inner, text="", bg=PAPER).pack(pady=(0, 18))
 

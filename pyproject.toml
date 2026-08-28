@@ -9,8 +9,8 @@ authors = [{ name = "thesis-format-doctor contributors" }]
 keywords = ["docx", "论文格式", "格式检查", "GB/T 7714", "thesis", "format-checker"]
 
 [project.urls]
-Homepage = "https://github.com/YOUR_GITHUB/thesis-format-doctor-desktop"
-Repository = "https://github.com/YOUR_GITHUB/thesis-format-doctor-desktop"
+Homepage = "https://reedskill.com"
+Repository = "https://github.com/Reedgege/thesis-format-doctor-desktop"
 
 # 零第三方依赖：引擎仅用 Python 标准库
 [project.dependencies]
