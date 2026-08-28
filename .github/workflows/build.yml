@@ -89,6 +89,9 @@ jobs:
           name: thesis-format-doctor-desktop-${{ matrix.os }}
           path: dist/thesis-format-doctor-desktop${{ matrix.ext }}
           if-no-files-found: error
+          # 产物仅用于同一次 workflow 内 build→release 传递，Release 里的安装包才是永久分发物。
+          # 保留 2 天即可，避免每轮 push 累积把 500MB 免费配额吃满（曾导致 macOS 构建上传失败）。
+          retention-days: 2
 
       # 卖家兜底发码工具 offlinecode（离线签名码生成）。仅 Windows 构建。
       # 注意：offlinecode.exe 内含离线签名密钥，属卖家自用，勿把 Release 设为公开、勿发给客户。
@@ -109,6 +112,7 @@ jobs:
           name: offlinecode-windows
           path: dist/offlinecode.exe
           if-no-files-found: error
+          retention-days: 2
 
   release:
     name: Publish Release
