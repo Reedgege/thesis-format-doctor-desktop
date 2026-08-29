@@ -640,6 +640,8 @@ def main():
         pf = sys.argv[sys.argv.index('--profile') + 1]
         with open(pf, encoding='utf-8') as f:
             profile = json.load(f)
+    # 数据入口防御：兼容 {lvl:"StyleId"} 旧式写法与规范式，避免消费端 .get 崩溃
+    profile = docxutils.normalize_heading_styles(profile)
     z, root = docxutils.load(path)
     paras = docxutils.paragraphs(root)
     st = collect_stats(z, root, paras)
