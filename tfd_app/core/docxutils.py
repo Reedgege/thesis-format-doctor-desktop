@@ -1080,3 +1080,30 @@ def add_comment_marker(para_elem, comment_id, comment_text, comments_root,
     ct = ET.SubElement(cr, WR + 't')
     ct.text = comment_text
     ct.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+
+
+def normalize_heading_styles(profile):
+    """把画像里的 headingStyles 值统一规范为字典，防止消费端对非字典值调用 .get 崩溃。
+
+    兼容两种写法：
+      - 规范式：{"1": {"styleId": "Heading1", "name": "...", ...}}（format_profile 产出）
+      - 旧式/手写：{"1": "Heading1"}（字符串即 styleId）
+    规范式原样返回；旧式自动包成 {"styleId": v}；非 dict 的 profile 直接原样返回。
+    这是数据入口的防御：用户手改画像或旧版画像一旦结构出入，也不该整段 AttributeError 崩掉。
+    """
+    if not isinstance(profile, dict):
+        return profile
+    hs = profile.get("headingStyles")
+    if not isinstance(hs, dict):
+        return profile
+    new_hs = {}
+    changed = False
+    for k, v in hs.items():
+        if isinstance(v, str):
+            new_hs[k] = {"styleId": v}
+            changed = True
+        else:
+            new_hs[k] = v
+    if changed:
+        profile["headingStyles"] = new_hs
+    return profile
