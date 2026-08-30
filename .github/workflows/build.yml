@@ -6,11 +6,12 @@ name: Build Desktop (Win/macOS/Linux)
 run-name: Build ${{ github.ref_type == 'tag' && github.ref_name || github.event.head_commit.message }}
 
 on:
+  # 仅打 v* 标签推送时才构建并发布，避免每次 push main 都上传 ~250MB 三平台 exe
+  # 把 Actions Artifact 免费 500MB 额度吃满（曾导致 windows 构建 Artifact quota 报错）。
+  # 发版流程：本地 bump VERSION → git tag vX.Y.Z → git push origin vX.Y.Z。
   push:
     tags:
       - "v*"
-    branches:
-      - "main"
   workflow_dispatch:
 
 jobs:
