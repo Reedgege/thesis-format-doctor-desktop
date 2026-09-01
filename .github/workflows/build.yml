@@ -45,7 +45,7 @@ jobs:
       - name: Install PyInstaller
         run: python -m pip install --upgrade pip pyinstaller
 
-      - name: Install PyArmor (optional: only used if PYARMOR_LICENSE secret is set)
+      - name: "Install PyArmor (optional: only used if PYARMOR_LICENSE secret is set)"
         run: python -m pip install pyarmor
 
       - name: Install pywin32 (Windows only, in-process Word/WPS .doc conversion)
