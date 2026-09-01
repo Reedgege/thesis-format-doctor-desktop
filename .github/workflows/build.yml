@@ -94,26 +94,8 @@ jobs:
           # 保留 1 天即可，避免每轮 push 累积把 500MB 免费配额吃满（曾导致 macOS 构建上传失败）。
           retention-days: 1
 
-      # 卖家兜底发码工具 offlinecode（离线签名码生成）。仅 Windows 构建。
-      # 注意：offlinecode.exe 内含离线签名密钥，属卖家自用，勿把 Release 设为公开、勿发给客户。
-      - name: Build offlinecode (Windows only)
-        if: matrix.os == 'windows'
-        shell: bash
-        run: |
-          # 算法已内联进 offlinecode.py，不打包任何 tfd_app 文件，避免 onefile 解压时
-          # 读取 license.py 被系统安全软件拦截（PermissionError）
-          python -m PyInstaller --name offlinecode --onefile --noconsole --clean \
-            --collect-all tkinter \
-            offlinecode.py
-
-      - name: Upload offlinecode artifact (Windows only)
-        if: matrix.os == 'windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: offlinecode-windows
-          path: dist/offlinecode.exe
-          if-no-files-found: error
-          retention-days: 1
+      # 卖家离线发码工具 offlinecode 不进公开 Release：由卖家本地从 offlinecode.py 生成，
+      # 避免杀软误报，也避免激活码签名逻辑随公开仓库泄露。
 
   release:
     name: Publish Release
@@ -138,8 +120,6 @@ jobs:
             ext=""; [ "$plat" = "windows" ] && ext=".exe"
             cp "$src" "release/thesis-format-doctor-desktop-$plat$ext"
           done
-          # 卖家兜底发码工具（Windows）
-          cp "$(find artifacts/offlinecode-windows -type f | head -1)" "release/offlinecode.exe"
           ls -la release
 
       - name: Determine version

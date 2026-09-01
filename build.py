@@ -57,6 +57,8 @@ HIDDEN = [
     "tfd_app.trial", "tfd_app.watermark",
     # Windows 专用：进程内调用本机 Word/WPS 转换 .doc/.wps（pywin32 COM）
     "win32com", "win32com.client", "pythoncom", "pywintypes",
+    # gui 顶层 import webbrowser 打开官网/更新页；部分 PyInstaller 版本静态分析扫不到，显式声明
+    "webbrowser",
 ]
 
 # 需作为"数据文件"打包的目录: (源目录, 打包后目录名)
@@ -69,7 +71,7 @@ DATA_DIRS = [
 EXCLUDES = [
     "unittest", "pydoc", "pydoc_data", "lib2to3", "idlelib",
     "turtledemo", "ensurepip", "test", "tkinter.test", "distutils",
-    "http.server", "webbrowser", "xmlrpc", "telnetlib",
+    "http.server", "xmlrpc", "telnetlib",
 ]
 
 
