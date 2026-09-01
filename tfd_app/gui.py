@@ -49,7 +49,7 @@ QRCODE = os.path.join(HERE, "assets", "qrcode.png")
 # 品牌 / 客服（文案统一来源，避免散落硬编码）
 WECHAT_NAME = "芦苇不熬夜"
 WECHAT_ID = "reedskill"
-ABOUT_MAIL = "reedskill@126.com"
+ABOUT_MAIL = "reedskill@reedskill.com"
 HELP_HINT = "\n\n遇到问题？看帮助或关注公众号【%s】留言。" % WECHAT_NAME
 OFFICIAL_SITE = "https://reedskill.com"        # 官网（大本营）；给人看的省略 https，代码里打开用全址
 OFFICIAL_SITE_TEXT = "官网：reedskill.com"
@@ -89,15 +89,28 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.86"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.87"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
 
 def _init_fonts(root):
     """在 root 创建后调用：把 F_XXX 全局名替换为可缩放的 Font 命名对象。"""
+    import platform as _platform
+    # 跨平台中文字体兜底：Windows 自带楷体/雅黑；mac/Linux 无则映射到系统 CJK 字体，
+    # 避免 tkinter 静默回退到无中文的默认字体出现方块（tofu）。Windows 上字体存在，走原值。
+    _fams = set(tkfont.families())
+    _KAITI = {"Darwin": "STKaiti", "Linux": "Noto Serif CJK SC"}
+    _HEITI = {"Darwin": "PingFang SC", "Linux": "Noto Sans CJK SC"}
+    def _resolve(fam):
+        if fam in _fams:
+            return fam
+        cand = (_KAITI if fam == "KaiTi" else _HEITI).get(_platform.system())
+        if cand and cand in _fams:
+            return cand
+        return fam
     for name, spec in _FONT_BASE.items():
-        kw = {"family": spec[0], "size": spec[1]}
+        kw = {"family": _resolve(spec[0]), "size": spec[1]}
         if len(spec) > 2:
             kw["weight"] = spec[2]
         f = tkfont.Font(root=root, **kw)
@@ -497,7 +510,7 @@ class App:
         f2 = tk.Frame(footer, bg=PAPER)
         f2.pack(pady=(3, 0))
         tk.Label(f2,
-                 text="© 2026 论文格式医生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：reedskill@126.com",
+                 text="© 2026 论文格式医生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：reedskill@reedskill.com",
                  bg=PAPER, fg=MUTED, font=F_FOOT).pack(side="left")
         _site_label(f2).pack(side="left", padx=(6, 0))
 
@@ -1704,7 +1717,7 @@ def show_activation(root, show_trial=True):
 
     tk.Label(top, text="未签名程序提示：Windows 可能弹出 SmartScreen 拦截，点击「详细信息」→「仍要运行」即可打开（官网激活教程有图文演示）。",
              bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(2, 6))
-    tk.Label(top, text="© 2026 论文格式医生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：reedskill@126.com",
+    tk.Label(top, text="© 2026 论文格式医生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：reedskill@reedskill.com",
              bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(8, 10))
 
     # v1.3.67：按内容实际所需高度自动伸缩窗口（Tk 自动测量，保证底部版权完整显示不截断），

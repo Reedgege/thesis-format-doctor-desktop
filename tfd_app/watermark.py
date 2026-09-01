@@ -43,8 +43,15 @@ ET.register_namespace("pic", PIC)
 _WM_HEADER = "试用版 · 只读预览 ｜ 论文格式医生 · 正式版可编辑无水印"
 _WM_BODY = "【试用版 · 只读预览】论文格式医生 · 正式版可编辑无水印"
 
-# v1.3.64：只读保护固定密码（用户设定，不对外公布；客户点编辑需密码才能解锁）
-_WM_PASSWORD = "reedskilllunwengeshiyisheng"
+# v1.3.64：只读保护固定密码（用户设定，不对外公布；客户点编辑需密码才能解锁）。
+# 原始值经混淆存储、运行时还原，反编译只看到乱码，避免试用水印保护被轻易绕过。
+def _obf(b):
+    """反混淆：base64(xor 0x4F)。还原敏感串，挡小白一把梭提取。"""
+    import base64 as _b64
+    return bytes((c ^ 0x4F) for c in _b64.b64decode(b)).decode("utf-8")
+
+
+_WM_PASSWORD = _obf("PSoqKzwkJiMjIzohOCohKCo8JyY2JjwnKiEo")
 
 _HDR_REL_ID = "rIdTfdHdr"
 _FTR_REL_ID = "rIdTfdFtr"
