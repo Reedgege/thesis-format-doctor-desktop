@@ -75,32 +75,39 @@ EXCLUDES = [
 ]
 
 
-def build(clean=False):
-    # 始终用 `python -m PyInstaller`，避免依赖 PATH 中的 pyinstaller 可执行文件。
-    cmd = [sys.executable, "-m", "PyInstaller"]
-    cmd += [
+def _pyi_options():
+    """PyInstaller / PyArmor-pack 通用选项（不含入口脚本）。"""
+    opt = [
         "--name", APP_NAME,
         "--onefile",
         "--noconsole",
-        "--clean" if clean else "",
+        "--clean",
         "--paths", HERE,
         "--paths", os.path.join(HERE, "tfd_app", "core"),
         # Tk 资源：让 PyInstaller 把 tcl/tk 运行时一并打进单文件
         "--collect-all", "tkinter",
     ]
     for h in HIDDEN:
-        cmd += ["--hidden-import", h]
+        opt += ["--hidden-import", h]
     for m in EXCLUDES:
-        cmd += ["--exclude-module", m]
+        opt += ["--exclude-module", m]
     for src, dst in DATA_DIRS:
         if os.path.isdir(src):
-            cmd += ["--add-data", f"{src}{SEP}{dst}"]
+            opt += ["--add-data", f"{src}{SEP}{dst}"]
     # v1.3.52：统一各平台 exe 文件图标为小羽毛（gui 窗口图标已用 icon.png 跨平台）
-    cmd += ["--icon", _icon_for_build()]
+    opt += ["--icon", _icon_for_build()]
+    return opt
 
+
+def _report():
+    print("\nBuild complete -> " + os.path.join(HERE, "dist",
+          APP_NAME + (".exe" if sys.platform.startswith("win") else "")))
+
+
+def _build_plain():
+    """普通 PyInstaller 打包（密钥已在源码层做过字符串混淆）。"""
+    cmd = [sys.executable, "-m", "PyInstaller"] + _pyi_options()
     cmd.append(ENTRY)
-    cmd = [c for c in cmd if c != ""]  # 过滤空串
-
     print(">>> " + " ".join(cmd))
     env = os.environ.copy()
     env["PYTHONHASHSEED"] = "1"
@@ -108,8 +115,62 @@ def build(clean=False):
     if rc != 0:
         print("Build failed with return code", rc)
         sys.exit(rc)
-    print("\nBuild complete -> " + os.path.join(HERE, "dist",
-          APP_NAME + (".exe" if sys.platform.startswith("win") else "")))
+    _report()
+
+
+def _build_pyarmor():
+    """PyArmor 加壳打包（需付费授权；PYARMOR_LICENSE 注入后由本函数注册并打包）。
+
+    注：PyArmor 免费 trial 对大脚本有额度限制（实测 gui.py 99KB 即报 out of license），
+    故必须提供付费授权才能对本项目生效。macOS 未签名时 PyArmor 运行时可能崩溃，故跳过。
+    """
+    pya = "pyarmor"
+    lic = os.environ.get("PYARMOR_LICENSE", "").strip()
+    if not lic:
+        raise RuntimeError("PYARMOR_LICENSE 为空，无法使用 PyArmor 加壳")
+    # 注册授权（把 secret 内容写成临时文件再 register）
+    tf = os.path.join(HERE, ".pyarmor_lic.tmp")
+    with open(tf, "w", encoding="utf-8") as f:
+        f.write(lic)
+    try:
+        subprocess.check_call([pya, "register", tf], cwd=HERE)
+    finally:
+        try:
+            os.remove(tf)
+        except OSError:
+            pass
+    # 把 PyInstaller 选项喂给 PyArmor 的 pack 阶段（注意值必须有前导空格）
+    pyi = " " + " ".join(_pyi_options())
+    subprocess.check_call([pya, "cfg", "pack:pyi_options", "=", pyi], cwd=HERE)
+    # --pack onefile：PyArmor 先分析源码、混淆，再调用 PyInstaller 打包
+    cmd = [pya, "gen", "--pack", "onefile", "-r", ENTRY, "tfd_app"]
+    print(">>> " + " ".join(cmd))
+    env = os.environ.copy()
+    env["PYTHONHASHSEED"] = "1"
+    rc = subprocess.call(cmd, cwd=HERE, env=env)
+    if rc != 0:
+        print("PyArmor build failed with return code", rc)
+        sys.exit(rc)
+    _report()
+
+
+def build(clean=False):
+    # v1.3.88：PyArmor 加壳（需付费授权 + 非 macOS）。未配置授权时回退普通打包，
+    # 但密钥已在源码层做过字符串混淆，依然不是明文。
+    lic = os.environ.get("PYARMOR_LICENSE", "").strip()
+    if lic and sys.platform != "darwin":
+        print("[build] 检测到 PYARMOR_LICENSE，使用 PyArmor 加壳打包…")
+        try:
+            _build_pyarmor()
+            return
+        except Exception as e:
+            print("[build] PyArmor 构建失败，终止（不回退到明文打包以免误以为已加壳）:", repr(e))
+            sys.exit(1)
+    if lic and sys.platform == "darwin":
+        print("[build] macOS 未签名，PyArmor 运行时可能崩溃，改用普通 PyInstaller（源码头字符串混淆仍生效）")
+    else:
+        print("[build] 未配置 PYARMOR_LICENSE，使用普通 PyInstaller（密钥已在源码层混淆）")
+    _build_plain()
 
 
 if __name__ == "__main__":

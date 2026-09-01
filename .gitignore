@@ -20,3 +20,4 @@ env/
 # 卖家离线发码工具 offlinecode（含激活码签名密钥），仅本地自用，严禁进公开仓库
 offlinecode.py
 offlinecode.spec
+.pyarmor/
