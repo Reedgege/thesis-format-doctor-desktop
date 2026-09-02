@@ -132,6 +132,13 @@ def collect_stats(z, root, paras):
     }
 
 
+# 编号跳号判定阈值（宁可漏报，不可误报——真实论文踩坑：目录条目/四级编号被当成同级
+# 编号，凭空报出"缺 1.3.3、1.3.4…"，客户一看就知道不存在，反而毁掉整份报告可信度）。
+GAP_MIN_SIBLINGS = 3     # 同一父级下至少 3 个同级编号才判定连续性
+GAP_MAX_MISSING = 2      # 缺号超过 2 个 → 多半是识别噪声 / 编号体系不同，不报
+GAP_MAX_SPAN = 30        # 同级编号最大跨度（超过则疑似把下级编号混进来了）
+
+
 def check_headings(paras):
     issues = []
     seen_chapters = []
@@ -140,19 +147,29 @@ def check_headings(paras):
         t = (p.get('text') or '').strip()
         if not t:
             continue
+        # .doc 转 .docx 残留的目录条目（"1 绪论1" 等）须跳过，否则会被当成章节编号
+        # 凭空造出"跳号"误报（客户实测反馈的 1.303/1.304 即源于此）。
+        if docxutils.is_toc_residue(t):
+            continue
         m = re.match(r'^第([0-9一二三四五六七八九十]+)章', t)
         if m:
             seen_chapters.append((cn2int(m.group(1)), t))
-        mn = re.match(r'^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?[\s、.．]', t)
+        # \d{1,3} 限制位数：避免 "2018年度""10086" 等正文数字被当成章节编号
+        mn = re.match(r'^(\d{1,3})(?:\.(\d{1,3}))?(?:\.(\d{1,3}))?(?:\.(\d{1,3}))?[\s、.．]', t)
         if mn:
             nums = tuple(int(x) for x in mn.groups() if x is not None)
             numeric.append((len(nums), nums, t))
     if seen_chapters:
         maxc = max(n for n, _ in seen_chapters)
         present = {n for n, _ in seen_chapters}
-        for c in range(1, maxc + 1):
-            if c not in present:
+        missing = [c for c in range(1, maxc + 1) if c not in present]
+        # 缺号过多（>2）说明"第X章"写法可能不统一（如混用"第一章/第1章"），不逐个报
+        if 0 < len(missing) <= 2:
+            for c in missing:
                 issues.append(('高', f'缺少第{c}章标题（检测到章节跨度 1–{maxc} 但有缺）'))
+        elif len(missing) > 2:
+            issues.append(('中', f'章节编号疑似不连续：1–{maxc} 中缺 {len(missing)} 章'
+                                 f'（{_fmt_nums(missing[:5])}等），请人工核对目录。'))
     by_parent = defaultdict(list)
     for lvl, nums, _t in numeric:
         if lvl == 1:
@@ -160,11 +177,24 @@ def check_headings(paras):
         by_parent[nums[:-1]].append(nums[-1])
     for parent, kids in by_parent.items():
         ks = sorted(set(kids))
-        full = list(range(ks[0], ks[-1] + 1))
-        for g in full:
-            if g not in ks:
-                issues.append(('中', f'编号跳号：缺少 {".".join(map(str, parent + (g,)))}（上级 {".".join(map(str, parent))} 下）'))
+        if len(ks) < GAP_MIN_SIBLINGS:
+            continue  # 样本太少，无法判断"是否连续"
+        span = ks[-1] - ks[0] + 1
+        if span > GAP_MAX_SPAN:
+            continue  # 跨度过大 → 大概率把下级编号（如 1.3.10）混进了同级
+        gaps = [n for n in range(ks[0], ks[-1] + 1) if n not in ks]
+        if not gaps or len(gaps) > GAP_MAX_MISSING:
+            continue
+        # 跳号属"疑似"：只提示，严重度低，避免客户为不存在的编号白改一通
+        p_txt = ".".join(map(str, parent))
+        miss = "、".join(".".join(map(str, parent + (g,))) for g in gaps)
+        issues.append(('低', f'编号疑似跳号：{p_txt} 下从 {p_txt}.{ks[0]} 到 '
+                             f'{p_txt}.{ks[-1]}，未见 {miss}（若该层本就如此请忽略）。'))
     return issues
+
+
+def _fmt_nums(nums):
+    return "、".join(str(n) for n in nums)
 
 
 def check_heading_styles(stats):
@@ -176,19 +206,31 @@ def check_heading_styles(stats):
 
 
 def check_three_line(tables):
+    """检查表格是否非标准三线表。
+
+    判定策略（保守、低误报）：
+      - 仅当表格出现三线表【禁止的线】（左边线/右边线/竖线 insideV）时，才判定为非标准三线表；
+        这些线是确凿违规，不会误伤。
+      - 仅"缺栏目线 insideH"或不完整属于模板/样式差异（很多学校三线表本就只要求顶/底线），
+        且边框常来自表格样式而非直接设置，逐表列出会刷屏误报，故不再单独报。
+      - 完全读不到边框（多半由表格样式提供）的表格无法判定，直接跳过，避免误报。
+    """
     issues = []
+    bad = []
     for i, b in enumerate(tables, 1):
         present = set(b.keys())
-        ok = present >= {'top', 'bottom', 'insideH'} and not (present & {'left', 'right', 'insideV'})
-        if not ok:
-            missing = [k for k in ('top', 'bottom', 'insideH') if k not in present]
-            extra = [k for k in ('left', 'right', 'insideV') if k in present]
-            detail = []
-            if missing:
-                detail.append('缺 ' + ','.join(missing))
-            if extra:
-                detail.append('多出 ' + ','.join(extra))
-            issues.append(('中', f'表 {i} 非标准三线表（{"；".join(detail)}）。三线表应仅含顶线/底线/栏目线三条横线，无左右边线、无竖线。'))
+        if not present:
+            continue  # 边框来自表格样式，无法判定 → 跳过
+        forbidden = present & {'left', 'right', 'insideV'}
+        if forbidden:
+            bad.append((i, '多出 ' + '、'.join(sorted(forbidden))))
+    if not bad:
+        return issues
+    reasons = Counter(d for _i, d in bad)
+    idxs = "、".join(str(i) for i, _ in bad[:8])
+    more = f' 等 {len(bad)} 个' if len(bad) > 8 else ''
+    issues.append(('中', f'共 {len(bad)} 个表格含左右边线或竖线（非标准三线表特征，表 {idxs}{more}）；'
+                         f'三线表应仅含顶线/底线/栏目线三条横线，无左右边线、无竖线。'))
     return issues
 
 
