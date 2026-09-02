@@ -89,7 +89,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.89"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.90"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -490,10 +490,14 @@ class App:
         tk.Frame(self.root, bg=CINNABAR, height=2).pack(fill="x", padx=20)
 
         # 主体两栏（文件选择 | 处理步骤）
+        # v1.3.90：左右严格 50:50 等分（与导师版一致）。
+        # 关键：仅靠 weight 做不到等宽——grid 先满足各列"固有请求宽度"，导入论文后
+        # 左栏出现文件名/路径、请求宽度变大就会多吃，右栏被挤窄，两栏比例跟着跳动。
+        # 必须用 uniform 把两列归为同一尺寸组，tk 才会强制两列等宽；minsize 是小窗口兜底。
         main = tk.Frame(self.root, bg=PAPER)
         main.pack(fill="both", expand=True, padx=20, pady=14)
-        main.columnconfigure(0, weight=1)
-        main.columnconfigure(1, weight=1)
+        main.columnconfigure(0, weight=1, uniform="half", minsize=470)
+        main.columnconfigure(1, weight=1, uniform="half", minsize=470)
         main.rowconfigure(0, weight=1)
         left = tk.Frame(main, bg=PAPER)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
