@@ -58,17 +58,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y tk tcl
 
-      # UPX 压缩：PyInstaller 检测到 UPX 在 PATH 上会自动压缩，exe 体积约减半。
-      # 注意：个别杀毒软件对 UPX 压缩包有误报，若客户反馈可删掉本步（体积换安心）。
-      - name: Install UPX (Windows)
-        if: matrix.os == 'windows'
-        run: choco install upx -y
-      - name: Install UPX (macOS)
-        if: matrix.os == 'macos'
-        run: brew install upx
-      - name: Install UPX (Linux)
-        if: matrix.os == 'linux'
-        run: sudo apt-get install -y upx-ucl
+      # UPX 压缩已移除（v1.3.91，2026-09-02）：学生版 Windows 安装包被 Windows Defender
+      # 误报隔离（UPX 加壳是杀软经典误报点）。去掉 UPX 后 exe 无加壳特征、哈希全新，
+      # 误报概率大降；代价是体积从 ~24MB 增至 ~45MB（zip 后 ~35-45MB，可接受）。
 
       # v1.3.52：从 png 生成 macOS .icns（PyInstaller 嵌入 exe 资源需 .icns；PNG→ICNS 用 Pillow）。
       # 原始源图 icon.png 已是 1024x1024 透明小羽毛，能满足 16~512 多分辨率输出。
