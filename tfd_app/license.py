@@ -4,22 +4,19 @@
 ==================================================================
 双轨制：
 
-  主方案（在线）—— 卡密通（keyt.cn）
-    客户输入卡密 → 软件联网把"卡密 + 本机机器码"发给卡密通验证
+  主方案（在线）—— 自建授权中台（api.reedskill.com，Cloudflare Workers + D1）
+    客户输入激活码 → 软件联网把"激活码 + 本机机器码"发到中台校验
     → 通过则本机写入授权文件 → 之后日常使用完全离线（不联网、不心跳）
-    → 卡密通后台支持"一机一码"设备绑定，分享给他人用不了
+    → 中台支持"一机一码"设备绑定；退款后后台点"撤销"，下次联网心跳即锁死
+    → 心跳默认 3 天一次，仅"联网 + 服务端标记 revoked"才锁，离线/超时一律不锁
 
   兜底方案（离线）—— 卖家离线发码
-    万一卡密通跑路/宕机，客户联系卖家，卖家用自己的发码工具
-    （offlinecode.py）按客户机器码生成"离线备用码"，客户粘贴即可激活。
-    离线备用码用对称签名，安全等级适中，足以防"小白共享"，
-    且需主动联系卖家才给，价值低、破解动力小。
+    万一中台不可用，客户联系卖家，卖家用 offlinecode 工具按机器码生成离线码，
+    客户粘贴即可激活。离线码用对称签名，安全等级适中，足以防小白共享。
 
-机器码：取磁盘序列号 + 主板 UUID（硬件级，重装系统不变，换电脑不同），
-        做一次 SHA256 取前 32 位大写，作为本机指纹。
+机器码：硬件级（磁盘序列号 + 主板 UUID），重装系统不变，换电脑不同。
 
-本地授权文件：存于用户主目录 ~/.tfd_license/license.json，日常启动只读它，
-             不联网，保证"论文处理全程离线"的卖点。
+本地授权文件：~/.tfd_license/license.json，日常启动只读它，不联网。
 """
 import os
 import sys
@@ -29,10 +26,10 @@ import uuid
 import socket
 import hashlib
 import hmac
-import subprocess
+import threading
 import urllib.parse
 import urllib.request
-import concurrent.futures
+import subprocess
 
 # Windows 下子进程（wmic/powershell 等控制台程序）默认会弹一个黑框一闪；
 # 在 --noconsole 打包的 GUI 程序里必须加 CREATE_NO_WINDOW，让子进程静默执行。
@@ -47,12 +44,15 @@ def _run(cmd):
         kwargs["creationflags"] = _NO_WINDOW
     return subprocess.check_output(cmd, **kwargs).decode("utf-8", "ignore")
 
+
 # ---------------------------------------------------------------------------
-# 卡密通配置 —— 卖家在 keyt.cn 注册开发者、创建应用后，把下面的常量改成你自己的
+# 自建授权中台配置
 # ---------------------------------------------------------------------------
-KAMI_USER = "reedai0537"      # 卡密通用户名（专属验证地址：keyt.cn/kami/reedai0537/check.php）
-KAMI_APP = "lunwengeshi"       # 应用名（后台创建的应用 lunwengeshi）
-KAMI_CHECK_URL = "https://www.keyt.cn/kami/{user}/check.php".format(user=KAMI_USER)
+API_BASE = "https://api.reedskill.com"     # 自建中台域名（Cloudflare Workers + D1）
+DEFAULT_PRODUCT = "tfd-student"            # 学生版；导师版（tfd-mentor）单独打包时改此处
+HEARTBEAT_INTERVAL_DAYS = 3                # 心跳间隔（天）；仅联网 + 服务端 revoked 才锁
+ACTIVATE_PATH = "/api/activate"
+HEARTBEAT_PATH = "/api/heartbeat"
 
 # ---------------------------------------------------------------------------
 # 本地授权文件位置
@@ -71,9 +71,10 @@ def _log(msg):
     except Exception:
         pass
 
+
 # ---------------------------------------------------------------------------
 # 离线备用码密钥（与 offlinecode.py 共用）。原始值经混淆存储、运行时还原，
-# 反编译看到的是乱码而非明文；离线激活仅作卡密通跑路兜底，密钥注定进客户端，
+# 反编译看到的是乱码而非明文；离线激活仅作中台跑路兜底，密钥注定进客户端，
 # 混淆只为抬升小白逆向门槛。
 # ---------------------------------------------------------------------------
 def _obf(b):
@@ -143,99 +144,190 @@ def get_machine_code():
 
 
 # ---------------------------------------------------------------------------
-# 主方案：卡密通在线验证流程
+# 网络底层：直连（绕过系统代理）+ 超时兜底（防线程永久悬挂）
 # ---------------------------------------------------------------------------
-def _kami_http(card, machine_code, timeout):
-    """单次 HTTP 校验，返回原始响应文本；任何异常都向上抛。
-
-    关键点：urllib 的 opener.open(timeout=...) 在部分环境下（开着 VPN/系统代理、
-    SSL 握手阶段、DNS 解析）根本不生效，导致线程永久挂在等回包。这里额外用
-    socket.setdefaulttimeout 兜底，让本次 socket 也受超时约束。
-    """
-    params = urllib.parse.urlencode({"card": card, "mac": machine_code, "app": KAMI_APP})
-    url = KAMI_CHECK_URL + "?" + params
+def _http_json(path, payload, timeout):
+    """POST JSON，返回 (resp_dict_or_None, error_or_None)。网络错误返回 error。"""
+    data = json.dumps(payload).encode("utf-8")
+    url = API_BASE + path
     prev = socket.getdefaulttimeout()
     socket.setdefaulttimeout(timeout)   # 兜底：覆盖 DNS / SSL 握手阶段的悬挂
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "tfd-desktop/1.0"})
+        req = urllib.request.Request(
+            url, data=data,
+            headers={"Content-Type": "application/json", "User-Agent": "tfd-desktop/1.0"},
+            method="POST",
+        )
         # 无代理直连（无视环境变量 HTTP(S)_PROXY / 系统代理设置）
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(req, timeout=timeout) as resp:
-            return resp.read().decode("utf-8", "ignore").strip()
+            return json.loads(resp.read().decode("utf-8", "ignore")), None
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read().decode("utf-8", "ignore")), None
+        except Exception:
+            return None, "HTTP %s" % e.code
+    except Exception as e:
+        return None, str(e)
     finally:
         socket.setdefaulttimeout(prev)
 
 
-def verify_via_kami(card, machine_code, timeout=30, retries=2):
-    """联网校验卡密。返回 (ok: bool, days: int, msg: str)。
+# ---------------------------------------------------------------------------
+# 主方案：自建中台在线激活
+# ---------------------------------------------------------------------------
+def activate_online(card, machine_code, product=DEFAULT_PRODUCT, timeout=30):
+    """联网激活：向中台校验激活码，返回 dict：
+        {"ok": bool, "type": "lifetime"/"weekly"|None, "expires_at": int|None, "error": str}
 
-    卡密通 check.php 返回约定：以 'ok|' 开头表示通过（其后可能带 天数|分钟）。
-    其他内容均视为失败（含 'invalid' / 'expired' / 'bind' 等）。
-
-    设计要点（针对"后台在线、前端卡死"的真实故障）：
-    1. 硬性总超时：用独立线程跑 HTTP，并设 overall 截止时间。即便 urllib 的
-       socket 超时失效，线程也会被强制判超时，保证界面一定在限定时间内拿到
-       结果，绝不永久卡在"联网激活中"。
-    2. 一机一码恢复：卡密通是"首次验证成功即绑定本机"。若首次请求已在服务端
-       绑定成功（后台显示"在线"）但客户端没读到回包→超时，此时复用同一张卡
-       + 同一机器码再查一次，卡密通会返回 ok|，把授权补回来。因此超时后重试
-       同一卡密是正确恢复手段，而不是放弃。
-    3. error| 是确定性失败（卡密无效/已用/绑定到别的设备），无需重试，直接告知。
+    网络错误返回 ok=False（调用方可改走离线码）；激活码无效/已用/已撤/过期给出中文提示。
     """
-    if KAMI_USER in ("你的卡密通用户名",):
-        return False, 0, "卡密通尚未配置：请在 tfd_app/license.py 填写 KAMI_USER 与 KAMI_APP"
+    card = (card or "").strip()
+    if not card:
+        return {"ok": False, "error": "激活码为空"}
+    resp, err = _http_json(
+        ACTIVATE_PATH,
+        {"product": product, "code": card, "machine_code": machine_code},
+        timeout,
+    )
+    if err:
+        return {"ok": False, "error": "网络验证失败（%s）；若多次失败，请联系客服获取离线激活码" % err}
+    if not resp or not resp.get("ok"):
+        code_err = (resp or {}).get("error")
+        msg = {
+            "invalid_code": "激活码无效，请核对后重试",
+            "already_used": "该激活码已绑定其他设备，无法在本机使用（一机一码）",
+            "revoked": "该激活码已被撤销（可能已退款），无法激活",
+            "expired": "该激活码已过期，请联系客服或重新购买",
+            "missing_fields": "请求参数缺失，请联系客服",
+        }.get(code_err, "激活未通过：%s" % code_err)
+        return {"ok": False, "error": msg}
+    return {
+        "ok": True,
+        "type": resp.get("type"),
+        "expires_at": resp.get("expires_at"),
+        "error": "验证通过",
+    }
 
-    overall = timeout + 12   # 硬上限：即便 socket 超时失效，也不让界面永久卡住
-    last_err = ""
-    _log("验证开始 card=%s mac=%s timeout=%s retries=%s" % (card, machine_code, timeout, retries))
-    for attempt in range(max(1, retries)):
-        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+def verify_via_kami(card, machine_code, timeout=30, retries=1, product=DEFAULT_PRODUCT):
+    """兼容旧调用：返回 (ok: bool, days: int, msg: str)。
+
+    days：周卡返回剩余天数，买断版/终身返回 0。
+    """
+    info = activate_online(card, machine_code, product=product, timeout=timeout)
+    days = 0
+    if info.get("type") == "weekly" and info.get("expires_at"):
+        days = max(0, int((info["expires_at"] - int(time.time() * 1000)) // 86400000))
+    return info.get("ok", False), days, (info.get("error") or "验证通过")
+
+
+# ---------------------------------------------------------------------------
+# 心跳：退款锁死检测（3 天一次，仅联网 + 服务端 revoked 才锁）
+# ---------------------------------------------------------------------------
+_heartbeat_running = False
+
+
+def start_heartbeat(product=DEFAULT_PRODUCT, on_revoked=None, interval_days=HEARTBEAT_INTERVAL_DAYS):
+    """启动后台心跳（守护线程，不阻塞 GUI）。重复调用只起一个。
+
+    on_revoked: 回调（后台线程调用，内部应切回主线程处理 UI），无返回值要求。
+    """
+    global _heartbeat_running
+    if _heartbeat_running:
+        return
+    lic = load_local_license()
+    if not lic or not lic.get("code"):
+        return
+    _heartbeat_running = True
+
+    def loop():
         try:
-            _log("第 %s 次请求发出（overall=%ss）" % (attempt + 1, overall))
-            fut = ex.submit(_kami_http, card, machine_code, timeout)
-            text = fut.result(timeout=overall)
-            _log("第 %s 次请求返回: %r" % (attempt + 1, text[:120]))
-        except (concurrent.futures.TimeoutError, TimeoutError, socket.timeout):
-            # 超时：可能是卡密通响应慢，也可能是本机 VPN/代理把请求绕路海外。
-            # 一机一码下，同卡+同机重查大概率能拿到 ok|，故重试而非直接放弃。
-            last_err = "连接/读取超时（卡密通响应慢，或被 VPN/代理绕路）"
-            _log("第 %s 次超时" % (attempt + 1))
-            if attempt < retries - 1:
-                time.sleep(1.5)
-                continue
-            return False, 0, ("验证超时：请检查网络后重试；若多次失败，请联系客服获取离线激活码。")
-        except Exception as e:
-            last_err = str(e)
-            _log("第 %s 次异常: %s" % (attempt + 1, last_err))
-            if attempt < retries - 1:
-                time.sleep(1.5)
-                continue
-            return False, 0, "网络验证失败（请检查网络或稍后重试）：%s" % last_err
-        finally:
-            ex.shutdown(wait=False)   # 放弃线程池；仍在跑的孤儿线程会自行结束
+            while True:
+                time.sleep(interval_days * 86400)
+                _do_one_heartbeat(lic, on_revoked)
+        except Exception:
+            pass
 
-        # 拿到了服务端响应
-        if text.startswith("ok|"):
-            _log("验证通过")
-            return True, 0, "验证通过"
-        # error| 是确定性失败，无需重试
-        _log("验证未通过: %r" % text[:120])
-        return False, 0, "验证未通过：%s" % text
-
-    _log("最终失败: %s" % last_err)
-    return False, 0, "网络验证失败：%s" % last_err
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
 
 
-def save_local_license(card, machine_code, permanent=True):
+def _do_one_heartbeat(lic, on_revoked):
+    """单次心跳：仅 revoked 才锁；离线/超时/网络错一律忽略（不锁、不计时）。"""
+    card = lic.get("code")
+    mc = get_machine_code()
+    product = lic.get("product") or DEFAULT_PRODUCT
+    resp, err = _http_json(
+        HEARTBEAT_PATH,
+        {"product": product, "code": card, "machine_code": mc},
+        10,
+    )
+    if err:
+        return  # 离线/超时 -> 不锁、不计时
+    if not resp or not resp.get("ok"):
+        return
+    st = resp.get("status")
+    if st == "revoked":
+        _mark_revoked_local()
+        if callable(on_revoked):
+            try:
+                on_revoked()
+            except Exception:
+                pass
+    # active / expired 都更新本地过期时间（周卡到期软提示续费，不硬锁）
+    if resp.get("expires_at") is not None:
+        _update_expire_local(resp.get("expires_at"))
+
+
+def _mark_revoked_local():
+    """把本地授权标记为已撤销（下次启动 check_local_valid 直接判失效）。"""
+    lic = load_local_license()
+    if not lic:
+        return
+    lic["status"] = "revoked"
+    try:
+        os.makedirs(LICENSE_DIR, exist_ok=True)
+        with open(LICENSE_FILE, "w", encoding="utf-8") as f:
+            json.dump(lic, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _update_expire_local(exp):
+    lic = load_local_license()
+    if not lic:
+        return
+    lic["expire"] = exp
+    try:
+        with open(LICENSE_FILE, "w", encoding="utf-8") as f:
+            json.dump(lic, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def is_revoked():
+    """本地是否已标记撤销（心跳检测到 revoked 后落地）。"""
+    lic = load_local_license()
+    if not lic:
+        return False
+    return lic.get("status") == "revoked"
+
+
+def save_local_license(card, machine_code, permanent=True, lic_type=None,
+                       expires_at=None, product=None):
     """激活成功后写本地授权（日常离线用）。"""
     os.makedirs(LICENSE_DIR, exist_ok=True)
     data = {
         "machine_code": machine_code,
-        "card": hashlib.sha256(card.encode("utf-8")).hexdigest()[:16],
+        "code": (card or "").strip(),
         "issued": int(time.time()),
         "permanent": permanent,
-        "expire": None,
+        "expire": expires_at if expires_at is not None else None,
         "offline": False,
+        "type": lic_type,
+        "product": product,
+        "status": "active",
     }
     with open(LICENSE_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -274,6 +366,9 @@ def save_offline_license(code, machine_code):
         "issued": int(time.time()),
         "permanent": True,
         "offline": True,
+        "type": "lifetime",
+        "product": DEFAULT_PRODUCT,
+        "status": "active",
     }
     with open(LICENSE_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -293,16 +388,18 @@ def load_local_license():
 
 
 def check_local_valid():
-    """启动时使用：本地授权存在、机器码匹配、未过期 → 放行（不联网）。"""
+    """启动时使用：本地授权存在、机器码匹配、未过期、未撤销 → 放行（不联网）。"""
     lic = load_local_license()
     if not lic:
+        return False
+    if lic.get("status") == "revoked":
         return False
     if lic.get("machine_code") != get_machine_code():
         return False  # 授权文件被拷到别的电脑 → 失效
     if lic.get("permanent"):
         return True
     exp = lic.get("expire")
-    if exp and int(time.time()) > exp:
+    if exp and int(time.time() * 1000) > exp:
         return False
     return True
 
