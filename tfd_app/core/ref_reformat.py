@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 芦苇不熬夜. All rights reserved.
 # 原创作品 | 禁止未经授权转售、二次分发或抄袭 | 授权用户可在扣子/虾评平台内使用
-# build: 202609051130 | version: 1.3.7 | file_sha256: 7738cb6a9a2019e0
+# build: 202609051150 | version: 1.3.8 | file_sha256: 7738cb6a9a2019e0
 # -*- coding: utf-8 -*-
 """
-ref-reformat.py — 参考文献按 GB/T 7714 范式重排（含 Word 批注提示）
+ref-reformat.py — 参考文献按 GB/T 7714 范式重排（逐条挂 Word 批注）
 
 用法：
   python ref-reformat.py 输入.docx [-o 输出.docx]
@@ -15,13 +15,15 @@ ref-reformat.py — 参考文献按 GB/T 7714 范式重排（含 Word 批注提�
   - 解析字段：作者 / 题名 / 文献类型 / 出处 / 出版年（GB/T 7714 全类型码，含 [C]// 会议论文集）
   - 可解析条目按 GB/T 7714 范式排布（标点/空格/作者污染归一），缺项不编造；
     低置信条目仅做安全标点归一，无法确认的内容绝不擅动
-  - 需人工处理的条目（缺年份 / 解析不确定）在 Word 上挂**批注**提示
-    （作者"论文格式医生·提示"，Word 中可见、可删），**条目正文本身干净、
-    不带任何 ⚠ 等工具文字** —— 符合"只改格式、绝不动内容、可加批注"
+  - **凡被引擎修改过的条目，一律在该条目上挂 Word 批注说明**（作者
+    "论文格式医生·提示"，Word 中可见、可删）：干净条目挂"已按 GB/T 7714
+    规范化标点与空格"告知改动；需人工核对的条目（缺年份 / 解析不确定）
+    挂具体提示。**条目正文本身干净、不带任何 ⚠ 等工具文字** —— 符合
+    "只改格式、绝不动内容、可加批注"
   - 写回新 docx（仅替换参考文献区文字，不碰正文其余部分）
 
 说明：中文文献格式杂，纯规则解析必有误差；本工具只做有把握的格式归一，
-拿不准的以批注请人工核对，绝不把工具提示写进正文。
+凡有改动逐条以批注留痕、拿不准的以批注请人工核对，绝不把工具提示写进正文。
 """
 import sys
 import os
@@ -34,7 +36,10 @@ from docxutils import load, write_docx_files, to_doc_xml, WR
 
 __author__ = "芦苇"
 __copyright__ = "Copyright (c) 2026 芦苇不熬夜"
-__version__ = "1.3.7"
+__version__ = "1.3.8"
+
+# 干净条目（可解析、无 warn）被引擎改写后，挂到该条目上的统一告知文案
+_CLEAN_NOTE = "此条已按 GB/T 7714 规范化标点与空格，文献内容未改动（如需逐处对照见修改明细）"
 
 
 
@@ -209,12 +214,17 @@ def _render(results):
 
 
 def _replace_in_docx(src, dst, results):
-    """把参考文献区 [n] 段落文字写回为归一结果；需人工处理的条目挂 Word 批注。
+    """把参考文献区 [n] 段落文字写回为归一结果；**凡被改写的条目都挂 Word 批注**。
 
     - 编号保留原文（不重排），按文档顺序一一对应消费，不会错位
     - 正文写入**干净文本**，绝不含 ⚠/提示文字（符合"只改格式、绝不动内容"）
-    - 带 warn 的条目在其整段上挂批注（作者"论文格式医生·提示"，Word 可见可删），
-      复用 docxutils 的 comments.xml 基础设施（ID 自动接续文档现有批注）
+    - 批注策略（每条至多一条，作者"论文格式医生·提示"，Word 可见可删）：
+        * 带 warn 的条目（缺年份/解析不确定）→ 挂对应人工核对提示（无条件挂，
+          即使文本恰好没变也提示，因为该条需要人去处理）
+        * 无 warn 但条目文本被引擎改写（`原段落 != 新正文`）→ 挂"已按 GB/T 7714
+          规范化"告知文案，让改动逐条可查
+        * 无 warn 且文本完全未变（条目本已规范）→ 不挂批注，避免无意义噪音
+    - 复用 docxutils 的 comments.xml 基础设施（ID 自动接续文档现有批注）
     """
     z, root = load(src)
     try:
@@ -232,9 +242,15 @@ def _replace_in_docx(src, dst, results):
             m = re.match(r"^\s*\[(\d+)\]", txt)
             if m and idx < len(results):
                 res = results[idx]
-                _set_para_text(p, res["new"])
-                if res.get("warn"):
-                    pend.append((p, res["warn"]))
+                # 判定"是否真改写"：忽略编号前缀（编号格式由引擎统一重写为 [n] ，
+                # 不算条目内容改动），只比较条目主体文本
+                old_body = re.sub(r"^\s*\[\d+\]\s*", "", txt, count=1).strip()
+                new_body = re.sub(r"^\s*\[\d+\]\s*", "", res["new"], count=1).strip()
+                changed = old_body != new_body
+                if res.get("warn") or changed:
+                    _set_para_text(p, res["new"])
+                    note = res.get("warn") or _CLEAN_NOTE
+                    pend.append((p, note))
                 idx += 1
         if pend:
             comments_root = docxutils.ensure_comments_part(z, replacements)
