@@ -1,24 +1,27 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 芦苇不熬夜. All rights reserved.
 # 原创作品 | 禁止未经授权转售、二次分发或抄袭 | 授权用户可在扣子/虾评平台内使用
-# build: 202609051030 | version: 1.3.6 | file_sha256: 7738cb6a9a2019e0
+# build: 202609051130 | version: 1.3.7 | file_sha256: 7738cb6a9a2019e0
 # -*- coding: utf-8 -*-
 """
-ref-reformat.py — 参考文献按 GB/T 7714 范式重排（含异常标注）
+ref-reformat.py — 参考文献按 GB/T 7714 范式重排（含 Word 批注提示）
 
 用法：
   python ref-reformat.py 输入.docx [-o 输出.docx]
 
 能力：
-  - 抽取"参考文献"区条目（[n] 标记，含断档编号）
-  - 编号强制连续化重排（[2][4][6] -> [1][2][3]）
+  - 抽取"参考文献"区条目（[n] 标记，**编号保留原文、断档不强制重排**——
+    正文引用与文后编号的对应关系属"内容语义"，引擎不擅动）
   - 解析字段：作者 / 题名 / 文献类型 / 出处 / 出版年（GB/T 7714 全类型码，含 [C]// 会议论文集）
-  - 每条必有修改：可解析条目范式重排（标点/空格/作者污染归一），
-    低置信条目标红 ⚠ 需人工复核（同样做格式归一，绝不原样不动）
-  - 可选写回新 docx（仅替换参考文献区文字，不碰正文其余部分）
+  - 可解析条目按 GB/T 7714 范式排布（标点/空格/作者污染归一），缺项不编造；
+    低置信条目仅做安全标点归一，无法确认的内容绝不擅动
+  - 需人工处理的条目（缺年份 / 解析不确定）在 Word 上挂**批注**提示
+    （作者"论文格式医生·提示"，Word 中可见、可删），**条目正文本身干净、
+    不带任何 ⚠ 等工具文字** —— 符合"只改格式、绝不动内容、可加批注"
+  - 写回新 docx（仅替换参考文献区文字，不碰正文其余部分）
 
-说明：中文文献格式杂，纯规则解析必有误差；本工具对"干净条目"自动改、
-"异常条目"标红，不追求 100% 无人值守。符合"调样式/文字排版、不改论点内容"。
+说明：中文文献格式杂，纯规则解析必有误差；本工具只做有把握的格式归一，
+拿不准的以批注请人工核对，绝不把工具提示写进正文。
 """
 import sys
 import os
@@ -27,11 +30,11 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import docxutils
-from docxutils import load, write_docx, to_doc_xml, WR
+from docxutils import load, write_docx_files, to_doc_xml, WR
 
 __author__ = "芦苇"
 __copyright__ = "Copyright (c) 2026 芦苇不熬夜"
-__version__ = "1.3.6"
+__version__ = "1.3.7"
 
 
 
@@ -95,7 +98,7 @@ def parse_ref(raw):
 
     以文献类型标记 [JMDCN] 为锚点三段切分（比旧版只认"作者.题名"更稳）：
       头部(作者.题名) + [类型] + 尾部(出处, 年.)
-    无法可靠切分时返回低置信，交由调用方做"安全归一 + ⚠"，绝不原样丢回。
+    无法可靠切分时返回低置信，交由调用方做"安全归一 + 批注提示"，绝不往正文写 ⚠。
     """
     text = re.sub(r"\s+", " ", (raw or "").replace("\n", " ")).strip()
     res = {"author": "", "title": "", "type": "", "source": "", "year": "", "joiner": ""}
@@ -147,8 +150,8 @@ def _fallback_normalize(raw):
     """低置信条目的安全归一：压缩空白、清理 ",." 污染、编号后统一单空格、
     句点后接 ASCII 字母/数字时补一个空格（排版归一，不动内容语义）。
 
-    原则：能确定的格式问题（空格/标点/编号）直接改；内容解析不确定的保留原文。
-    绝不"原样不动"——至少编号连续化 + 空白/标点归一已经构成真实修改。
+    原则：能确定的格式问题（空格/标点/编号样式）直接改；内容解析不确定的保留原文。
+    正文不带任何提示文字 —— 需人工核的条目由批注提示，绝不往正文写 ⚠。
     """
     t = _clean(raw)
     # 句点后紧跟英文/数字（如 "corporation.Harvard" -> "corporation. Harvard"）
@@ -157,11 +160,19 @@ def _fallback_normalize(raw):
 
 
 def reformat(refs):
-    """按 GB/T 7714 范式重排，**编号强制连续化 [1]..[n]**，每条输出必有改动。"""
+    """按 GB/T 7714 范式归一文本，**编号保留原文（断档不重排）**。
+
+    正文输出必须干净（绝不含 ⚠ 等工具标记）；确需人工处理的条目
+    （缺年份 / 解析不确定）通过 `warn` 字段传出，由写回层在对应条目上挂 Word 批注。
+
+    返回每条：{num(原文编号), old, new(正文干净文本), conf, warn(批注提示或 None)}
+    """
     out = []
-    for i, r in enumerate(refs, start=1):
+    for r in refs:
         fields, conf = parse_ref(r["raw"])
         joiner = (fields.get("joiner") or "").strip()
+        num = r["num"]  # 保留原文编号，不连续化、不重排
+        warn = None
         if fields["author"] and fields["type"]:
             src = fields["source"].strip().lstrip(".。 ").rstrip(".。 ")
             # 会议论文集 [C]// 论文集 连写；其余 [J]. 出处 用句点分隔
@@ -169,49 +180,74 @@ def reformat(refs):
             if fields["year"]:
                 if src and not re.search(r"(?:19|20)\d{2}", src):
                     src = f"{src}, {fields['year']}"
-                new = f"[{i}] {head}. {src}." if not joiner else f"[{i}] {head} {src}."
+                new = f"[{num}] {head}. {src}." if not joiner else f"[{num}] {head} {src}."
             else:
-                new = f"[{i}] {head}. {src}." if not joiner else f"[{i}] {head} {src}."
-                new += "  ⚠缺年份待补"
+                # 可解析但缺年份：结构照排，年份不编造，提示走批注
+                new = f"[{num}] {head}. {src}." if not joiner else f"[{num}] {head} {src}."
+                warn = "此条缺出版年份，请人工核对补全（引擎不编造年份）"
         else:
-            # 低置信：安全归一 + ⚠（有真实修改，但不硬改内容语义）
-            new = f"[{i}] {_fallback_normalize(r['raw'])}  ⚠需人工核"
-        out.append({"num": i, "old": r["raw"], "new": new, "conf": conf})
+            # 低置信：仅做安全格式归一（空白/标点清理，不动内容语义），
+            # 正文不带任何提示文字，无法确认处请人工核（走批注）
+            new = f"[{num}] {_fallback_normalize(r['raw'])}"
+            warn = "此条格式解析不确定，已做基本标点/空格归一，请人工核对"
+        out.append({"num": num, "old": r["raw"], "new": new,
+                    "conf": conf, "warn": warn})
     return out
 
 
 def _render(results):
     lines = ["# 参考文献重排报告（GB/T 7714）", ""]
     for r in results:
-        tag = "✅" if "⚠" not in r["new"] else "⚠"
+        tag = "✅" if not r.get("warn") else "⚠"
         lines.append(f"{tag} [{r['num']}] (置信度 {r['conf']})")
         lines.append(f"   原：{r['old'][:60]}")
         lines.append(f"   新：{r['new'][:70]}")
+        if r.get("warn"):
+            lines.append(f"   提示：{r['warn']}（已挂 Word 批注，正文未写入该文字）")
         lines.append("")
     return "\n".join(lines)
 
 
 def _replace_in_docx(src, dst, results):
-    """把参考文献区 [n] 段落文字替换为重排结果（保留首 run 的字体样式）。
+    """把参考文献区 [n] 段落文字写回为归一结果；需人工处理的条目挂 Word 批注。
 
-    按文档出现顺序消费 results（编号已连续化，不能再用原编号映射，否则断档重排会错位）。
+    - 编号保留原文（不重排），按文档顺序一一对应消费，不会错位
+    - 正文写入**干净文本**，绝不含 ⚠/提示文字（符合"只改格式、绝不动内容"）
+    - 带 warn 的条目在其整段上挂批注（作者"论文格式医生·提示"，Word 可见可删），
+      复用 docxutils 的 comments.xml 基础设施（ID 自动接续文档现有批注）
     """
-    _, root = load(src)
-    idx = 0
-    in_ref = False
-    for p in root.iter(WR + "p"):
-        txt = "".join(t.text or "" for t in p.iter(WR + "t"))
-        if docxutils.is_reference_heading(txt):
-            in_ref = True
-            continue
-        if not in_ref:
-            continue
-        m = re.match(r"^\s*\[(\d+)\]", txt)
-        if m and idx < len(results):
-            _set_para_text(p, results[idx]["new"])
-            idx += 1
-    xml = to_doc_xml(root)
-    write_docx(src, dst, xml)
+    z, root = load(src)
+    try:
+        replacements = {}
+        in_ref = False
+        pend = []  # (段落 Element, 批注文本)
+        idx = 0
+        for p in root.iter(WR + "p"):
+            txt = "".join(t.text or "" for t in p.iter(WR + "t"))
+            if docxutils.is_reference_heading(txt):
+                in_ref = True
+                continue
+            if not in_ref:
+                continue
+            m = re.match(r"^\s*\[(\d+)\]", txt)
+            if m and idx < len(results):
+                res = results[idx]
+                _set_para_text(p, res["new"])
+                if res.get("warn"):
+                    pend.append((p, res["warn"]))
+                idx += 1
+        if pend:
+            comments_root = docxutils.ensure_comments_part(z, replacements)
+            next_id = docxutils.max_comment_id(z) + 1
+            for p, warn in pend:
+                docxutils.add_comment_marker(p, next_id, warn, comments_root,
+                                             author="论文格式医生·提示", initials="TS")
+                next_id += 1
+            replacements["word/comments.xml"] = to_doc_xml(comments_root)
+        replacements["word/document.xml"] = to_doc_xml(root)
+        write_docx_files(src, dst, replacements)
+    finally:
+        z.close()
 
 
 def _set_para_text(p, text):
