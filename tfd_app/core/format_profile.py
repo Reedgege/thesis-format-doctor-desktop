@@ -105,21 +105,38 @@ def _style_spec(info):
             pass
     if ppr.get("jc"):
         spec["align"] = ppr["jc"]
-    # 首行缩进：firstLineChars 单位=百分之一字符；firstLine 单位=twips
-    flc = ppr.get("firstLineChars")
-    fl = ppr.get("firstLine")
-    if flc:
-        spec["indent_type"] = "first"
+    # 缩进（v1.3.6 补悬挂）：hangingChars 单位=百分之一字符；hanging 单位=twips(1cm≈567)
+    # Word 悬挂= w:left + w:hanging（或 leftChars + hangingChars），悬挂优先于首行解析；
+    # 输出 hanging_chars / hanging_cm，headings_fix 按模板原值写回（模板即规范，引擎不自算）
+    hc = ppr.get("hangingChars")
+    if hc:
+        spec["indent_type"] = "hanging"
         try:
-            spec["indent_chars"] = int(flc) // 100
+            spec["hanging_chars"] = int(hc) / 100.0
         except (TypeError, ValueError):
             pass
-    elif fl:
-        spec["indent_type"] = "first"
+    elif ppr.get("hanging"):
+        spec["indent_type"] = "hanging"
         try:
-            spec["indent_chars"] = int(fl) // 240
+            spec["hanging_cm"] = int(ppr["hanging"]) / 567.0
         except (TypeError, ValueError):
             pass
+    else:
+        # 首行缩进：firstLineChars 单位=百分之一字符；firstLine 单位=twips
+        flc = ppr.get("firstLineChars")
+        fl = ppr.get("firstLine")
+        if flc:
+            spec["indent_type"] = "first"
+            try:
+                spec["indent_chars"] = int(flc) // 100
+            except (TypeError, ValueError):
+                pass
+        elif fl:
+            spec["indent_type"] = "first"
+            try:
+                spec["indent_chars"] = int(fl) // 240
+            except (TypeError, ValueError):
+                pass
     # 行距：auto 以 240 分度为基准（240=单倍，360=1.5倍）；exact/atLeast 以 twips 计
     line = ppr.get("line")
     lr = ppr.get("lineRule")
@@ -174,13 +191,30 @@ def _para_direct_fmt(p):
                     if v:
                         ppr["jc"] = v
                 elif pt == "ind":
-                    v = pc.get(WR + "firstLineChars")
+                    # v1.3.6 补悬挂缩进：Word 悬挂= w:left+w:hanging / leftChars+hangingChars
+                    # （东海等模板 refs 条目常见 hangingChars="200" 或 hanging="420"≈0.74cm），
+                    # 与首行缩进互斥，悬挂优先解析
+                    v = pc.get(WR + "hangingChars")
                     if v:
-                        ppr["firstLineChars"] = v
+                        ppr["hangingChars"] = v
+                        lv = pc.get(WR + "leftChars")
+                        if lv:
+                            ppr["leftChars"] = lv
                     else:
-                        v = pc.get(WR + "firstLine")
+                        v = pc.get(WR + "hanging")
                         if v:
-                            ppr["firstLine"] = v
+                            ppr["hanging"] = v
+                            lw = pc.get(WR + "left")
+                            if lw:
+                                ppr["left"] = lw
+                        else:
+                            v = pc.get(WR + "firstLineChars")
+                            if v:
+                                ppr["firstLineChars"] = v
+                            else:
+                                v = pc.get(WR + "firstLine")
+                                if v:
+                                    ppr["firstLine"] = v
                 elif pt == "spacing":
                     for k in ("line", "before", "after"):
                         v = pc.get(WR + k)
@@ -284,6 +318,28 @@ def _extract_structural_dual_specs(root, cats, styles=None):
     for i, p in enumerate(paras):
         txt = "".join(t.text or "" for t in p.iter(WR + "t")).strip()
         if not txt:
+            continue
+        # v1.3.6：参考文献区样例兜底（无批注模板）——标题段→reference_heading 规则、
+        # 其后首条 [n] 条目段→reference 规则。仅当批注未提供对应类目时补齐（批注优先
+        # 铁律不变）；下游 _build_spec 便捷别名 / levels 组装 / headings_fix 消费链现成。
+        # 标题段加长度护栏（≤24 字），避免"参考文献格式要求…"等说明句被误当标题段。
+        if is_reference_heading(txt) and len(txt) <= 24:
+            if not cats.get("reference_heading"):
+                ts = _para_xml_spec(p, styles)
+                if ts:
+                    cats["reference_heading"] = ts
+            if not cats.get("reference"):
+                for q in paras[i + 1:]:
+                    qt = "".join(t.text or "" for t in q.iter(WR + "t")).strip()
+                    if not qt or _is_hint_para(q):
+                        continue
+                    if is_reference_heading(qt) or detect_heading(qt)[0] in (1, 2, 3, 4, 5, 6):
+                        break
+                    if re.match(r"^\[\d+\]", qt):
+                        bs = _para_xml_spec(q, styles)
+                        if bs:
+                            cats["reference"] = bs
+                        break
             continue
         cat = classify_structural_title(txt, _seen_en_abstract)
         if cat is None or cat not in _STRUCT_CATS:

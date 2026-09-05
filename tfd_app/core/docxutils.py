@@ -108,8 +108,24 @@ def _ppr_to_dict(ppr):
     pinfo = {}
     ind = ppr.find(WR + "ind")
     if ind is not None:
-        pinfo["firstLineChars"] = ind.get(WR + "firstLineChars")
-        pinfo["firstLine"] = ind.get(WR + "firstLine")
+        # v1.3.6 补悬挂缩进提取：Word 悬挂= w:left + w:hanging（或 leftChars + hangingChars），
+        # 与首行缩进互斥，悬挂优先。单位：hangingChars=百分之一字符、hanging=twips(1cm≈567)
+        hv = ind.get(WR + "hangingChars")
+        if hv:
+            pinfo["hangingChars"] = hv
+            lv = ind.get(WR + "leftChars")
+            if lv:
+                pinfo["leftChars"] = lv
+        else:
+            hw = ind.get(WR + "hanging")
+            if hw:
+                pinfo["hanging"] = hw
+                lw = ind.get(WR + "left")
+                if lw:
+                    pinfo["left"] = lw
+            else:
+                pinfo["firstLineChars"] = ind.get(WR + "firstLineChars")
+                pinfo["firstLine"] = ind.get(WR + "firstLine")
     spacing = ppr.find(WR + "spacing")
     if spacing is not None:
         pinfo["line"] = spacing.get(WR + "line")
