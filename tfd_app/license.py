@@ -73,17 +73,12 @@ def _log(msg):
 
 
 # ---------------------------------------------------------------------------
-# 离线备用码密钥（与 offlinecode.py 共用）。原始值经混淆存储、运行时还原，
-# 反编译看到的是乱码而非明文；离线激活仅作中台跑路兜底，密钥注定进客户端，
-# 混淆只为抬升小白逆向门槛。
+# 离线备用码密钥（与 offlinecode.py 共用）。固定签名盐，用于离线激活兜底。
+# 注：v1.3.96 起弃用 base64+XOR 混淆存储——该"解密循环"形状会被杀软 ML 引擎
+# 误判为恶意载荷解密器（Trojan:Win32/Sabsik.TE.A!ml 误报元凶）。盐值本身非机密
+# （客户端内必然可见），改为明文常量以消除误报特征。防逆向靠 PyArmor 加壳策略。
 # ---------------------------------------------------------------------------
-def _obf(b):
-    """反混淆：base64(xor 0x4F)。还原离线密钥/盐等敏感串，挡小白一把梭提取。"""
-    import base64 as _b64
-    return bytes((c ^ 0x4F) for c in _b64.b64decode(b)).decode("utf-8")
-
-
-_OFFLINE_KEY = _obf("OykrMyQuIiYzICkpIyYhKjN9f315MzwmKCEzOX4=").encode("utf-8")
+_OFFLINE_KEY = b"tfd|kami|offline|2026|sign|v1"
 
 
 _MC_CACHE = None  # v1.3.84：进程内缓存——机器码运行期不变，避免每次调用重复跑子进程

@@ -24,14 +24,9 @@ TRIAL_LIMIT = 2
 TRIAL_FILE = os.path.join(LICENSE_DIR, "trial.json")
 
 # 签名盐：与 license._OFFLINE_KEY 同风格，防普通用户直接改 json 里的 used。
-# 原始值经混淆存储、运行时还原，反编译只看到乱码。
-def _obf(b):
-    """反混淆：base64(xor 0x4F)。还原敏感串，挡小白一把梭提取。"""
-    import base64 as _b64
-    return bytes((c ^ 0x4F) for c in _b64.b64decode(b)).decode("utf-8")
-
-
-_TRIAL_SALT = _obf("OykrMzs9Ji4jMywgOiE7M31/fXkzOX4=").encode("utf-8")
+# 注：v1.3.96 起弃用 base64+XOR 混淆存储（杀软 ML 误报元凶，见 license.py 注释）。
+# 盐值非机密（客户端内可见），改明文常量。
+_TRIAL_SALT = b"tfd|trial|count|2026|v1"
 
 
 def _sign(machine, used):
