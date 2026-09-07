@@ -91,7 +91,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.99"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.100"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 
 def _btn_display_width(text, pad=2):
