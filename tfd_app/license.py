@@ -487,6 +487,54 @@ def load_local_license():
         return None
 
 
+def license_summary():
+    """本地授权的可读摘要（供 UI 展示，两个版本共用）。
+
+    返回 dict：
+      kind   — 卡种中文名：永久版 / 周卡 / 月卡 / 次卡 / 正式版（未知类型时兜底）
+      desc   — 状态描述：永久有效 / YYYY-MM-DD 到期（剩 N 天） / 剩余 X / Y 次
+      badge  — 右上角徽章短文案，如「正式版 · 周卡（剩 5 天）」
+    未授权时返回 None。
+    """
+    lic = load_local_license()
+    if not lic or lic.get("status") == "revoked":
+        return None
+
+    type_map = {"lifetime": "永久版", "weekly": "周卡", "monthly": "月卡",
+                "times": "次卡"}
+    t = (lic.get("type") or "").lower()
+    kind = type_map.get(t)
+    if kind is None:
+        kind = "永久版" if lic.get("permanent") else "正式版"
+
+    desc = "永久有效"
+    if t == "times":
+        total = lic.get("uses_total")
+        used = lic.get("uses_used") or 0
+        left = (total - used) if isinstance(total, int) else None
+        desc = ("剩余 %d / %d 次" % (left, total)) if left is not None else "按次计费"
+    else:
+        exp = lic.get("expire") or lic.get("expires_at")
+        if exp:
+            try:
+                import datetime as _dt
+                ms = int(exp)
+                if ms > 1e12:  # 秒级时间戳（历史数据）补成毫秒
+                    pass
+                d = _dt.datetime.fromtimestamp(ms / 1000)
+                days = int((ms - time.time() * 1000) // 86400000)
+                desc = "%s 到期（剩 %d 天）" % (d.strftime("%Y-%m-%d"), max(0, days))
+            except Exception:
+                desc = "有效"
+
+    badge = "正式版 · %s" % kind
+    if desc != "永久有效":
+        # 徽章放不下完整日期，取括号内的简短部分
+        short = desc.split("（")[0].replace(" 到期", "到期")
+        badge = "正式版 · %s（%s）" % (kind, short)
+    return {"kind": kind, "desc": desc, "badge": badge, "type": t}
+
+
 def check_local_valid():
     """启动时使用：本地授权存在、机器码匹配、未过期、未撤销 → 放行（不联网）。"""
     lic = load_local_license()

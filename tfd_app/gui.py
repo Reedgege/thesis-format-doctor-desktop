@@ -89,7 +89,28 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.98"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.99"   # 与 VERSION 文件保持同步（状态栏显示用）
+
+
+def _btn_display_width(text, pad=2):
+    """按钮文案的「显示宽度」：全角字符按 2、半角按 1 累加，再加左右余量。
+
+    ttk.Button 的 width 单位是「英文字符宽」，而中/日/韩全角字符渲染宽度约为
+    英文的 2 倍。直接拿 len(text) 当宽度会让含中文的文案被截断（v1.3.98 的 bug：
+    "上一步" 3 字只分到 4 字符宽 → 只显示得出 2 个汉字）。
+    """
+    w = 0
+    for ch in text:
+        # 常用全角区间：CJK 统一表意文字、假名、谚文、全角 ASCII/标点、CJK 符号
+        o = ord(ch)
+        if (0x1100 <= o <= 0x115F or 0x2E80 <= o <= 0xA4CF
+                or 0xAC00 <= o <= 0xD7A3 or 0xF900 <= o <= 0xFAFF
+                or 0xFE30 <= o <= 0xFE6F or 0xFF00 <= o <= 0xFF60
+                or 0xFFE0 <= o <= 0xFFE6 or 0x20000 <= o <= 0x3FFFD):
+            w += 2
+        else:
+            w += 1
+    return max(6, w + pad)
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -527,7 +548,7 @@ class App:
         # 页脚（两行版权，贴底）
         footer = tk.Frame(self.root, bg=PAPER)
         footer.pack(side="bottom", fill="x", pady=(0, 18))
-        tk.Label(footer, text="论文格式医生 · 桌面版 — 完全离线，文件不会上传任何服务器",
+        tk.Label(footer, text="论文格式医生 · 桌面版 — 本机处理，文件不会上传任何服务器",
                  bg=PAPER, fg=MUTED, font=F_FOOT).pack()
         f2 = tk.Frame(footer, bg=PAPER)
         f2.pack(pady=(3, 0))
@@ -703,11 +724,13 @@ class App:
         self._next_btn = ttk.Button(btn_row, text="下一步", style="Primary.TButton",
                                     command=self._run_step)
         self._next_btn.pack(side="right")
-        # v1.3.97：按钮按当前文字长度设固定 width（字符数），避免 ttk style 的 padding
-        # 在某些主题/DPI 下不生效时，长文字（如"保存修正后论文"）被截断显示成"保存修"。
-        # 每次切文字时由 _set_btn_text 同步设宽度，确保按钮始终完整显示。
+        # v1.3.99：按钮宽度按「显示宽度」计算——ttk 的 width 单位是英文字符宽，
+        # 而中日韩全角字符渲染宽度约为英文的 2 倍。v1.3.98 用 len(text) 直接设宽度，
+        # 导致"上一步"(3字→width 4) 只装得下 2 个汉字，显示成"上一…"；
+        # "保存修正后论文"(7字→width 7) 仍被截断。改为逐字累加全角算 2、半角算 1，
+        # 再左右各留 1 字符余量，确保任何文案都完整显示。
         self._set_btn_text = lambda btn, text, **kw: btn.config(
-            text=text, width=max(4, len(text)), **kw)
+            text=text, width=_btn_display_width(text), **kw)
 
         # 卡片底部章节小字（文艺学术点缀）
         tk.Label(card, text="贰 · 处理", bg=PANEL, fg="#b8b0a0",
@@ -805,7 +828,7 @@ class App:
         """底部状态栏：idle / running / done / error。"""
         cmap = {"idle": OKC, "running": RUN, "done": OKC, "error": ERRC}
         tmap = {
-            "idle": ("就绪 · 论文格式医生 v%s · 完全离线" % APP_VERSION, "请按步骤操作"),
+            "idle": ("就绪 · 论文格式医生 v%s · 本机处理" % APP_VERSION, "请按步骤操作"),
             "running": ("处理中…", hint or "正在处理"),
             "done": ("已完成", "可再处理一篇"),
             "error": ("出错", "请重试或联系客服"),
@@ -1589,7 +1612,13 @@ class App:
         except Exception:
             self._licensed = False
         if self._licensed:
-            self._trial_btn.config(text="正式版 ✓", state="disabled")
+            # v1.3.99：区分卡种展示——周卡/月卡/次卡不再是"永久"，要让用户看得见期限与余量
+            try:
+                s = license.license_summary()
+            except Exception:
+                s = None
+            self._trial_btn.config(
+                text=("%s ✓" % s["badge"]) if s else "正式版 ✓", state="disabled")
         else:
             left = trial.trials_left()
             if left > 0:
@@ -1605,7 +1634,12 @@ class App:
         r = show_activation(self.root, show_trial=False)
         if r == "ok":
             self._update_trial_badge()
-            self._set_status("已激活正式版，感谢支持", OKC)
+            try:
+                s = license.license_summary()
+            except Exception:
+                s = None
+            self._set_status(("已激活%s · %s" % (s["kind"], s["desc"])) if s
+                             else "已激活正式版，感谢支持", OKC)
         elif r == "trial":
             self._update_trial_badge()
             self._set_status("已进入试用模式", MUTED)
@@ -1685,7 +1719,11 @@ def show_activation(root, show_trial=True):
 
     tk.Label(top, text="激 活 论 文 格 式 医 生", bg=PAPER, fg=INK,
              font=F_TITLE).pack(pady=(14, 4))
-    tk.Label(top, text="请输入您购买的激活码以激活；激活仅需联网一次，之后完全离线使用。",
+    # v1.3.99：卡片种类已扩展到 4 种（永久 / 周卡 / 月卡 / 次卡），文案不再统一说"永久、完全离线"
+    tk.Label(top,
+             text="请输入您购买的激活码以激活。\n"
+                  "永久卡：激活后完全离线、永久可用；周卡 / 月卡：期限内可用；\n"
+                  "次卡：每次修正需联网扣一次次数，离线时不可使用。",
              bg=PAPER, fg=MUTED, font=F_SMALL, wraplength=440, justify="center").pack(pady=(0, 10))
 
     card_var = tk.StringVar()
@@ -2046,15 +2084,22 @@ def show_help(parent):
         ("Q2 · 什么样的模板最好？一定要带批注吗？",
          "非必带，但带批注的学校官方模板效果最佳。软件定格式时，批注说明优先于样式定义："
          "批注有明确要求则遵批注，无批注则读样式定义，样式亦无则以通用规范兜底。"),
-        ("Q3 · 试用版与正式版有何区别？",
+        ("Q3 · 试用版与正式版有何区别？卡片有哪些种类？",
          "试用版：免费试用 2 次，输出带水印的只读预览（不可直接编辑）。\n"
-         "正式版：无水印、可编辑，一次付费、永久使用。"),
+         "正式版：无水印、可编辑、可保存。卡片共 4 种：\n"
+         "· 永久卡 — 一次付费终身可用，激活后完全离线；\n"
+         "· 周卡 / 月卡 — 期限内不限次数使用，到期后续费即可继续；\n"
+         "· 次卡 — 按次计费，每修正一次扣一次次数（需联网扣次）。"),
         ("Q4 · 试用输出为只读，如何修改？",
          "试用文档设有只读保护；正式版输出可编辑文档，更为便捷，建议直接激活正式版。"),
-        ("Q5 · 如何激活？",
-         "在激活窗口输入购买的激活码，验证通过即为正式版，永久有效；此后完全离线使用，无需联网。"),
+        ("Q5 · 如何激活？激活后还需要联网吗？",
+         "在激活窗口输入购买的激活码，验证通过即为正式版，右上角会显示您的卡片种类与剩余期限/次数。\n"
+         "· 永久卡 — 激活后完全离线，无需再联网；\n"
+         "· 周卡 / 月卡 — 激活后离线可用，到期前会联网校验一次；\n"
+         "· 次卡 — 每次修正需联网扣一次次数，离线时暂不可用。"),
         ("Q6 · 论文安全吗？会上传吗？",
-         "请放心。所有修正均在本机完成，论文不联网、不上传任何服务器，亦不收集论文内容；断网亦可使用。"),
+         "请放心。所有修正均在本机完成，论文不联网、不上传任何服务器，亦不收集论文内容。\n"
+         "永久卡 / 周卡 / 月卡激活后可断网使用；次卡仅在扣减次数时联网，且只传输激活码与机器码，不含论文内容。"),
         ("Q7 · 学校模板特殊，或修正结果不尽如人意？",
          "欢迎关注公众号【%s】留言，告知贵校情况，我们协助处理。" % WECHAT_NAME),
         ("Q8 · 打开软件时 Windows 弹出“已保护你的电脑 / 已拦截”提示？",
