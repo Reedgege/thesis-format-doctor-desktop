@@ -89,7 +89,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.96"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.97"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -384,8 +384,24 @@ class App:
         self.root = root
         _APP_REF = self
         self.root.title("论文格式医生 · 桌面版")
-        self.root.geometry("900x640")
-        self.root.minsize(800, 580)
+        # v1.3.97：窗口策略与导师版 v1.0.10~v1.0.12 同款——根治两栏 50:50 布局下
+        # 右栏「保存修正后论文」等按钮被裁的问题。根因：两栏各 minsize=470（合计约 980），
+        # 旧窗口默认 900 / 可缩到 800，宽度不足时右栏被挤出可视区，按钮显示不全。
+        # 1) 默认尺寸按屏幕自适应（不超过屏幕 86%×88%），小屏也能容纳；
+        # 2) 最小宽度 1040：50:50 等分后每栏仍有约 500px，按钮/文件名不被挤变形；
+        # 3) 最小高度 660：保证底部按钮区完整可见；
+        # 4) Windows 且屏幕 ≥1440×900 时启动即最大化（小屏跳过，保留窗口控制权）。
+        _sw = self.root.winfo_screenwidth()
+        _sh = self.root.winfo_screenheight()
+        self.root.geometry("%dx%d" % (min(1180, int(_sw * 0.86)),
+                                      min(880, int(_sh * 0.88))))
+        self.root.minsize(1040, 660)
+        try:
+            if sys.platform.startswith("win"):
+                if self.root.winfo_screenwidth() >= 1440 and self.root.winfo_screenheight() >= 900:
+                    self.root.state("zoomed")
+        except tk.TclError:
+            pass
         try:
             if os.path.isfile(ICON):
                 self.root.iconphoto(True, tk.PhotoImage(file=ICON))
@@ -1293,10 +1309,21 @@ class App:
         if saved:
             self._show_check_done(dst)
 
-    def _do_fix(self, src, docx_path, dst):
-        # 授权被后台撤销（退款锁死）：直接拦截，禁止继续修正
+    def _guard_license(self):
+        """付费操作前守卫：本地失效立即拦；联网实时校验（次卡扣次、其他卡只校验）。
+        返回 True=放行；False=已拦截。离线放行（不拦不扣）。"""
         if license.is_revoked():
             self.root.after(0, self._handle_revoked)
+            return False
+        st = license.consume_use()
+        if st in ("revoked", "expired"):
+            self.root.after(0, self._handle_revoked)
+            return False
+        return True
+
+    def _do_fix(self, src, docx_path, dst):
+        # 授权实时校验（防退款撤销/到期/次卡用尽）+ 次卡联网扣次
+        if not self._guard_license():
             return False
         # v1.3.56 试用版：未激活时只能试 N 次，输出带水印；用完弹升级引导。
         # 返回 True=已产出修正；False=被试用拦截（次数用完/客户取消），不进入完成态。
@@ -1579,15 +1606,19 @@ class App:
             self._set_status("已进入试用模式", MUTED)
 
     def _handle_revoked(self):
-        """授权被后台撤销（退款锁死）：锁定软件，禁止继续修正。"""
+        """授权失效（撤销退款/到期/次卡用尽）：锁定软件，禁止继续修正。"""
         self._licensed = False
         self._update_trial_badge()
-        self._set_status("授权已失效（可能已退款），软件已锁定", ERRC)
-        self._modal(
-            "授权已失效",
-            "您的授权已被后台撤销（可能因退款）。\n\n"
-            "软件已锁定，无法继续修正论文。\n如需继续使用，请联系客服：hi@reedskill.com。",
-            [("ok", "知道了")])
+        reason = license.get_lock_reason()
+        title, body = _revoked_message(reason)
+        if reason == "uses_exhausted":
+            status = "次数已用完，软件已锁定"
+        elif reason == "expired":
+            status = "授权已到期，软件已锁定"
+        else:
+            status = "授权已失效（可能已退款），软件已锁定"
+        self._set_status(status, ERRC)
+        self._modal(title, body, [("ok", "知道了")])
 
 
 # ---------------------------------------------------------------------------
@@ -1601,6 +1632,21 @@ def _on_license_revoked():
             _APP_REF.root.after(0, _APP_REF._handle_revoked)
         except Exception:
             pass
+
+
+def _revoked_message(reason=None):
+    """按失效原因返回 (标题, 正文)。"""
+    if reason == "uses_exhausted":
+        return ("次数已用完",
+                "您的次卡次数已用完，软件已锁定。\n\n"
+                "如需继续使用，请续费或联系客服：hi@reedskill.com。")
+    if reason == "expired":
+        return ("授权已到期",
+                "您的授权已到期，软件已锁定。\n\n"
+                "如需继续使用，请续费或联系客服：hi@reedskill.com。")
+    return ("授权已失效",
+            "您的授权已被后台撤销（可能因退款）。\n\n"
+            "软件已锁定，无法继续修正论文。\n如需继续使用，请联系客服：hi@reedskill.com。")
 
 
 def show_activation(root, show_trial=True):
@@ -1688,9 +1734,12 @@ def show_activation(root, show_trial=True):
             if ok:
                 license.save_local_license(
                     card, mc,
+                    permanent=(info.get("type") == "lifetime"),
                     lic_type=info.get("type"),
                     expires_at=info.get("expires_at"),
                     product=license.DEFAULT_PRODUCT,
+                    uses_total=info.get("uses_total"),
+                    uses_used=info.get("uses_used"),
                 )
                 license._log("gui: 授权已写入本机")
                 # 启动后台心跳：联网时若授权被撤销（退款），自动锁死
@@ -2039,6 +2088,15 @@ def main():
         # v1.3.58：未激活（或被后台撤销）时弹激活窗，但提供"先试用"入口（不进主界面则退出）
         r = show_activation(root)
         if r not in ("ok", "trial"):
+            root.destroy()
+            return
+    else:
+        # 启动实时校验：本地有效时再联网确认一次（退款撤销/到期/次卡用尽 → 拦；断网放行）
+        st = license.validate_now()
+        if st in ("revoked", "expired"):
+            title, body = _revoked_message(license.get_lock_reason())
+            root.deiconify()
+            messagebox.showerror(title, body, parent=root)
             root.destroy()
             return
     root.deiconify()
