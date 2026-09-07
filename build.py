@@ -38,6 +38,12 @@ DARWIN = sys.platform == "darwin"
 APP_NAME = "thesis-format-doctor-desktop"
 ENTRY = os.path.join(HERE, "main.py")
 
+# Windows 可执行文件的"正当性"版本资源（文件属性里的产品名/公司名/版本）。
+# 未签名新 exe 被 Defender ML 误报的常见诱因之一是"来路不明、无版本信息"；
+# 补全后特征更像正规软件，可压低 Wacatac/Sabsik 类启发式分数。
+PRODUCT_NAME = "论文格式医生"
+COMPANY_NAME = "芦苇不熬夜"
+
 ICON_ICO = os.path.join(HERE, "tfd_app", "assets", "icon.ico")
 ICON_ICNS = os.path.join(HERE, "tfd_app", "assets", "icon.icns")
 ICON_PNG = os.path.join(HERE, "tfd_app", "assets", "icon.png")
@@ -49,6 +55,15 @@ CORE_MODULES = [
     "docxutils", "format_checker", "headings_fix",
     "ref_reformat", "format_profile", "report_docx", "format_check",
 ]
+
+
+def _read_version():
+    """读 VERSION 文件并去 'v' 前缀，返回纯数字版本（如 1.3.105）。"""
+    try:
+        with open(os.path.join(HERE, "VERSION"), encoding="utf-8") as fh:
+            return fh.read().strip().lstrip("vV")
+    except Exception:
+        return ""
 
 
 def _nuitka_options():
@@ -70,8 +85,17 @@ def _nuitka_options():
     if WIN and os.path.isfile(ICON_ICO):
         opt += ["--windows-icon-from-ico=" + ICON_ICO]
     # Windows GUI 程序：禁用控制台子系统，否则启动时黑框一闪（Nuitka 默认 console）。
+    # 并注入版本资源（文件属性里的公司/产品/版本），给未签名 exe 增加正当性信号。
     if WIN:
         opt += ["--windows-console-mode=disable"]
+        _ver = _read_version()
+        if _ver:
+            opt += ["--company-name=" + COMPANY_NAME,
+                    "--product-name=" + PRODUCT_NAME,
+                    "--product-version=" + _ver,
+                    "--file-description=" + PRODUCT_NAME + "（模板驱动论文格式检查与修正工具）",
+                    "--file-version=" + _ver,
+                    "--copyright=Copyright (c) " + COMPANY_NAME]
     if DARWIN:
         if os.path.isfile(ICON_ICNS):
             opt += ["--macos-app-icon=" + ICON_ICNS]

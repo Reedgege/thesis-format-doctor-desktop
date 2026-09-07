@@ -79,9 +79,10 @@ jobs:
         shell: pwsh
         run: |
           $VER = (Get-Content VERSION).Trim()
+          $VERNUM = $VER -replace '^v',''      # NSIS VIProductVersion 只收纯数字
           $MAKENSIS = "C:\Program Files (x86)\NSIS\makensis.exe"
           if (-not (Test-Path $MAKENSIS)) { $MAKENSIS = "makensis" }
-          & $MAKENSIS /DVERSION=$VER installer.nsi
+          & $MAKENSIS /DVERSION=$VER /DVERNUM=$VERNUM installer.nsi
           ls thesis-format-doctor-desktop-setup.exe
 
       # macOS：把 .app 压缩成 zip 作为发布物。
