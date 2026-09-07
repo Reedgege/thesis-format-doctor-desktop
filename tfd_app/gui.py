@@ -89,7 +89,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.97"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.98"   # 与 VERSION 文件保持同步（状态栏显示用）
 _FONTS = {}      # name -> (Font, base_size)
 _CUR_SCALE = 1.0 # 当前窗口缩放比例（宽度 / 基准宽度，钳制 0.8~1.0：只缩小不放大）
 BASE_W = 900     # 设计基准宽度（px），与主窗口默认 900x640 对应
@@ -703,6 +703,11 @@ class App:
         self._next_btn = ttk.Button(btn_row, text="下一步", style="Primary.TButton",
                                     command=self._run_step)
         self._next_btn.pack(side="right")
+        # v1.3.97：按钮按当前文字长度设固定 width（字符数），避免 ttk style 的 padding
+        # 在某些主题/DPI 下不生效时，长文字（如"保存修正后论文"）被截断显示成"保存修"。
+        # 每次切文字时由 _set_btn_text 同步设宽度，确保按钮始终完整显示。
+        self._set_btn_text = lambda btn, text, **kw: btn.config(
+            text=text, width=max(4, len(text)), **kw)
 
         # 卡片底部章节小字（文艺学术点缀）
         tk.Label(card, text="贰 · 处理", bg=PANEL, fg="#b8b0a0",
@@ -771,28 +776,28 @@ class App:
                 if line: line.config(bg="#e3dccb")
         self._step_counter.config(text="%d / %d" % (min(self.step_index + 1, n), n))
         if self.step_index >= n:
-            self._next_btn.config(text="再处理一篇", command=self._reset_wizard, state="normal")
-            self._prev_btn.config(text="上一步", state="disabled", command=self._go_prev)
+            self._set_btn_text(self._next_btn, "再处理一篇", command=self._reset_wizard, state="normal")
+            self._set_btn_text(self._prev_btn, "上一步", state="disabled", command=self._go_prev)
         elif self.step_index == n - 1:
             # 第三步：一键修正 → 保存修正后论文 → 完成（由 _fix_phase 驱动）
             if self._fix_phase == "idle":
-                self._next_btn.config(text="一键修正", command=self._run_step,
+                self._set_btn_text(self._next_btn, "一键修正", command=self._run_step,
                                       state="disabled" if self.running else "normal")
-                self._prev_btn.config(text="上一步",
+                self._set_btn_text(self._prev_btn, "上一步",
                                       state="disabled" if (self.running or self.step_index == 0) else "normal",
                                       command=self._go_prev)
             elif self._fix_phase == "fixed":
-                self._next_btn.config(text="保存修正后论文", command=self._export_fix,
+                self._set_btn_text(self._next_btn, "保存修正后论文", command=self._export_fix,
                                       state="disabled" if self.running else "normal")
-                self._prev_btn.config(text="上一步", state="normal", command=self._go_prev)
+                self._set_btn_text(self._prev_btn, "上一步", state="normal", command=self._go_prev)
             else:  # saved
-                self._next_btn.config(text="完成", state="disabled")
-                self._prev_btn.config(text="再处理一篇", state="normal",
+                self._set_btn_text(self._next_btn, "完成", state="disabled")
+                self._set_btn_text(self._prev_btn, "再处理一篇", state="normal",
                                       command=self._reset_wizard)
         else:
-            self._next_btn.config(text="下一步", command=self._run_step,
+            self._set_btn_text(self._next_btn, "下一步", command=self._run_step,
                                   state="disabled" if self.running else "normal")
-            self._prev_btn.config(text="上一步",
+            self._set_btn_text(self._prev_btn, "上一步",
                                   state="disabled" if (self.running or self.step_index == 0) else "normal",
                                   command=self._go_prev)
 
