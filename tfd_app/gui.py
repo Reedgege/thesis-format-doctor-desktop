@@ -91,7 +91,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.100"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.101"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 
 def _btn_display_width(text, pad=2):
@@ -705,15 +705,28 @@ class App:
         self.progress.pack(fill="x", padx=14, pady=(4, 2))
         self.progress.pack_forget()
 
-        self.status_dot = tk.Label(card, text="●", bg=PANEL, fg=MUTED, font=F_BODY)
+        # v1.3.100：把 status 行包成子 Frame——v1.3.99 错误地把 trial_btn 长文案
+        # 直接 pack 到 card 上，配合 status_lbl fill="x" expand=True 时，会把
+        # side="right" 的 trial_btn 挤到 btn_row 下方（实测 y=383 在 btn_row 之下），
+        # 导致最后一步布局错位。子 Frame 内 status_lbl fill x expand 只影响本行。
+        status_row = tk.Frame(card, bg=PANEL)
+        status_row.pack(fill="x")
+        self.status_dot = tk.Label(status_row, text="●", bg=PANEL, fg=MUTED, font=F_BODY)
         self.status_dot.pack(side="left", padx=(14, 6), pady=(8, 4))
-        self.status_lbl = tk.Label(card, textvariable=self.status_var, bg=PANEL, fg=INK,
+        self.status_lbl = tk.Label(status_row, textvariable=self.status_var, bg=PANEL, fg=INK,
                                    font=F_STAT)
-        self.status_lbl.pack(side="left", pady=(8, 4))
+        # fill="x" expand=True 让 status 文案吃掉中间空间，右边留给 trial_btn
+        self.status_lbl.pack(side="left", fill="x", expand=True, pady=(8, 4))
 
         # v1.3.58：激活/试用状态与入口（未激活=试用版，可随时点激活）
         self._licensed = trial.is_licensed()
-        self._trial_btn = ttk.Button(card, text="", style="Ghost.TButton",
+        # v1.3.100：trial_btn 不预设固定 width——v1.3.99 实测固定 width 在
+        # 中文长文案（"正式版 · 次卡（剩余 3/10 次）✓"）下会被 ttk style 撑爆；
+        # 现在 trial_btn 已移入 status_row 子 Frame，按内容自适应不会污染外层 card
+        # 的 pack 顺序。badge 由 license.license_summary() 控制 ≤8 字，试用版
+        # 文案（"试用版（剩 X 次）· 激活"）由 _update_trial_badge() 写入，
+        # 实际宽度按渲染自适。
+        self._trial_btn = ttk.Button(status_row, text="", style="Ghost.TButton",
                                      command=self._open_activation)
         self._trial_btn.pack(side="right", padx=(6, 14), pady=(6, 2))
         self._update_trial_badge()
@@ -1619,6 +1632,7 @@ class App:
                 s = license.license_summary()
             except Exception:
                 s = None
+            # v1.3.100：badge 已收紧为 ≤ 8 字（license.py），无需担心撑爆
             self._trial_btn.config(
                 text=("%s ✓" % s["badge"]) if s else "正式版 ✓", state="disabled")
         else:

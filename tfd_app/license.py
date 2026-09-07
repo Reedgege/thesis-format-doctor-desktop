@@ -515,6 +515,7 @@ def license_summary():
         desc = ("剩余 %d / %d 次" % (left, total)) if left is not None else "按次计费"
     else:
         exp = lic.get("expire") or lic.get("expires_at")
+        days_left = None
         if exp:
             try:
                 import datetime as _dt
@@ -522,16 +523,28 @@ def license_summary():
                 if ms > 1e12:  # 秒级时间戳（历史数据）补成毫秒
                     pass
                 d = _dt.datetime.fromtimestamp(ms / 1000)
-                days = int((ms - time.time() * 1000) // 86400000)
-                desc = "%s 到期（剩 %d 天）" % (d.strftime("%Y-%m-%d"), max(0, days))
+                days_left = max(0, int((ms - time.time() * 1000) // 86400000))
+                desc = "%s 到期（剩 %d 天）" % (d.strftime("%Y-%m-%d"), days_left)
             except Exception:
                 desc = "有效"
 
-    badge = "正式版 · %s" % kind
-    if desc != "永久有效":
-        # 徽章放不下完整日期，取括号内的简短部分
-        short = desc.split("（")[0].replace(" 到期", "到期")
-        badge = "正式版 · %s（%s）" % (kind, short)
+    # v1.3.100：徽章收紧为短文案——v1.3.99 用"正式版 · 周卡（剩 N 天）"在
+    # trial_btn 没设 width 的情况下，会撑爆右栏（实测撑到 w=788px/h=403px，
+    # 把 btn_row 挤到顶部、时间线挤压错位）。改为 ≤8 字符的紧凑形式。
+    # 全角按 2、半角按 1 计，最坏"次卡 3/10"=6 字；"月卡 28天"=6 字。
+    badge = "正式版 ✓"
+    if t == "times":
+        total = lic.get("uses_total")
+        used = lic.get("uses_used") or 0
+        left = (total - used) if isinstance(total, int) else None
+        if left is not None:
+            badge = "%s %d/%d ✓" % (kind, left, total)
+        else:
+            badge = "%s ✓" % kind
+    elif t in ("weekly", "monthly") and days_left is not None:
+        badge = "%s %d天 ✓" % (kind, days_left)
+    elif kind and t not in ("lifetime",) and t != "永久版":
+        badge = "%s ✓" % kind
     return {"kind": kind, "desc": desc, "badge": badge, "type": t}
 
 
