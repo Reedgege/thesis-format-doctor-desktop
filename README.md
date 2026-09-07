@@ -87,3 +87,14 @@ thesis-format-doctor-desktop/
 ## 许可
 
 MIT License。引擎源自扣子 skill `thesis-format-doctor`，版权归原作者所有。
+
+---
+
+## 关于杀软误报（重要）
+
+本程序是**纯 Python + Tkinter 开源项目**，用 PyInstaller 打包成单文件 exe。**个别杀软（尤其 Windows Defender）可能误报为病毒**——这是 PyInstaller 打包软件的普遍现象，并非程序含恶意代码：
+
+- 误报根因：onefile 模式启动时会临时解压到 `%TEMP%\_MEIxxxx\` 再运行（典型病毒行为特征）+ 字节码被静态扫描器识别为 PyInstaller bundle。
+- **v1.3.101 起已做消误报处理**：`--noupx`（关 UPX 压缩）+ `--key`（AES 加密字节码），误报率已大幅下降。
+- 若仍被拦截：在 Defender 弹窗点「**更多信息 → 仍要运行**」即可。如要彻底解决，可在 [Microsoft 安全智能提交页](https://www.microsoft.com/en-us/wdsi/filesubmission) 提交本 exe 申诉（选 "Should not be detected"），通常 1-5 个工作日加入白名单。
+- 你也可以在 [VirusTotal](https://www.virustotal.com) 上传本 exe 自查：正常情况 0~2 / 72 引擎报毒，均为同类启发式误报。
