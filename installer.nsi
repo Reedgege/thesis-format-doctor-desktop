@@ -1,7 +1,11 @@
-; 论文格式医生 · Windows 安装包 (NSIS)
+﻿; 论文格式医生 · Windows 安装包 (NSIS)
 ; 把 Nuitka standalone 文件夹打包成单个 exe 安装器。
 ; 在仓库根目录运行：`makensis installer.nsi`（dist/thesis-format-doctor-desktop/ 须已存在）
-; 版本号可用 `makensis /DVERSION=1.3.103 installer.nsi` 覆盖。
+; 版本号可用 `makensis /DVERSION=1.3.104 installer.nsi` 覆盖。
+; 🔴 编码铁律：本文件必须保存为 UTF-8 带 BOM！NSIS 3 只有读到 BOM 才按 UTF-8
+; 解析脚本；否则按系统 ANSI 码页读（CI 英文 runner ACP=1252），中文全变乱码
+; （症状：安装界面/快捷方式/注册表名显示 è®ºæ–‡... 乱码）。
+Unicode true
 !ifndef VERSION
   !define VERSION "dev"
 !endif

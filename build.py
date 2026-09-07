@@ -69,6 +69,9 @@ def _nuitka_options():
     # 平台图标
     if WIN and os.path.isfile(ICON_ICO):
         opt += ["--windows-icon-from-ico=" + ICON_ICO]
+    # Windows GUI 程序：禁用控制台子系统，否则启动时黑框一闪（Nuitka 默认 console）。
+    if WIN:
+        opt += ["--windows-console-mode=disable"]
     if DARWIN:
         if os.path.isfile(ICON_ICNS):
             opt += ["--macos-app-icon=" + ICON_ICNS]
