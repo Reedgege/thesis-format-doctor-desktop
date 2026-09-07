@@ -85,6 +85,17 @@ jobs:
           & $MAKENSIS /DVERSION=$VER /DVERNUM=$VERNUM installer.nsi
           ls thesis-format-doctor-desktop-setup.exe
 
+      # Windows 双轨分发：除了 setup.exe 安装包，再打一个"文件夹 zip"作为主推分发
+      # （解压后的主程序 exe 已实测 VirusTotal 0 报；安装包外壳偶被 Defender ML 误报）。
+      # Windows runner 没有 zip 命令，用 PowerShell 的 Compress-Archive。
+      - name: Package (Windows zip)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Compress-Archive -Path "dist\thesis-format-doctor-desktop" -DestinationPath "release\thesis-format-doctor-desktop-windows.zip" -Force
+          ls release
+
       # macOS：把 .app 压缩成 zip 作为发布物。
       - name: Package (macOS)
         if: matrix.os == 'macos'
@@ -107,6 +118,7 @@ jobs:
           name: thesis-format-doctor-desktop-${{ matrix.os }}
           path: |
             thesis-format-doctor-desktop-setup.exe
+            release/thesis-format-doctor-desktop-windows.zip
             release/thesis-format-doctor-desktop-macos.zip
             release/thesis-format-doctor-desktop-linux.zip
           if-no-files-found: ignore
