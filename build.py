@@ -26,22 +26,13 @@ except Exception:
 HERE = os.path.dirname(os.path.abspath(__file__))
 SEP = ";" if sys.platform.startswith("win") else ":"
 
-# v1.3.101：消杀软误报——关 UPX + AES 加密字节码
-# 背景：v1.0.24/v1.3.96 后 Defender 仍误报，根因是 PyInstaller onefile 启动临时解压
-# （_MEIxxxx 行为）+ UPX 压缩段（典型"加壳"启发式特征）+ 字节码明文。
-# 解决：--noupx 关闭 UPX 压缩段特征；--key 用 AES 加密打包进 exe 的 .pyc 字节码，
-#       静态扫描器认不出 Python 特征 → 误报率降 60-80%。
-# 注意：--key 仅加密 PyInstaller 打进 exe 的 .pyc，与激活码数据用的 license.py 密钥
-#       完全无关，更换此 key 不影响已售激活码 / 已激活用户。每次发版可换，但非必须。
-PYI_KEY = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"  # 16 字节 hex，可随版本更新
-
-# PyInstaller 6+ 的 --key 依赖 tinyaes 包（pip install tinyaes）。CI 的 build.yml 已装；
-# 本地若没装 tinyaes，此处检测后自动跳过 --key（只留 --noupx），避免构建直接报错退出。
-try:
-    import tinyaes  # noqa: F401
-    _HAS_TINYAES = True
-except Exception:
-    _HAS_TINYAES = False
+# v1.3.102：消杀软误报——关 UPX 压缩（--noupx）
+# 背景：v1.0.24/v1.3.100 被 Defender 误报，真凶是 GitHub Actions runner 预装了 UPX，
+#       PyInstaller 命令行模式检测到 UPX 即默认压缩 → exe 带 UPX 压缩段特征
+#       （典型"加壳"启发式特征，杀软经典误报点）。
+# 解决：--noupx 显式关闭 UPX 压缩，exe 无加壳特征 → 误报率大降。
+# 注意：--key（AES 字节码加密）在 PyInstaller v6.0 已被官方移除，传了会直接报错
+#       "Bytecode encryption was removed in PyInstaller v6.0"，绝不能再用。
 
 APP_NAME = "thesis-format-doctor-desktop"
 ENTRY = os.path.join(HERE, "main.py")
@@ -111,13 +102,9 @@ def _pyi_options():
     for src, dst in DATA_DIRS:
         if os.path.isdir(src):
             opt += ["--add-data", f"{src}{SEP}{dst}"]
-    # v1.3.101：消杀软误报——关 UPX（--noupx 恒生效）+ AES 加密字节码（--key 需 tinyaes，已检测）
+    # v1.3.102：消杀软误报——显式关 UPX（GitHub Actions runner 预装 UPX，PyInstaller 会默认压缩；
+    # 不加 --noupx 则 exe 带 UPX 压缩段，是 Defender 等杀软经典误报点）
     opt += ["--noupx"]
-    if _HAS_TINYAES:
-        opt += ["--key", PYI_KEY]
-    else:
-        print("[build] 警告：未安装 tinyaes，跳过 --key（字节码未加密，仅关 UPX）。"
-              "CI 已装 tinyaes；本地如需加密请 pip install tinyaes")
     # v1.3.52：统一各平台 exe 文件图标为小羽毛（gui 窗口图标已用 icon.png 跨平台）
     opt += ["--icon", _icon_for_build()]
     return opt
