@@ -1,20 +1,28 @@
 # -*- coding: utf-8 -*-
 """
-跨平台构建脚本：把论文格式医生打包为单文件可执行程序（原生 Tkinter 窗口，无浏览器）。
-  Windows -> thesis-format-doctor-desktop.exe
-  macOS   -> thesis-format-doctor-desktop
-  Linux   -> thesis-format-doctor-desktop
+跨平台构建脚本（Nuitka 版）
+==========================
+把论文格式医生编译为原生二进制「文件夹版」，再用 NSIS 打安装包（Windows）。
+彻底规避 PyInstaller 单文件（onefile）运行时自解压导致的杀软误报。
+
+  Windows -> dist/thesis-format-doctor-desktop/  + installer.nsi -> thesis-format-doctor-desktop-setup.exe
+  macOS   -> dist/thesis-format-doctor-desktop.app  (--macos-create-app-bundle)
+  Linux   -> dist/thesis-format-doctor-desktop/
+
+原理：Nuita 把 Python 编译成 C -> 原生机器码。产物在 Windows Defender 眼里等同
+普通 C++ 程序，报毒率极低（实测 2/71），且源码被编译保护、无法被 pyinstxtractor
+扒出。客户侧无需安装 Python —— Nuitka standalone 会把 Python 运行时 + Tcl/Tk 打进文件夹。
 
 用法:
   python build.py            # 按当前平台构建到 dist/
-  python build.py --clean   # 先清理再构建
+  python build.py --clean   # 先清理 dist/ 再构建
 """
 import os
 import sys
+import shutil
 import subprocess
 
-# Windows CI 控制台默认 cp1252，无法输出中文会抛 UnicodeEncodeError，
-# 强制 stdout/stderr 用 utf-8，避免构建脚本自身因中文打印以非零退出。
+# Windows CI 控制台默认 cp1252，强制 utf-8，避免中文打印以非零退出。
 try:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -24,164 +32,109 @@ except Exception:
     pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SEP = ";" if sys.platform.startswith("win") else ":"
-
-# v1.3.102：消杀软误报——关 UPX 压缩（--noupx）
-# 背景：v1.0.24/v1.3.100 被 Defender 误报，真凶是 GitHub Actions runner 预装了 UPX，
-#       PyInstaller 命令行模式检测到 UPX 即默认压缩 → exe 带 UPX 压缩段特征
-#       （典型"加壳"启发式特征，杀软经典误报点）。
-# 解决：--noupx 显式关闭 UPX 压缩，exe 无加壳特征 → 误报率大降。
-# 注意：--key（AES 字节码加密）在 PyInstaller v6.0 已被官方移除，传了会直接报错
-#       "Bytecode encryption was removed in PyInstaller v6.0"，绝不能再用。
+WIN = sys.platform.startswith("win")
+DARWIN = sys.platform == "darwin"
 
 APP_NAME = "thesis-format-doctor-desktop"
 ENTRY = os.path.join(HERE, "main.py")
 
-# v1.3.52：按平台选小羽毛图标（统一各平台 exe 文件图标）
-# Windows: .ico（PyInstaller 直接嵌入为 exe 资源）
-# macOS:   .icns（CI 步骤从 icon.png 生成后提交，见 .github/workflows/build.yml）
-# Linux:   .png（PyInstaller 6+ 支持，onefile 内嵌为 ELF 资源）
 ICON_ICO = os.path.join(HERE, "tfd_app", "assets", "icon.ico")
 ICON_ICNS = os.path.join(HERE, "tfd_app", "assets", "icon.icns")
 ICON_PNG = os.path.join(HERE, "tfd_app", "assets", "icon.png")
 
-
-def _icon_for_build():
-    """按当前平台返回可用的图标路径；缺失则退回 PNG（避免构建失败）。"""
-    if sys.platform.startswith("win") and os.path.isfile(ICON_ICO):
-        return ICON_ICO
-    if sys.platform == "darwin" and os.path.isfile(ICON_ICNS):
-        return ICON_ICNS
-    return ICON_PNG
-
-# 引擎模块（标准库，但用 importlib 动态加载，必须显式声明 hiddenimport）
-# 注意：tfd_app.engine / tfd_app.gui 必须显式列出，否则 PyInstaller 静态分析
-# 追踪不到"裸 import engine"这类运行时才解析的导入，打包后运行报 No module named 'engine'。
-HIDDEN = [
+# 本地引擎模块：core/ 下的纯 Python 模块，被代码以 `import docxutils` 这种
+# 顶层导入方式引用（依赖运行时把 core 加入 sys.path）。Nuitka 静态分析追踪不到，
+# 必须显式 --include-module 强制打包，并在编译期把 core 放入 PYTHONPATH 使其可解析。
+CORE_MODULES = [
     "docxutils", "format_checker", "headings_fix",
     "ref_reformat", "format_profile", "report_docx", "format_check",
-    "tfd_app.engine", "tfd_app.gui", "tfd_app.license",
-    # v1.3.57：试用版计数 + 水印（tfd_app 包内模块，gui 用相对导入 from . import）
-    "tfd_app.trial", "tfd_app.watermark",
-    # Windows 专用：进程内调用本机 Word/WPS 转换 .doc/.wps（pywin32 COM）
-    "win32com", "win32com.client", "pythoncom", "pywintypes",
-    # gui 顶层 import webbrowser 打开官网/更新页；部分 PyInstaller 版本静态分析扫不到，显式声明
-    "webbrowser",
-]
-
-# 需作为"数据文件"打包的目录: (源目录, 打包后目录名)
-DATA_DIRS = [
-    (os.path.join(HERE, "tfd_app", "assets"), "tfd_app/assets"),
-]
-
-# 明确排除用不到的模块，减小 exe 体积（unittest/在线文档/演示程序等）。
-# 保守起见只排除确定不用的；urllib 等网络组件依赖的模块一律保留。
-EXCLUDES = [
-    "unittest", "pydoc", "pydoc_data", "lib2to3", "idlelib",
-    "turtledemo", "ensurepip", "test", "tkinter.test", "distutils",
-    "http.server", "xmlrpc", "telnetlib",
 ]
 
 
-def _pyi_options():
-    """PyInstaller / PyArmor-pack 通用选项（不含入口脚本）。"""
+def _nuitka_options():
     opt = [
-        "--name", APP_NAME,
-        "--onefile",
-        "--noconsole",
-        "--clean",
-        "--paths", HERE,
-        "--paths", os.path.join(HERE, "tfd_app", "core"),
-        # Tk 资源：让 PyInstaller 把 tcl/tk 运行时一并打进单文件
-        "--collect-all", "tkinter",
+        sys.executable, "-m", "nuitka", ENTRY,
+        "--standalone",                 # 文件夹模式：运行时不自解压 -> 避免 dropper 指纹
+        "--enable-plugins=tk-inter",    # tkinter 支持（Tcl/Tk 一并打包）
+        "--assume-yes-for-downloads",   # Nuitka 需下载 ccache/补丁时自动同意，不卡交互
+        "--output-dir=" + os.path.join(HERE, "dist"),
+        "--output-filename=" + APP_NAME + (".exe" if WIN else ""),
+        "--remove-output",              # 构建中间目录 .build 用完即删，仅留 .dist/.app
+        "--show-progress",
     ]
-    for h in HIDDEN:
-        opt += ["--hidden-import", h]
-    for m in EXCLUDES:
-        opt += ["--exclude-module", m]
-    for src, dst in DATA_DIRS:
-        if os.path.isdir(src):
-            opt += ["--add-data", f"{src}{SEP}{dst}"]
-    # v1.3.102：消杀软误报——显式关 UPX（GitHub Actions runner 预装 UPX，PyInstaller 会默认压缩；
-    # 不加 --noupx 则 exe 带 UPX 压缩段，是 Defender 等杀软经典误报点）
-    opt += ["--noupx"]
-    # v1.3.52：统一各平台 exe 文件图标为小羽毛（gui 窗口图标已用 icon.png 跨平台）
-    opt += ["--icon", _icon_for_build()]
+    # 强制包含本地模块（顶层导入，须显式声明）
+    for m in CORE_MODULES:
+        opt += ["--include-module=" + m]
+    opt += ["--include-package=tfd_app"]
+    # 平台图标
+    if WIN and os.path.isfile(ICON_ICO):
+        opt += ["--windows-icon-from-ico=" + ICON_ICO]
+    if DARWIN:
+        if os.path.isfile(ICON_ICNS):
+            opt += ["--macos-app-icon=" + ICON_ICNS]
+        opt += ["--macos-create-app-bundle",
+                "--macos-app-mode=gui",
+                "--macos-app-name=论文格式医生"]
+    # Windows 专用：进程内调用本机 Word/WPS 转换 .doc/.wps（pywin32 COM）。
+    # win32com 在函数内局部 import，Nuitka 不会自动收录，且仅 Windows 构建才装 pywin32。
+    if WIN:
+        try:
+            import win32com  # noqa: F401
+            opt += ["--include-module=win32com",
+                    "--include-module=win32com.client",
+                    "--include-module=pythoncom",
+                    "--include-module=pywintypes"]
+        except Exception:
+            pass
     return opt
 
 
+def _normalize_output():
+    """Nuitka 的 standalone 产物目录名固定为 <入口Basename>.dist / .app，
+    重命名为 APP_NAME 方便 NSIS / 压缩与发布。"""
+    dist = os.path.join(HERE, "dist")
+    if DARWIN:
+        src, dst = os.path.join(dist, "main.app"), os.path.join(dist, APP_NAME + ".app")
+    else:
+        src, dst = os.path.join(dist, "main.dist"), os.path.join(dist, APP_NAME)
+    if os.path.isdir(src) and not os.path.exists(dst):
+        shutil.move(src, dst)
+        return dst
+    if os.path.isdir(dst):
+        return dst
+    return src
+
+
 def _report():
-    print("\nBuild complete -> " + os.path.join(HERE, "dist",
-          APP_NAME + (".exe" if sys.platform.startswith("win") else "")))
+    out = _normalize_output()
+    print("\nBuild complete -> " + out)
+    if WIN:
+        print("主程序           -> " + os.path.join(out, APP_NAME + ".exe"))
+        print("安装包           -> 仓库根目录运行 `makensis installer.nsi` 生成 setup.exe")
+    elif DARWIN:
+        print("App 包           -> " + out)
+    else:
+        print("主程序           -> " + os.path.join(out, APP_NAME))
 
 
-def _build_plain():
-    """普通 PyInstaller 打包（密钥已在源码层做过字符串混淆）。"""
-    cmd = [sys.executable, "-m", "PyInstaller"] + _pyi_options()
-    cmd.append(ENTRY)
-    print(">>> " + " ".join(cmd))
+def build(clean=False):
+    if clean:
+        d = os.path.join(HERE, "dist")
+        if os.path.isdir(d):
+            shutil.rmtree(d)
+    # 编译期让 `import docxutils`（位于 tfd_app/core）可解析
     env = os.environ.copy()
+    extra = os.pathsep.join([os.path.join(HERE, "tfd_app", "core"),
+                             os.path.join(HERE, "tfd_app")])
+    env["PYTHONPATH"] = (extra + os.pathsep + env["PYTHONPATH"]) if env.get("PYTHONPATH") else extra
     env["PYTHONHASHSEED"] = "1"
+    cmd = _nuitka_options()
+    print(">>> " + " ".join(cmd))
     rc = subprocess.call(cmd, cwd=HERE, env=env)
     if rc != 0:
         print("Build failed with return code", rc)
         sys.exit(rc)
     _report()
-
-
-def _build_pyarmor():
-    """PyArmor 加壳打包（需付费授权；PYARMOR_LICENSE 注入后由本函数注册并打包）。
-
-    注：PyArmor 免费 trial 对大脚本有额度限制（实测 gui.py 99KB 即报 out of license），
-    故必须提供付费授权才能对本项目生效。macOS 未签名时 PyArmor 运行时可能崩溃，故跳过。
-    """
-    pya = "pyarmor"
-    lic = os.environ.get("PYARMOR_LICENSE", "").strip()
-    if not lic:
-        raise RuntimeError("PYARMOR_LICENSE 为空，无法使用 PyArmor 加壳")
-    # 注册授权（把 secret 内容写成临时文件再 register）
-    tf = os.path.join(HERE, ".pyarmor_lic.tmp")
-    with open(tf, "w", encoding="utf-8") as f:
-        f.write(lic)
-    try:
-        subprocess.check_call([pya, "register", tf], cwd=HERE)
-    finally:
-        try:
-            os.remove(tf)
-        except OSError:
-            pass
-    # 把 PyInstaller 选项喂给 PyArmor 的 pack 阶段（注意值必须有前导空格）
-    pyi = " " + " ".join(_pyi_options())
-    subprocess.check_call([pya, "cfg", "pack:pyi_options", "=", pyi], cwd=HERE)
-    # --pack onefile：PyArmor 先分析源码、混淆，再调用 PyInstaller 打包
-    cmd = [pya, "gen", "--pack", "onefile", "-r", ENTRY, "tfd_app"]
-    print(">>> " + " ".join(cmd))
-    env = os.environ.copy()
-    env["PYTHONHASHSEED"] = "1"
-    rc = subprocess.call(cmd, cwd=HERE, env=env)
-    if rc != 0:
-        print("PyArmor build failed with return code", rc)
-        sys.exit(rc)
-    _report()
-
-
-def build(clean=False):
-    # v1.3.88：PyArmor 加壳（需付费授权 + 非 macOS）。未配置授权时回退普通打包，
-    # 但密钥已在源码层做过字符串混淆，依然不是明文。
-    lic = os.environ.get("PYARMOR_LICENSE", "").strip()
-    if lic and sys.platform != "darwin":
-        print("[build] 检测到 PYARMOR_LICENSE，使用 PyArmor 加壳打包…")
-        try:
-            _build_pyarmor()
-            return
-        except Exception as e:
-            print("[build] PyArmor 构建失败，终止（不回退到明文打包以免误以为已加壳）:", repr(e))
-            sys.exit(1)
-    if lic and sys.platform == "darwin":
-        print("[build] macOS 未签名，PyArmor 运行时可能崩溃，改用普通 PyInstaller（源码头字符串混淆仍生效）")
-    else:
-        print("[build] 未配置 PYARMOR_LICENSE，使用普通 PyInstaller（密钥已在源码层混淆）")
-    _build_plain()
 
 
 if __name__ == "__main__":

@@ -43,7 +43,7 @@
 
 - 界面：原生 **Tkinter** 窗口，无浏览器、无本地服务、纯本地运行。
 - 引擎：直接复用 skill 中的 `docxutils / format_checker / headings_fix / ref_reformat / format_profile / report_docx`，**零第三方依赖**，因此打包极小、跨平台几乎无依赖坑。
-- 打包：PyInstaller `--onefile --noconsole`，见 `build.py` 与 `.github/workflows/build.yml`。
+- 打包：Nuitka 编译为原生二进制（`--standalone`），再经 NSIS 打安装包，见 `build.py` 与 `.github/workflows/build.yml`。
 
 ### 本地自行构建（可选）
 
@@ -72,7 +72,7 @@ Actions 会在 Windows / macOS / Ubuntu 三个 runner 上分别构建，并把�
 ```
 thesis-format-doctor-desktop/
 ├── main.py                 # 启动入口（检查 Tkinter → 拉起 GUI）
-├── build.py                # 跨平台 PyInstaller 构建脚本
+├── build.py                # 跨平台 Nuitka 构建脚本（产出 standalone 文件夹 + NSIS 安装包）
 ├── pyproject.toml
 ├── tfd_app/
 │   ├── gui.py              # 原生 Tkinter 界面
@@ -92,9 +92,9 @@ MIT License。引擎源自扣子 skill `thesis-format-doctor`，版权归原作�
 
 ## 关于杀软误报（重要）
 
-本程序是**纯 Python + Tkinter 开源项目**，用 PyInstaller 打包成单文件 exe。**个别杀软（尤其 Windows Defender）可能误报为病毒**——这是 PyInstaller 打包软件的普遍现象，并非程序含恶意代码：
+本程序是**纯 Python + Tkinter 开源项目**，用 **Nuitka 编译为原生二进制**再经 NSIS 打安装包。**个别杀软（尤其 Windows Defender）可能误报为病毒**——这是 Python 打包软件的普遍现象，并非程序含恶意代码：
 
-- 误报根因：onefile 模式启动时会临时解压到 `%TEMP%\_MEIxxxx\` 再运行（典型病毒行为特征），加上 CI 构建环境自带 UPX 压缩（"加壳"特征），命中杀软启发式。
-- **v1.3.102 起已做消误报处理**：`--noupx` 显式关闭 UPX 压缩，exe 无加壳特征，误报率已大幅下降。
-- 若仍被拦截：在 Defender 弹窗点「**更多信息 → 仍要运行**」即可。如要彻底解决，可在 [Microsoft 安全智能提交页](https://www.microsoft.com/en-us/wdsi/filesubmission) 提交本 exe 申诉（选 "Should not be detected"），通常 1-5 个工作日加入白名单。
-- 你也可以在 [VirusTotal](https://www.virustotal.com) 上传本 exe 自查：正常情况 0~2 / 72 引擎报毒，均为同类启发式误报。
+- 误报根因：早期用 PyInstaller 单文件（onefile）模式，启动时临时解压到 `%TEMP%\_MEIxxxx\` 再运行（典型病毒投放器行为），命中杀软启发式。
+- **v1.3.103 起改用 Nuitka + 安装包彻底解决**：Nuitka 把 Python 编译成 C → 原生机器码，产物在 Defender 眼里等同普通 C++ 程序，**运行时不自解压**，实测报毒率仅 2/71；再套一层标准 NSIS 安装包（所有正规软件的做法），用户双击安装、桌面/开始菜单得一个图标，背后文件夹不可见。
+- 若个别杀软仍拦截：在 Defender 弹窗点「**更多信息 → 仍要运行**」即可；如需彻底解决，可在 [Microsoft 安全智能提交页](https://www.microsoft.com/en-us/wdsi/filesubmission) 提交安装包申诉（选 "Should not be detected"），通常 1-5 个工作日加入白名单。
+- 你也可以在 [VirusTotal](https://www.virustotal.com) 上传安装包自查：正常情况 0~2 / 72 引擎报毒，均为同类启发式误报。

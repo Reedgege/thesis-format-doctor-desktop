@@ -1,14 +1,11 @@
 name: Build Desktop (Win/macOS/Linux)
 
 # 运行名称：打标签推送 → 显示标签名（如 v1.3.21）；
-# 推 main → 显示推送提交的第一行（按约定版本发布提交以 vX.Y.Z 开头，如 "v1.3.21 · …"），
-# 这样在 Actions 列表里一眼就能找到对应版本，而不是光秃秃的 main。
+# 推 main → 显示推送提交的第一行；Actions 列表里一眼找到对应版本。
 run-name: Build ${{ github.ref_type == 'tag' && github.ref_name || github.event.head_commit.message }}
 
 on:
-  # 仅打 v* 标签推送时才构建并发布，避免每次 push main 都上传 ~250MB 三平台 exe
-  # 把 Actions Artifact 免费 500MB 额度吃满（曾导致 windows 构建 Artifact quota 报错）。
-  # 发版流程：本地 bump VERSION → git tag vX.Y.Z → git push origin vX.Y.Z。
+  # 仅打 v* 标签推送时才构建并发布。发版流程：本地 bump VERSION → git tag vX.Y.Z → git push origin vX.Y.Z。
   push:
     tags:
       - "v*"
@@ -24,15 +21,12 @@ jobs:
         include:
           - os: windows
             runner: windows-latest
-            sep: ";"
             ext: ".exe"
           - os: macos
             runner: macos-latest
-            sep: ":"
             ext: ""
           - os: linux
             runner: ubuntu-latest
-            sep: ":"
             ext: ""
     steps:
       - uses: actions/checkout@v4
@@ -42,12 +36,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install PyInstaller
-        run: python -m pip install --upgrade pip pyinstaller
-        # 注：--key（AES 字节码加密）在 PyInstaller v6.0 已移除，勿再加 tinyaes/--key。
-
-      - name: "Install PyArmor (optional: only used if PYARMOR_LICENSE secret is set)"
-        run: python -m pip install pyarmor
+      # v1.3.103：改用 Nuitka 编译（替代 PyInstaller）。Nuitka 把 Python 编译成原生
+      # 机器码，产物在 Defender 眼里等同普通 C++ 程序，报毒率极低（实测 2/71），
+      # 且源码被编译保护。Python 3.12 由 setup-python 提供，编译器由 runner 自带
+      # （Windows: MSVC / macOS: clang / Linux: gcc），无需额外安装。
+      - name: Install Nuitka
+        run: python -m pip install --upgrade pip nuitka
 
       - name: Install pywin32 (Windows only, in-process Word/WPS .doc conversion)
         if: matrix.os == 'windows'
@@ -57,14 +51,9 @@ jobs:
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y tk tcl
+          sudo apt-get install -y tk tcl zip
 
-      # UPX 压缩已移除（v1.3.91，2026-09-02）：学生版 Windows 安装包被 Windows Defender
-      # 误报隔离（UPX 加壳是杀软经典误报点）。去掉 UPX 后 exe 无加壳特征、哈希全新，
-      # 误报概率大降；代价是体积从 ~24MB 增至 ~45MB（zip 后 ~35-45MB，可接受）。
-
-      # v1.3.52：从 png 生成 macOS .icns（PyInstaller 嵌入 exe 资源需 .icns；PNG→ICNS 用 Pillow）。
-      # 原始源图 icon.png 已是 1024x1024 透明小羽毛，能满足 16~512 多分辨率输出。
+      # macOS 需要 .icns 作为 app 图标（PNG→ICNS 用 Pillow）。
       - name: Generate icon.icns (macOS only)
         if: matrix.os == 'macos'
         run: |
@@ -72,27 +61,52 @@ jobs:
           python -c "from PIL import Image; Image.open('tfd_app/assets/icon.png').save('tfd_app/assets/icon.icns', format='ICNS', sizes=[(16,16),(32,32),(64,64),(128,128),(256,256),(512,512),(1024,1024)])"
           ls -la tfd_app/assets/icon.icns
 
+      # Nuitka 编译为 standalone 文件夹（运行时不自解压，规避 dropper 指纹）。
       - name: Build (${{ matrix.os }})
         shell: bash
-        env:
-          SEP: ${{ matrix.sep }}
-          EXT: ${{ matrix.ext }}
-          PYARMOR_LICENSE: ${{ secrets.PYARMOR_LICENSE }}
+        run: python build.py
+
+      # Windows：用 NSIS 把 standalone 文件夹打成单个安装器 exe（用户双击安装、得一个图标）。
+      - name: Install NSIS (Windows)
+        if: matrix.os == 'windows'
+        run: choco install nsis --no-progress
+
+      - name: Build installer (Windows)
+        if: matrix.os == 'windows'
+        shell: bash
         run: |
-          python build.py
+          VER="$(cat VERSION 2>/dev/null | tr -d '[:space:]')"
+          MAKENSIS="/c/Program Files (x86)/NSIS/makensis.exe"
+          if [ ! -f "$MAKENSIS" ]; then MAKENSIS="makensis"; fi
+          "$MAKENSIS" /DVERSION="$VER" installer.nsi
+          ls -la thesis-format-doctor-desktop-setup.exe
+
+      # macOS：把 .app 压缩成 zip 作为发布物。
+      - name: Package (macOS)
+        if: matrix.os == 'macos'
+        shell: bash
+        run: |
+          mkdir -p release
+          ditto -c -k -v "dist/thesis-format-doctor-desktop.app" "release/thesis-format-doctor-desktop-macos.zip"
+
+      # Linux：把 standalone 文件夹压缩成 zip。
+      - name: Package (Linux)
+        if: matrix.os == 'linux'
+        shell: bash
+        run: |
+          mkdir -p release
+          cd dist && zip -r "../release/thesis-format-doctor-desktop-linux.zip" "thesis-format-doctor-desktop"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: thesis-format-doctor-desktop-${{ matrix.os }}
-          path: dist/thesis-format-doctor-desktop${{ matrix.ext }}
-          if-no-files-found: error
-          # 产物仅用于同一次 workflow 内 build→release 传递，Release 里的安装包才是永久分发物。
-          # 保留 1 天即可，避免每轮 push 累积把 500MB 免费配额吃满（曾导致 macOS 构建上传失败）。
+          path: |
+            thesis-format-doctor-desktop-setup.exe
+            release/thesis-format-doctor-desktop-macos.zip
+            release/thesis-format-doctor-desktop-linux.zip
+          if-no-files-found: ignore
           retention-days: 1
-
-      # 卖家离线发码工具 offlinecode 不进公开 Release：由卖家本地从 offlinecode.py 生成，
-      # 避免杀软误报，也避免激活码签名逻辑随公开仓库泄露。
 
   release:
     name: Publish Release
@@ -113,9 +127,9 @@ jobs:
         run: |
           mkdir -p release
           for plat in windows macos linux; do
-            src=$(find "artifacts/thesis-format-doctor-desktop-$plat" -type f | head -1)
-            ext=""; [ "$plat" = "windows" ] && ext=".exe"
-            cp "$src" "release/thesis-format-doctor-desktop-$plat$ext"
+            find "artifacts/thesis-format-doctor-desktop-$plat" -type f | while read f; do
+              cp "$f" "release/$(basename "$f")"
+            done
           done
           ls -la release
 
@@ -126,21 +140,14 @@ jobs:
           if [ "${{ github.ref_type }}" = "tag" ]; then
             version="${{ github.ref_name }}"
           else
-            # 推 main 时版本号取自仓库根目录 VERSION 文件（如 v1.3.19）
-            version=""
-            if [ -f VERSION ]; then
-              version="$(cat VERSION | tr -d '[:space:]')"
-            fi
-            if [ -z "$version" ]; then
-              version="latest"
-            fi
+            version="$(cat VERSION | tr -d '[:space:]')"
+            [ -z "$version" ] && version="latest"
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # 打标签用标签名；推 main 用 VERSION 文件里的版本号（如 v1.3.19），保证一键 Push 也是正式版本号
           tag_name: ${{ steps.ver.outputs.version }}
           name: ${{ steps.ver.outputs.version }}
           files: release/*

@@ -16,5 +16,5 @@ Repository = "https://github.com/Reedgege/thesis-format-doctor-desktop"
 [project.dependencies]
 
 [build-system]
-requires = ["pyinstaller>=6.0"]
-build-backend = "pyinstaller"  # 占位；实际通过 build.py / GitHub Actions 构建
+requires = ["nuitka>=2.5"]
+build-backend = "nuitka"  # 占位；实际通过 build.py / GitHub Actions 构建
