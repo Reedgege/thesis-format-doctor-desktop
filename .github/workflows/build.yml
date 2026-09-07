@@ -71,15 +71,18 @@ jobs:
         if: matrix.os == 'windows'
         run: choco install nsis --no-progress
 
+      # 注意：此步骤必须用 pwsh 而非 bash。Git Bash(MSYS) 会把 /DVERSION=...
+      # 误当成路径转换成 C:/Program Files/Git/DVERSION=...，导致 makensis 找不到脚本。
+      # PowerShell 不做该转换，/DVERSION= 原样传参。
       - name: Build installer (Windows)
         if: matrix.os == 'windows'
-        shell: bash
+        shell: pwsh
         run: |
-          VER="$(cat VERSION 2>/dev/null | tr -d '[:space:]')"
-          MAKENSIS="/c/Program Files (x86)/NSIS/makensis.exe"
-          if [ ! -f "$MAKENSIS" ]; then MAKENSIS="makensis"; fi
-          "$MAKENSIS" /DVERSION="$VER" installer.nsi
-          ls -la thesis-format-doctor-desktop-setup.exe
+          $VER = (Get-Content VERSION).Trim()
+          $MAKENSIS = "C:\Program Files (x86)\NSIS\makensis.exe"
+          if (-not (Test-Path $MAKENSIS)) { $MAKENSIS = "makensis" }
+          & $MAKENSIS /DVERSION=$VER installer.nsi
+          ls thesis-format-doctor-desktop-setup.exe
 
       # macOS：把 .app 压缩成 zip 作为发布物。
       - name: Package (macOS)
