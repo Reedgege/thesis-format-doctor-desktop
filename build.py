@@ -35,6 +35,14 @@ SEP = ";" if sys.platform.startswith("win") else ":"
 #       完全无关，更换此 key 不影响已售激活码 / 已激活用户。每次发版可换，但非必须。
 PYI_KEY = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"  # 16 字节 hex，可随版本更新
 
+# PyInstaller 6+ 的 --key 依赖 tinyaes 包（pip install tinyaes）。CI 的 build.yml 已装；
+# 本地若没装 tinyaes，此处检测后自动跳过 --key（只留 --noupx），避免构建直接报错退出。
+try:
+    import tinyaes  # noqa: F401
+    _HAS_TINYAES = True
+except Exception:
+    _HAS_TINYAES = False
+
 APP_NAME = "thesis-format-doctor-desktop"
 ENTRY = os.path.join(HERE, "main.py")
 
@@ -103,8 +111,13 @@ def _pyi_options():
     for src, dst in DATA_DIRS:
         if os.path.isdir(src):
             opt += ["--add-data", f"{src}{SEP}{dst}"]
-    # v1.3.101：消杀软误报——关 UPX + AES 加密字节码（详见 PYI_KEY 注释）
-    opt += ["--noupx", "--key", PYI_KEY]
+    # v1.3.101：消杀软误报——关 UPX（--noupx 恒生效）+ AES 加密字节码（--key 需 tinyaes，已检测）
+    opt += ["--noupx"]
+    if _HAS_TINYAES:
+        opt += ["--key", PYI_KEY]
+    else:
+        print("[build] 警告：未安装 tinyaes，跳过 --key（字节码未加密，仅关 UPX）。"
+              "CI 已装 tinyaes；本地如需加密请 pip install tinyaes")
     # v1.3.52：统一各平台 exe 文件图标为小羽毛（gui 窗口图标已用 icon.png 跨平台）
     opt += ["--icon", _icon_for_build()]
     return opt
