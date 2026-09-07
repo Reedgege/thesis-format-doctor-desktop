@@ -46,6 +46,8 @@ from . import engine, license
 
 ICON = os.path.join(HERE, "assets", "icon.png")
 QRCODE = os.path.join(HERE, "assets", "qrcode.png")
+MINIAPP_QRCODE = os.path.join(HERE, "assets", "miniapp_qrcode.png")
+MINIAPP_NAME = "芦苇论文格式"
 # 品牌 / 客服（文案统一来源，避免散落硬编码）
 WECHAT_NAME = "芦苇不熬夜"
 WECHAT_ID = "reedskill"
@@ -2112,12 +2114,30 @@ def show_help(parent):
     # —— 三、联系我们 ——
     section("三、联系我们")
     cl = albl(("使用疑问、模板咨询、购买事宜，均可通过以下方式联系：\n"
+               "· 微信小程序：微信搜【%s】，可直接购买激活码，付款后自动发码（推荐）\n"
                "· 微信公众号：【%s】（ID：%s），关注后留言\n"
                "· 官网：reedskill.com（产品介绍 · 激活教程 · 购买方式）\n"
                "· 公众号设关键词自动回复（试用 / 激活 / 水印 / 报错），常见问题即时应答\n"
                "· 较复杂的问题，由人工回复\n"
-               "· 联系邮箱：%s") % (WECHAT_NAME, WECHAT_ID, ABOUT_MAIL), BODY, F_SUBTITLE)
+               "· 联系邮箱：%s") % (MINIAPP_NAME, WECHAT_NAME, WECHAT_ID, ABOUT_MAIL),
+              BODY, F_SUBTITLE)
     cl.pack(fill="x", padx=padx, pady=(8, 0))
+
+    # 小程序码（购买主渠道）：图片缺失时自动跳过，不影响其余内容显示
+    try:
+        if os.path.isfile(MINIAPP_QRCODE):
+            _mq = tk.PhotoImage(file=MINIAPP_QRCODE)
+            _mq = _mq.subsample(max(1, round(_mq.width() / 130)))
+            _mrow = tk.Frame(inner, bg=PAPER)
+            _mrow.pack(pady=(10, 0))
+            _mimg = tk.Label(_mrow, image=_mq, bg=PAPER)
+            _mimg.image = _mq
+            _mimg.pack()
+            tk.Label(_mrow, text="微信扫一扫，或搜索【%s】小程序" % MINIAPP_NAME,
+                     bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(6, 0))
+    except Exception:
+        pass
+
     _site_label(inner, text="前往官网 reedskill.com →").pack(padx=padx, pady=(8, 0))
 
     tk.Label(inner, text="", bg=PAPER).pack(pady=(0, 18))
