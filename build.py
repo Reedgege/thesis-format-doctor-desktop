@@ -5,7 +5,7 @@
 把论文格式医生编译为原生二进制「文件夹版」，再用 NSIS 打安装包（Windows）。
 彻底规避 PyInstaller 单文件（onefile）运行时自解压导致的杀软误报。
 
-  Windows -> dist/thesis-format-doctor-desktop/  + installer.nsi -> thesis-format-doctor-desktop-setup.exe
+  Windows -> dist/论文格式医生（免安装版）/  + installer.nsi -> thesis-format-doctor-desktop-setup.exe
   macOS   -> dist/thesis-format-doctor-desktop.app  (--macos-create-app-bundle)
   Linux   -> dist/thesis-format-doctor-desktop/
 
@@ -36,6 +36,11 @@ WIN = sys.platform.startswith("win")
 DARWIN = sys.platform == "darwin"
 
 APP_NAME = "thesis-format-doctor-desktop"
+# v1.3.109：Windows 分发名中文化——exe 带数字前缀排文件列表最前、dist 目录（即 zip
+# 顶层文件夹）用中文产品名，客户解压后第一眼看到「1.论文格式医生.exe」。macOS/Linux
+# 保持英文 APP_NAME（.app 包内/文件夹无"找 exe"问题，避免引入非 ASCII 路径的 CI 风险）。
+WIN_EXE_NAME = "1.论文格式医生"
+WIN_DIR_NAME = "论文格式医生（免安装版）"
 ENTRY = os.path.join(HERE, "main.py")
 
 # Windows 可执行文件的"正当性"版本资源（文件属性里的产品名/公司名/版本）。
@@ -73,7 +78,7 @@ def _nuitka_options():
         "--enable-plugins=tk-inter",    # tkinter 支持（Tcl/Tk 一并打包）
         "--assume-yes-for-downloads",   # Nuitka 需下载 ccache/补丁时自动同意，不卡交互
         "--output-dir=" + os.path.join(HERE, "dist"),
-        "--output-filename=" + APP_NAME + (".exe" if WIN else ""),
+        "--output-filename=" + (WIN_EXE_NAME if WIN else APP_NAME) + (".exe" if WIN else ""),
         "--remove-output",              # 构建中间目录 .build 用完即删，仅留 .dist/.app
         "--show-progress",
     ]
@@ -118,10 +123,13 @@ def _nuitka_options():
 
 def _normalize_output():
     """Nuitka 的 standalone 产物目录名固定为 <入口Basename>.dist / .app，
-    重命名为 APP_NAME 方便 NSIS / 压缩与发布。"""
+    重命名为发布用目录名方便 NSIS / 压缩与发布。Windows 用中文目录名（zip 顶层
+    直接就是中文文件夹，客户解压即见 exe）；macOS/Linux 保持英文 APP_NAME。"""
     dist = os.path.join(HERE, "dist")
     if DARWIN:
         src, dst = os.path.join(dist, "main.app"), os.path.join(dist, APP_NAME + ".app")
+    elif WIN:
+        src, dst = os.path.join(dist, "main.dist"), os.path.join(dist, WIN_DIR_NAME)
     else:
         src, dst = os.path.join(dist, "main.dist"), os.path.join(dist, APP_NAME)
     if os.path.isdir(src) and not os.path.exists(dst):
@@ -136,7 +144,7 @@ def _report():
     out = _normalize_output()
     print("\nBuild complete -> " + out)
     if WIN:
-        print("主程序           -> " + os.path.join(out, APP_NAME + ".exe"))
+        print("主程序           -> " + os.path.join(out, WIN_EXE_NAME + ".exe"))
         print("安装包           -> 仓库根目录运行 `makensis installer.nsi` 生成 setup.exe")
     elif DARWIN:
         print("App 包           -> " + out)

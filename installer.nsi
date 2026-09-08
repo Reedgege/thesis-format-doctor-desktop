@@ -12,8 +12,8 @@ Unicode true
 
 !define APPNAME "论文格式医生"
 !define APPDIR  "ThesisFormatDoctor"
-!define EXE     "thesis-format-doctor-desktop.exe"
-!define DIST    "dist\thesis-format-doctor-desktop"
+!define EXE     "1.论文格式医生.exe"
+!define DIST    "dist\论文格式医生（免安装版）"
 
 Name "${APPNAME}"
 OutFile "thesis-format-doctor-desktop-setup.exe"

@@ -91,7 +91,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.108"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.109"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -473,8 +473,8 @@ class App:
         self._build_style()
         self._build_widgets()
 
-        # v1.3.108：绿色 zip 版首次启动询问是否建桌面快捷方式（仅 Windows 正式版生效）
-        self.root.after(800, self._maybe_ask_shortcut)
+        # v1.3.109：绿色 zip 版首次启动自动创建桌面快捷方式（静默，仅 Windows 正式版生效）
+        self.root.after(800, self._maybe_auto_shortcut)
 
     # -------------------------------------------------- 窗口缩放自适应
     def _on_resize(self, _evt=None):
@@ -1617,14 +1617,15 @@ class App:
         except Exception:
             return False
 
-    def _create_desktop_shortcut(self):
-        """创建桌面快捷方式（指向当前主程序）。成功 True，失败弹提示。"""
+    def _create_desktop_shortcut(self, silent=False):
+        """创建桌面快捷方式（指向当前主程序）。成功 True；silent=True 时静默不弹提示。"""
         try:
             if not (sys.platform.startswith("win") and _is_frozen_exe()):
-                messagebox.showinfo("桌面快捷方式",
-                                    "仅 Windows 正式版支持自动创建；\n"
-                                    "可手动：右键主程序 → 发送到 → 桌面快捷方式。",
-                                    parent=self.root)
+                if not silent:
+                    messagebox.showinfo("桌面快捷方式",
+                                        "仅 Windows 正式版支持自动创建；\n"
+                                        "可手动：右键主程序 → 发送到 → 桌面快捷方式。",
+                                        parent=self.root)
                 return False
             import win32com.client as _wc
             ws = _wc.Dispatch("WScript.Shell")
@@ -1635,39 +1636,36 @@ class App:
             sc.WorkingDirectory = os.path.dirname(exe)
             sc.IconLocation = exe + ",0"
             sc.Save()
-            messagebox.showinfo("桌面快捷方式",
-                                "已创建「%s」桌面快捷方式，双击即可打开。" % APP_SHORTCUT_NAME,
-                                parent=self.root)
+            if not silent:
+                messagebox.showinfo("桌面快捷方式",
+                                    "已创建「%s」桌面快捷方式，双击即可打开。" % APP_SHORTCUT_NAME,
+                                    parent=self.root)
             return True
         except Exception as e:
-            messagebox.showerror("创建失败",
-                                 "自动创建失败：%s\n\n"
-                                 "请手动：右键主程序 → 发送到 → 桌面快捷方式。" % e,
-                                 parent=self.root)
+            if not silent:
+                messagebox.showerror("创建失败",
+                                     "自动创建失败：%s\n\n"
+                                     "请手动：右键主程序 → 发送到 → 桌面快捷方式。" % e,
+                                     parent=self.root)
             return False
 
-    def _maybe_ask_shortcut(self):
-        """首次启动询问一次是否创建桌面快捷方式（仅 Windows 正式版、且桌面尚无该图标）。
-        已询问过则不再打扰（标记文件存 %APPDATA%\\SHORTCUT_FLAG_TAG）。"""
+    def _maybe_auto_shortcut(self):
+        """首次启动自动在桌面创建一次快捷方式（仅 Windows 正式版、桌面尚无该图标时）。
+        静默执行，不弹窗；已创建过则不再重复（标记文件存 %APPDATA%\\SHORTCUT_FLAG_TAG）。
+        顶栏“桌面图标”链接可随时手动补建 / 重建。"""
         try:
             if not (sys.platform.startswith("win") and _is_frozen_exe()):
                 return
             if self._desktop_shortcut_exists():
                 return
             flag = os.path.join(os.environ.get("APPDATA", ""), SHORTCUT_FLAG_TAG,
-                                "shortcut_asked.txt")
+                                "shortcut_auto.txt")
             if os.path.isfile(flag):
                 return
             os.makedirs(os.path.dirname(flag), exist_ok=True)
             with open(flag, "w", encoding="utf-8") as f:
                 f.write("1")
-            if messagebox.askyesno(
-                    "创建桌面快捷方式？",
-                    "是否在桌面创建「%s」快捷方式？\n"
-                    "以后双击桌面图标即可打开，不用每次进文件夹。\n\n"
-                    "（也可随时点右上角“桌面图标”补建）" % APP_SHORTCUT_NAME,
-                    parent=self.root):
-                self._create_desktop_shortcut()
+            self._create_desktop_shortcut(silent=True)
         except Exception:
             pass
 

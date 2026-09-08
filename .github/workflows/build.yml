@@ -66,16 +66,18 @@ jobs:
         shell: bash
         run: python build.py
 
-      # Windows zip 主推分发（纯绿色版，v1.3.108 起不再塞任何 .vbs/.bat 安装脚本）：
-      # 只生成「使用说明.txt」。桌面快捷方式由软件自身创建（win32com 已内置 exe，
-      # 客户零依赖、零黑框；顶栏“桌面图标”链接 + 首次启动询问一次）。
+      # Windows zip 主推分发（纯绿色版）：只生成「使用说明.txt」。
+      # 桌面快捷方式由软件自身创建（win32com 已内置 exe，客户零依赖、零黑框；
+      # 首次启动自动静默创建一次；顶栏“桌面图标”可随时手动补建）。
+      # v1.3.109：产物目录/主程序已中文化——dist 目录即 zip 顶层文件夹
+      # （论文格式医生（免安装版）），主程序 1.论文格式医生.exe 数字前缀排最前。
       # 注意：本脚本输出必须 ASCII-safe——GitHub Windows runner 控制台是 cp1252，
       # 打印中文文件名会 UnicodeEncodeError（v1.3.107 CI 曾因此崩溃）。
       - name: Generate portable install assets (Windows)
         if: matrix.os == 'windows'
         shell: pwsh
         run: |
-          python tools/make_portable_assets.py --dist "dist\thesis-format-doctor-desktop" --exe "thesis-format-doctor-desktop.exe" --install-sub "ThesisFormatDoctor" --product "论文格式医生"
+          python tools/make_portable_assets.py --dist "dist\论文格式医生（免安装版）" --exe "1.论文格式医生.exe" --install-sub "ThesisFormatDoctor" --product "论文格式医生"
 
       # Windows：用 NSIS 把 standalone 文件夹打成单个安装器 exe（用户双击安装、得一个图标）。
       - name: Install NSIS (Windows)
@@ -104,7 +106,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          Compress-Archive -Path "dist\thesis-format-doctor-desktop" -DestinationPath "release\thesis-format-doctor-desktop-windows.zip" -Force
+          Compress-Archive -Path "dist\论文格式医生（免安装版）" -DestinationPath "release\thesis-format-doctor-desktop-windows.zip" -Force
           ls release
 
       # macOS：把 .app 压缩成 zip 作为发布物。

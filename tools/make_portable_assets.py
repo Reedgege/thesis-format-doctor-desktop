@@ -38,11 +38,13 @@ TMPL = """{product} 使用说明（免安装绿色版）
 
 【启动】
 1. 双击本文件夹里的“{exe}”即可启动，无需安装任何组件。
-2. 首次启动会询问是否创建桌面快捷方式，点“是”即可；
+2. 首次启动会自动在桌面创建“{product}”快捷方式；
    之后双击桌面图标就能打开，不用每次进文件夹。
+   （若桌面没有图标，打开软件后点右上角“桌面图标”文字链接即可补建。）
 
-【重新创建桌面图标】
-打开软件后，点右上角的“桌面图标”文字链接即可（仅 Windows）。
+【提醒】
+· 文件夹里除“{exe}”和“2.使用说明.txt”外的其它文件，是软件运行的
+  必需组件，一个都不能删，但也不用管它们。
 
 【卸载】
 1. 关闭软件，删除桌面上的快捷方式；
@@ -62,7 +64,7 @@ def main():
     ap.add_argument("--dist", required=True,
                     help="Path to the Nuitka standalone folder (dist/<appname>)")
     ap.add_argument("--exe", required=True,
-                    help="Main executable file name, e.g. thesis-format-doctor-desktop.exe")
+                    help="Main executable file name, e.g. 1.论文格式医生.exe")
     ap.add_argument("--product", required=True,
                     help="Display name (Chinese), e.g. 论文格式医生")
     # kept for backward CLI compatibility (old CI command lines pass it)
@@ -76,7 +78,7 @@ def main():
         sys.exit(0)
 
     note = TMPL.replace("{product}", args.product).replace("{exe}", args.exe)
-    with open(os.path.join(dist, "使用说明.txt"), "w", encoding="gbk") as f:
+    with open(os.path.join(dist, "2.使用说明.txt"), "w", encoding="gbk") as f:
         f.write(note)
 
     print("usage note written to", dist)
