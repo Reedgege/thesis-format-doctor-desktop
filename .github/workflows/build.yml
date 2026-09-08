@@ -66,6 +66,15 @@ jobs:
         shell: bash
         run: python build.py
 
+      # Windows zip 主推分发：往 Nuitka 文件夹里塞入「一键安装.bat / 卸载.bat / 使用说明.txt」。
+      # bat 内用 base64 编码的 PowerShell 执行（全程 ASCII，规避中文 codepage 乱码；主程序 exe 实测 0 报）。
+      # 仅 Windows 需要；macOS/Linux 不分发 bat。
+      - name: Generate portable install assets (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          python tools/make_portable_assets.py --dist "dist\thesis-format-doctor-desktop" --exe "thesis-format-doctor-desktop.exe" --install-sub "ThesisFormatDoctor" --product "论文格式医生"
+
       # Windows：用 NSIS 把 standalone 文件夹打成单个安装器 exe（用户双击安装、得一个图标）。
       - name: Install NSIS (Windows)
         if: matrix.os == 'windows'
