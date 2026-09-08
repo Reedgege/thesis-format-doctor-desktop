@@ -91,7 +91,19 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.107"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.108"   # 与 VERSION 文件保持同步（状态栏显示用）
+
+# v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
+APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
+SHORTCUT_FLAG_TAG = "ThesisFormatDoctor"  # %APPDATA% 下询问标记目录（区分学生/导师版）
+
+
+def _is_frozen_exe():
+    """打包后的主程序才显示“桌面图标”入口 / 首启询问；
+    开发态（python.exe/pythonw.exe）与 mac/Linux 一律不建 Windows 快捷方式。"""
+    base = os.path.basename(sys.executable or "").lower()
+    return base.endswith(".exe") and not (base.startswith("python")
+                                          or base.startswith("pythonw"))
 
 
 def _btn_display_width(text, pad=2):
@@ -461,6 +473,9 @@ class App:
         self._build_style()
         self._build_widgets()
 
+        # v1.3.108：绿色 zip 版首次启动询问是否建桌面快捷方式（仅 Windows 正式版生效）
+        self.root.after(800, self._maybe_ask_shortcut)
+
     # -------------------------------------------------- 窗口缩放自适应
     def _on_resize(self, _evt=None):
         try:
@@ -503,7 +518,7 @@ class App:
     def _build_widgets(self):
         self.root.configure(bg=PAPER)
 
-        # 右上角文字链接：关于 ｜ 帮助（黛蓝楷体，文艺学术风）
+        # 右上角文字链接：桌面图标 ｜ 关于 ｜ 帮助（黛蓝楷体，文艺学术风）
         topbar = tk.Frame(self.root, bg=PAPER)
         topbar.pack(fill="x", padx=20, pady=(10, 0))
         tk.Label(topbar, text="", bg=PAPER).pack(side="left", expand=True)
@@ -520,6 +535,11 @@ class App:
         tk.Label(topbar, text="｜", bg=PAPER, fg="#c9c0ae",
                  font=("Microsoft YaHei", 12)).pack(side="right", padx=(0, 8))
         _link(topbar, "关 于", lambda: show_about(self.root)).pack(side="right", padx=(0, 8))
+        # v1.3.108：绿色 zip 版一键补建桌面快捷方式（win32com 已内置 exe，零外部依赖、零黑框）
+        if sys.platform.startswith("win") and _is_frozen_exe():
+            tk.Label(topbar, text="｜", bg=PAPER, fg="#c9c0ae",
+                     font=("Microsoft YaHei", 12)).pack(side="right", padx=(0, 8))
+            _link(topbar, "桌面图标", self._create_desktop_shortcut).pack(side="right", padx=(0, 8))
 
         # 顶部标题区
         header = tk.Frame(self.root, bg=PAPER)
@@ -1572,6 +1592,82 @@ class App:
                 subprocess.Popen(["open", folder])
             else:
                 subprocess.Popen(["xdg-open", folder])
+        except Exception:
+            pass
+
+    # ------------------------------------------------- 桌面快捷方式（v1.3.108 绿色 zip 自建）
+    def _desktop_dir(self):
+        """真实桌面路径（兼容 OneDrive 重定向）；拿不到时退回 ~/Desktop。"""
+        try:
+            import win32com.client as _wc
+            ws = _wc.Dispatch("WScript.Shell")
+            d = ws.SpecialFolders("Desktop")
+            if d:
+                return d
+        except Exception:
+            pass
+        return os.path.join(os.path.expanduser("~"), "Desktop")
+
+    def _desktop_shortcut_path(self):
+        return os.path.join(self._desktop_dir(), APP_SHORTCUT_NAME + ".lnk")
+
+    def _desktop_shortcut_exists(self):
+        try:
+            return os.path.isfile(self._desktop_shortcut_path())
+        except Exception:
+            return False
+
+    def _create_desktop_shortcut(self):
+        """创建桌面快捷方式（指向当前主程序）。成功 True，失败弹提示。"""
+        try:
+            if not (sys.platform.startswith("win") and _is_frozen_exe()):
+                messagebox.showinfo("桌面快捷方式",
+                                    "仅 Windows 正式版支持自动创建；\n"
+                                    "可手动：右键主程序 → 发送到 → 桌面快捷方式。",
+                                    parent=self.root)
+                return False
+            import win32com.client as _wc
+            ws = _wc.Dispatch("WScript.Shell")
+            exe = os.path.abspath(sys.executable)
+            lnk = self._desktop_shortcut_path()
+            sc = ws.CreateShortcut(lnk)
+            sc.TargetPath = exe
+            sc.WorkingDirectory = os.path.dirname(exe)
+            sc.IconLocation = exe + ",0"
+            sc.Save()
+            messagebox.showinfo("桌面快捷方式",
+                                "已创建「%s」桌面快捷方式，双击即可打开。" % APP_SHORTCUT_NAME,
+                                parent=self.root)
+            return True
+        except Exception as e:
+            messagebox.showerror("创建失败",
+                                 "自动创建失败：%s\n\n"
+                                 "请手动：右键主程序 → 发送到 → 桌面快捷方式。" % e,
+                                 parent=self.root)
+            return False
+
+    def _maybe_ask_shortcut(self):
+        """首次启动询问一次是否创建桌面快捷方式（仅 Windows 正式版、且桌面尚无该图标）。
+        已询问过则不再打扰（标记文件存 %APPDATA%\\SHORTCUT_FLAG_TAG）。"""
+        try:
+            if not (sys.platform.startswith("win") and _is_frozen_exe()):
+                return
+            if self._desktop_shortcut_exists():
+                return
+            flag = os.path.join(os.environ.get("APPDATA", ""), SHORTCUT_FLAG_TAG,
+                                "shortcut_asked.txt")
+            if os.path.isfile(flag):
+                return
+            os.makedirs(os.path.dirname(flag), exist_ok=True)
+            with open(flag, "w", encoding="utf-8") as f:
+                f.write("1")
+            if messagebox.askyesno(
+                    "创建桌面快捷方式？",
+                    "是否在桌面创建「%s」快捷方式？\n"
+                    "以后双击桌面图标即可打开，不用每次进文件夹。\n\n"
+                    "（也可随时点右上角“桌面图标”补建）" % APP_SHORTCUT_NAME,
+                    parent=self.root):
+                self._create_desktop_shortcut()
         except Exception:
             pass
 

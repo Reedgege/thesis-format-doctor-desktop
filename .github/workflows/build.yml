@@ -66,9 +66,11 @@ jobs:
         shell: bash
         run: python build.py
 
-      # Windows zip 主推分发：往 Nuitka 文件夹里塞入「一键安装.bat / 卸载.bat / 使用说明.txt」。
-      # bat 内用 base64 编码的 PowerShell 执行（全程 ASCII，规避中文 codepage 乱码；主程序 exe 实测 0 报）。
-      # 仅 Windows 需要；macOS/Linux 不分发 bat。
+      # Windows zip 主推分发（纯绿色版，v1.3.108 起不再塞任何 .vbs/.bat 安装脚本）：
+      # 只生成「使用说明.txt」。桌面快捷方式由软件自身创建（win32com 已内置 exe，
+      # 客户零依赖、零黑框；顶栏“桌面图标”链接 + 首次启动询问一次）。
+      # 注意：本脚本输出必须 ASCII-safe——GitHub Windows runner 控制台是 cp1252，
+      # 打印中文文件名会 UnicodeEncodeError（v1.3.107 CI 曾因此崩溃）。
       - name: Generate portable install assets (Windows)
         if: matrix.os == 'windows'
         shell: pwsh

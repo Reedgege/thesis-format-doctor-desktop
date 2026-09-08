@@ -1,118 +1,73 @@
 # -*- coding: utf-8 -*-
 """
-Generate portable-install assets for the Windows "folder zip" distribution.
+Generate the usage note (使用说明.txt) for the Windows "folder zip" build.
 
-Drops three files into the Nuitka standalone folder (dist/<appname>/):
-  - 一键安装.bat   : ASCII wrapper that runs a base64-encoded PowerShell installer
-  - 卸载.bat       : ASCII wrapper that runs a base64-encoded PowerShell uninstaller
-  - 使用说明.txt   : Chinese usage note (GBK encoded for Notepad on Chinese Windows)
+v1.3.108 redesign: the zip is now a PURE PORTABLE build. There are NO
+.vbs/.bat install scripts any more. The app itself creates its own desktop
+shortcut via the win32com that is already bundled inside the exe (see gui.py
+"桌面图标" link + first-run prompt) - so the customer machine needs ZERO extra
+components (no VBScript, no PowerShell, no .NET) and there is no console
+window anywhere in the customer journey.
 
-Why base64-EncodedCommand?
-  The PowerShell scripts contain Chinese (product name, shortcut label). Encoding
-  them as UTF-16LE base64 keeps the .bat files 100% ASCII, so there is ZERO
-  codepage / gibberish risk on the customer's machine. This is the bulletproof
-  pattern and avoids the GBK/BOM pitfalls we hit earlier with NSIS scripts.
-
-The install logic:
-  - copies the whole folder to %LOCALAPPDATA%\\Programs\\<install-sub> (no admin)
-  - creates Desktop + Start Menu shortcuts with the Chinese product label
-  - writes an HKCU Uninstall registry entry so it shows in "设置 -> 应用"
+This script only writes 使用说明.txt (GBK encoded so Chinese Notepad shows it
+correctly). Keep ALL console output ASCII-safe: GitHub Actions Windows runners
+use a cp1252 console, and printing Chinese filenames crashed CI in v1.3.107
+(UnicodeEncodeError). We also reconfigure stdout/stderr to UTF-8 as
+belt-and-braces.
 
 Usage:
   python tools/make_portable_assets.py --dist dist/<appname> --exe <appname>.exe \
-      --install-sub ThesisFormatDoctor --product "论文格式医生"
+      --product "论文格式医生"
 """
+import argparse
 import os
 import sys
-import base64
-import argparse
 
+# GitHub Actions Windows runner console is cp1252; printing Chinese would raise
+# UnicodeEncodeError (this exact bug broke the v1.3.107 build). Reconfigure to
+# UTF-8 AND keep prints ASCII-safe below.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
-INSTALL_PS = r'''
-$ErrorActionPreference = 'Stop'
-$src = $PWD.Path
-$product = "{PRODUCT}"
-$sub = "{SUB}"
-$exe = "{EXE}"
-$instDir = Join-Path $env:LOCALAPPDATA ("Programs\" + $sub)
-if (Test-Path $instDir) { Remove-Item $instDir -Recurse -Force }
-Copy-Item -Path $src -Destination $instDir -Recurse -Force
-$target = Join-Path $instDir $exe
-$ws = New-Object -ComObject WScript.Shell
-$desktop = [Environment]::GetFolderPath('Desktop')
-$lnk = $ws.CreateShortcut((Join-Path $desktop ($product + ".lnk")))
-$lnk.TargetPath = $target
-$lnk.WorkingDirectory = $instDir
-$lnk.IconLocation = $target
-$lnk.Save()
-$smPath = Join-Path $env:APPDATA ("Microsoft\Windows\Start Menu\Programs\" + $product + ".lnk")
-$lnk2 = $ws.CreateShortcut($smPath)
-$lnk2.TargetPath = $target
-$lnk2.WorkingDirectory = $instDir
-$lnk2.IconLocation = $target
-$lnk2.Save()
-$key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\" + $product
-New-Item -Path $key -Force | Out-Null
-Set-ItemProperty -Path $key -Name DisplayName -Value $product
-Set-ItemProperty -Path $key -Name UninstallString -Value ($instDir + "\卸载.bat")
-Set-ItemProperty -Path $key -Name DisplayIcon -Value $target
-Set-ItemProperty -Path $key -Name InstallLocation -Value $instDir
-Set-ItemProperty -Path $key -Name NoModify -Value 1
-Set-ItemProperty -Path $key -Name NoRepair -Value 1
-Write-Host ("安装完成！桌面已创建「" + $product + "」快捷方式，也可在「设置 -> 应用」中卸载。")
-'''
+# GBK-safe text only (no ★ / → / emoji). Curly quotes and full-width brackets
+# are inside GBK so they are fine.
+TMPL = """{product} 使用说明（免安装绿色版）
 
-UNINSTALL_PS = r'''
-$ErrorActionPreference = 'Stop'
-$product = "{PRODUCT}"
-$sub = "{SUB}"
-$exe = "{EXE}"
-$instDir = Join-Path $env:LOCALAPPDATA ("Programs\" + $sub)
-$ws = New-Object -ComObject WScript.Shell
-$desktop = [Environment]::GetFolderPath('Desktop')
-$lnk = Join-Path $desktop ($product + ".lnk")
-if (Test-Path $lnk) { Remove-Item $lnk -Force }
-$smPath = Join-Path $env:APPDATA ("Microsoft\Windows\Start Menu\Programs\" + $product + ".lnk")
-if (Test-Path $smPath) { Remove-Item $smPath -Force }
-if (Test-Path $instDir) { Remove-Item $instDir -Recurse -Force }
-$key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\" + $product
-if (Test-Path $key) { Remove-Item $key -Force }
-Write-Host ("已卸载「" + $product + "」。")
-'''
+【启动】
+1. 双击本文件夹里的“{exe}”即可启动，无需安装任何组件。
+2. 首次启动会询问是否创建桌面快捷方式，点“是”即可；
+   之后双击桌面图标就能打开，不用每次进文件夹。
 
-# GBK-safe text only (no ★ / → / curly quotes that are outside GBK).
-USAGE_TXT = r"""论文格式医生 使用说明
-
-【推荐三步（最省事）】
-1. 把下载的压缩包解压到任意位置（如桌面）。
-2. 进入解压出的文件夹，双击“一键安装.bat”。
-   - 程序会自动复制到：C:\用户\你的用户名\AppData\Local\Programs\...
-   - 并在桌面和开始菜单创建“论文格式医生”图标
-3. 以后直接双击桌面图标即可使用，无需再进压缩包。
+【重新创建桌面图标】
+打开软件后，点右上角的“桌面图标”文字链接即可（仅 Windows）。
 
 【卸载】
-双击文件夹里的“卸载.bat”即可；也可在 Windows“设置 - 应用”里找到并卸载。
+1. 关闭软件，删除桌面上的快捷方式；
+2. 删除整个文件夹即完成卸载，不残留任何系统文件。
 
-【关于杀软提示】
-本程序主文件经多引擎检测无风险（0 报）。若个别杀软对“安装包”提示，属误报，可放心使用或加白名单。
+【提示】
+· 软件完全在本机处理，论文文件不会上传任何服务器。
+· 若需要“安装到电脑、可在系统设置中卸载”的版本，
+  可到官网下载安装版（setup.exe）。
+· 若个别杀毒软件提示，属误报（主程序多引擎检测 0 报），
+  可放心使用或加入白名单。
 """
-
-
-def b64(ps):
-    # PowerShell -EncodedCommand expects UTF-16LE base64
-    return base64.b64encode(ps.encode("utf-16-le")).decode("ascii")
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Generate portable install assets for Windows zip.")
+    ap = argparse.ArgumentParser(description="Generate usage note for Windows zip.")
     ap.add_argument("--dist", required=True,
                     help="Path to the Nuitka standalone folder (dist/<appname>)")
     ap.add_argument("--exe", required=True,
                     help="Main executable file name, e.g. thesis-format-doctor-desktop.exe")
-    ap.add_argument("--install-sub", required=True,
-                    help="ASCII subfolder name under %%LOCALAPPDATA%%\\Programs, e.g. ThesisFormatDoctor")
     ap.add_argument("--product", required=True,
                     help="Display name (Chinese), e.g. 论文格式医生")
+    # kept for backward CLI compatibility (old CI command lines pass it)
+    ap.add_argument("--install-sub", default="",
+                    help="Deprecated, ignored.")
     args = ap.parse_args()
 
     dist = args.dist
@@ -120,33 +75,11 @@ def main():
         print("SKIP: dist folder not found:", dist, file=sys.stderr)
         sys.exit(0)
 
-    install_ps = (INSTALL_PS
-                  .replace("{PRODUCT}", args.product)
-                  .replace("{SUB}", args.install_sub)
-                  .replace("{EXE}", args.exe))
-    uninstall_ps = (UNINSTALL_PS
-                    .replace("{PRODUCT}", args.product)
-                    .replace("{SUB}", args.install_sub)
-                    .replace("{EXE}", args.exe))
-
-    # .bat files are pure ASCII (base64 is ASCII); no codepage risk.
-    with open(os.path.join(dist, "一键安装.bat"), "w", encoding="ascii") as f:
-        f.write("@echo off\n")
-        f.write('cd /d "%~dp0"\n')
-        f.write("powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand " + b64(install_ps) + "\n")
-    with open(os.path.join(dist, "卸载.bat"), "w", encoding="ascii") as f:
-        f.write("@echo off\n")
-        f.write('cd /d "%~dp0"\n')
-        f.write("powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand " + b64(uninstall_ps) + "\n")
-
-    # usage note as GBK so Chinese Notepad shows it correctly
+    note = TMPL.replace("{product}", args.product).replace("{exe}", args.exe)
     with open(os.path.join(dist, "使用说明.txt"), "w", encoding="gbk") as f:
-        f.write(USAGE_TXT)
+        f.write(note)
 
-    print("portable assets written to", dist)
-    print("  - 一键安装.bat")
-    print("  - 卸载.bat")
-    print("  - 使用说明.txt")
+    print("usage note written to", dist)
 
 
 if __name__ == "__main__":
