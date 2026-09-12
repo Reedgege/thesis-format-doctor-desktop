@@ -5,7 +5,7 @@ from . import widgets
 from . import brand
 from . import backdrop
 from . import modal
-from .theme import get_theme, RADIUS, SIZE
+from .theme import get_theme, RADIUS, TYPE
 
 __all__ = ["theme", "widgets", "brand", "backdrop", "modal",
-           "get_theme", "RADIUS", "SIZE"]
+           "get_theme", "RADIUS", "TYPE"]

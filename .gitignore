@@ -36,3 +36,6 @@ _signing_keys/
 *_ed25519_private.pem
 private_key.pem
 public_key.pem
+
+# UI 改造参考包（临时，绝不入库）
+_ui_ref/
