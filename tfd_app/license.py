@@ -11,8 +11,8 @@
     → 心跳默认 3 天一次，仅"联网 + 服务端标记 revoked"才锁，离线/超时一律不锁
 
   兜底方案（离线）—— 卖家离线发码
-    万一中台不可用，客户联系卖家，卖家用 offlinecode 工具按机器码生成离线码，
-    客户粘贴即可激活。离线码用对称签名，安全等级适中，足以防小白共享。
+    万一中台不可用，客户联系卖家，卖家用统一发码器 reedcode_unified.py 按机器码生成离线码，
+    客户粘贴即可激活。离线码用 Ed25519 非对称签名（私钥只在卖家本机），公开仓库无法伪造。
 
 机器码：硬件级（磁盘序列号 + 主板 UUID），重装系统不变，换电脑不同。
 
@@ -25,11 +25,19 @@ import time
 import uuid
 import socket
 import hashlib
-import hmac
 import threading
 import urllib.parse
 import urllib.request
 import subprocess
+import base64
+
+# 离线备用码验签：纯标准库 Ed25519（RFC 8032），零第三方加密依赖。
+# 公钥 32 字节（base64）编译进客户端，只能验签；私钥只在卖家本机 _signing_keys/，
+# 由统一发码器 reedcode_unified.py 持有，绝不入库/不进安装包。详见 ed25519_verify.py。
+from .ed25519_verify import verify as _ed25519_verify
+
+_STUDENT_PUBLIC_KEY_B64 = "YjPfUcmn2vuKz0mxHwf6SlBPPXl5wHGCiXi8v8sIcb4="
+_STUDENT_PUBLIC_KEY = base64.b64decode(_STUDENT_PUBLIC_KEY_B64)
 
 # Windows 下子进程（wmic/powershell 等控制台程序）默认会弹一个黑框一闪；
 # 在 --noconsole 打包的 GUI 程序里必须加 CREATE_NO_WINDOW，让子进程静默执行。
@@ -73,13 +81,8 @@ def _log(msg):
         pass
 
 
-# ---------------------------------------------------------------------------
-# 离线备用码密钥（与 offlinecode.py 共用）。固定签名盐，用于离线激活兜底。
-# 注：v1.3.96 起弃用 base64+XOR 混淆存储——该"解密循环"形状会被杀软 ML 引擎
-# 误判为恶意载荷解密器（Trojan:Win32/Sabsik.TE.A!ml 误报元凶）。盐值本身非机密
-# （客户端内必然可见），改为明文常量以消除误报特征。防逆向靠 PyArmor 加壳策略。
-# ---------------------------------------------------------------------------
-_OFFLINE_KEY = b"tfd|kami|offline|2026|sign|v1"
+# 离线备用码：验签用 Ed25519 公钥（见文件顶部 _STUDENT_PUBLIC_KEY）。
+# 签名只由卖家本机统一发码器完成，私钥绝不进客户端/仓库。
 
 
 _MC_CACHE = None  # v1.3.84：进程内缓存——机器码运行期不变，避免每次调用重复跑子进程
@@ -167,6 +170,45 @@ def _http_json(path, payload, timeout):
         return None, str(e)
     finally:
         socket.setdefaulttimeout(prev)
+
+
+# ---------------------------------------------------------------------------
+# 试用额度登记（中台，按机器绑定）—— 与海外版同一套 /api/trial 契约
+# ---------------------------------------------------------------------------
+TRIAL_PATH = "/api/trial"
+
+
+def _trial_sync(machine_code, claim=False):
+    """试用额度登记/查询（中台）。网络失败返回 None，由调用方走本地兜底。"""
+    resp, err = _http_json(TRIAL_PATH, {
+        "product": DEFAULT_PRODUCT, "machine_code": machine_code,
+        "claim": bool(claim)}, 3)
+    if err:
+        return None
+    return resp
+
+
+def server_trial_used(machine_code):
+    """中台是否记得该机器已用过试用（查不到/离线 → False，绝不阻断本地判定）。
+
+    必须显式要求 ok=True 才信 trial_used —— `_http_json` 对非 2xx 也会解析响应体，
+    若错误信封里恰好带 trial_used 字段，会被误判成「已用过」而误锁（Codex 2026-09-12）。
+    """
+    r = _trial_sync(machine_code, claim=False)
+    return bool(r and r.get("ok") and r.get("trial_used"))
+
+
+def claim_server_trial(machine_code) -> bool:
+    """首次试用后向中台登记（幂等）。离线/失败静默忽略，不影响本地计次。
+
+    返回是否**登记成功** —— 调用方据此决定要不要把「中台已知」写进本地缓存：
+    否则离线失败也会被当成已登记，把同一会话里的后续试用误拒（Codex 2026-09-12 N2）。
+    """
+    try:
+        r = _trial_sync(machine_code, claim=True)
+        return bool(r and r.get("ok"))
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -435,27 +477,32 @@ def save_local_license(card, machine_code, permanent=True, lic_type=None,
 
 
 # ---------------------------------------------------------------------------
-# 兜底方案：离线备用码
+# 兜底方案：离线备用码（Ed25519 非对称验签，公钥见文件顶部）
 # ---------------------------------------------------------------------------
-def _offline_sign(payload):
-    return hmac.new(_OFFLINE_KEY, payload.encode("utf-8"), hashlib.sha256).hexdigest()[:24]
-
-
-def generate_offline_code(machine_code):
-    """卖家发码工具用：machine_code + 时间戳 + 签名 → 离线码。"""
-    ts = int(time.time())
-    payload = "%s|%d" % (machine_code, ts)
-    return payload + "|" + _offline_sign(payload)
-
-
 def verify_offline_code(code, machine_code):
-    """校验离线备用码：签名正确 且 绑定本机机器码。"""
-    if not code or "|" not in code:
+    """校验离线备用码（Ed25519）：① 内嵌公钥验签通过；② 绑定本机机器码。
+
+    对任意畸形 / 伪造输入都返回 False，绝不抛异常（GUI 回调里被调用，
+    无控制台下异常会被静默吞掉，用户只会看到「点了没反应」）。
+    """
+    if not isinstance(code, str) or not isinstance(machine_code, str):
         return False
-    payload, _, sig = code.rpartition("|")
-    if not payload.startswith(machine_code + "|"):
+    code = code.strip()
+    if not code or "." not in code:
         return False
-    return hmac.compare_digest(_offline_sign(payload), sig)
+    try:
+        payload, _, sig_b64 = code.rpartition(".")
+        if not payload.startswith(machine_code + "|"):
+            return False
+        # 宽松解码：容忍缺失的 '=' 填充与标准 base64 的 +/ 字符（紧凑格式常省略 padding），
+        # 避免「发码器未补 padding → 整批离线码静默失效」。
+        sig_s = sig_b64.strip().replace("+", "-").replace("/", "_")
+        sig_s += "=" * (-len(sig_s) % 4)
+        sig = base64.urlsafe_b64decode(sig_s.encode("ascii"))
+        msg = payload.encode("utf-8")
+        return _ed25519_verify(_STUDENT_PUBLIC_KEY, msg, sig)
+    except Exception:
+        return False
 
 
 def save_offline_license(code, machine_code):

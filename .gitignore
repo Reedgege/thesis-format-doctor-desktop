@@ -27,3 +27,12 @@ reedmentor_gui.py
 reed_tools/
 *_log.txt
 .pyarmor/
+
+# 离线激活密钥对（Ed25519 非对称）—— 私钥只留卖家本机，**永远不入仓、不进安装包**；
+# 公钥已嵌入 tfd_app/license.py 的 _STUDENT_PUBLIC_KEY 常量（编译进客户端，公开无害）。
+# 仓库是 public，私钥一旦入库 = 任何人都能伪造离线码。
+# 统一发码器与私钥目录位于仓库**之外**（本机 _signing_keys/）；下面纯属纵深防御。
+_signing_keys/
+*_ed25519_private.pem
+private_key.pem
+public_key.pem

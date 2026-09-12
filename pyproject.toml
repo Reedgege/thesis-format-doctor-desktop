@@ -1,6 +1,6 @@
 [project]
 name = "thesis-format-doctor-desktop"
-version = "1.3.5"
+version = "1.3.110"
 description = "论文格式医生 · 桌面版 —— 源自扣子(Coze) skill thesis-format-doctor 的纯本地离线桌面程序"
 readme = "README.md"
 requires-python = ">=3.10"

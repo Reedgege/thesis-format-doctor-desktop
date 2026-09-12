@@ -18,12 +18,12 @@ import hashlib
 
 from .license import LICENSE_DIR, get_machine_code  # 相对导入：与 gui 同款，打包后可用
 
-# 试用总次数（可调：卖家用）
-TRIAL_LIMIT = 2
+# 试用总次数（可调：卖家用）。2026-09-12 老板定：1 次免费试用，第 2 次起弹购买引导。
+TRIAL_LIMIT = 1
 
 TRIAL_FILE = os.path.join(LICENSE_DIR, "trial.json")
 
-# 签名盐：与 license._OFFLINE_KEY 同风格，防普通用户直接改 json 里的 used。
+# 签名盐：固定盐值，防普通用户直接改 json 里的 used（盐非机密，仅挡零成本手改）。
 # 注：v1.3.96 起弃用 base64+XOR 混淆存储（杀软 ML 误报元凶，见 license.py 注释）。
 # 盐值非机密（客户端内可见），改明文常量。
 _TRIAL_SALT = b"tfd|trial|count|2026|v1"
@@ -32,6 +32,48 @@ _TRIAL_SALT = b"tfd|trial|count|2026|v1"
 def _sign(machine, used):
     return hmac.new(_TRIAL_SALT, ("%s|%d" % (machine, used)).encode("utf-8"),
                     hashlib.sha256).hexdigest()[:16]
+
+
+# 中台试用登记状态（带 TTL 缓存，避免 UI 刷新频繁联网；离线/异常一律按未用，绝不阻断）。
+_SERVER_USED = {"val": False, "ts": 0.0}
+_SERVER_TTL = 120.0
+
+
+def _server_used(network: bool = True):
+    """中台是否记得本机已用过试用。带缓存 + 离线兜底。
+
+    作用：堵住「删掉 trial.json 即可重置试用」的白嫖口子——本地可删，中台记录删不掉。
+
+    ``network=False``：只读缓存、**绝不联网**。供 UI 徽标路径使用：``trials_left()`` 在
+    App 构造与每次刷新时都会被调用，若在此联网（3s 超时）会冻住主线程。真正裁决在
+    ``consume_trial`` 里联网查。
+    """
+    now = time.time()
+    if now - _SERVER_USED["ts"] < _SERVER_TTL:
+        return _SERVER_USED["val"]
+    if not network:
+        return False                     # 未联网过 → 交回本地判定（徽标路径不阻塞 UI）
+    try:
+        from . import license as _lic
+        val = bool(_lic.server_trial_used(get_machine_code()))
+    except Exception:
+        val = False                      # 离线/接口异常 → 交回本地判定
+    _SERVER_USED.update(val=val, ts=now)
+    return val
+
+
+def _claim_server():
+    """向中台登记本机已用试用（幂等；失败静默）。
+
+    **只有登记成功**才把缓存标为「中台已知」；离线失败保持原值、等下次联网再试
+    （否则失败也写 True，会把同一会话里的后续试用误拒）。
+    """
+    try:
+        from . import license as _lic
+        if _lic.claim_server_trial(get_machine_code()):
+            _SERVER_USED.update(val=True, ts=time.time())
+    except Exception:
+        pass
 
 
 def _load():
@@ -49,6 +91,10 @@ def _load():
             data = json.load(f)
     except Exception:
         return "BAD"                     # 文件损坏：不冒险重新计
+    # 手改 trial.json 成 null/[]/"x"/数字 等非 dict 结构时，data.get 会抛 AttributeError
+    # 且不被上面的 except 捕获，会一路冒泡到启动时 _update_trial_badge → 程序起不来。
+    if not isinstance(data, dict):
+        return "BAD"
     machine = get_machine_code()
     if data.get("machine") != machine:
         return None                      # 换机 / 重装：重新计（新机器）
@@ -67,6 +113,8 @@ def trials_left():
     data = _load()
     if data == "BAD":
         return 0                         # 篡改/损坏：不给试用
+    if _server_used(network=False):
+        return 0                         # 中台已登记（读缓存）→ 本地被删/重置也不给
     used = (data or {}).get("used", 0)
     return max(0, TRIAL_LIMIT - used)
 
@@ -79,9 +127,20 @@ def consume_trial():
     data = _load()
     if data == "BAD":
         return False
+    # 中台优先：本机已在中台登记过试用 → 拒绝（防「删 trial.json 重置」白嫖）
+    if _server_used(network=True):
+        return False
     used = (data or {}).get("used", 0)
     if used >= TRIAL_LIMIT:
+        # 本地已用尽：补一次登记（覆盖「首次试用恰在离线时登记失败」的情形）。
+        # 注意：这里堵不住「先删掉 trial.json 再联网」—— 那时 _load() 返回 None、used=0，
+        # 根本走不到该分支，中台也无记录。属「离线优先」设计的固有残余风险（已在文档标注）。
+        _claim_server()
         return False
+    if used == 0:
+        # 首次试用：**先登记**（在线时立即生效）再扣本地次数 —— 这样用户随后删掉
+        # trial.json 也无法重置（中台已记得本机用过）。
+        _claim_server()
     used += 1
     try:
         os.makedirs(LICENSE_DIR, exist_ok=True)

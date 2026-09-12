@@ -6,7 +6,7 @@
 - 🍎 **macOS**：双击 `thesis-format-doctor-desktop`
 - 🐧 **Linux**：运行 `thesis-format-doctor-desktop`
 
-**原生图形窗口（Tkinter），不依赖浏览器、完全离线、零第三方依赖、文件不离开你的电脑**。
+**原生图形窗口（Tkinter），不依赖浏览器、零第三方依赖、论文不离开你的电脑**（联网仅用于「激活校验」与「首次试用登记」，只送激活码 / 机器码，绝不含论文内容）。
 
 > 兼容老格式：检测到 `.doc` / WPS `.wps` 时，若本机装有 LibreOffice 会自动转成 `.docx` 再处理；否则提示你先用 Word/WPS「另存为 .docx」。
 
