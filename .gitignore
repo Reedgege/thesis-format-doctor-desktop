@@ -10,6 +10,8 @@ __pycache__/
 # 临时测试
 testdata/
 test_*.py
+# 例外：tests/ 下的正式回归套件需纳入版本管理（防迭代退化，勿删）
+!tests/test_*.py
 make_test_docx.py
 
 # 本地环境
