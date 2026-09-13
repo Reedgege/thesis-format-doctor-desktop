@@ -106,7 +106,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          Compress-Archive -Path "dist\论文格式医生（免安装版）" -DestinationPath "release\thesis-format-doctor-desktop-windows.zip" -Force
+          Compress-Archive -Path "dist\论文格式医生（免安装版）\*" -DestinationPath "release\thesis-format-doctor-desktop-windows.zip" -Force
           ls release
 
       # macOS：把 .app 压缩成 zip 作为发布物。
