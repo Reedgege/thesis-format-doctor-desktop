@@ -57,6 +57,7 @@ import tkinter.font as tkfont
 
 from ..ui import theme as TH          # noqa: E402
 from ..assetpath import find_asset    # noqa: E402
+from ..buildinfo import APP_VERSION   # noqa: E402
 
 OUT = os.environ.get("GF_OUT", r"D:\AgentSpace\_smoke\guofeng2")
 SIZES = [(1100, 690), (1280, 720), (1366, 768), (1440, 900), (1600, 900)]
@@ -860,7 +861,7 @@ def draw_footer(cv, W, H, edition_label):
     cy = y + FOOT_H / 2.0 + 1
 
     # 左：软件名 · 版本，紧跟运行状态（状态反馈不能丢，故与身份并排）
-    left = "论文格式医生 · %s  v1.3.111" % edition_label
+    left = "论文格式医生 · %s  v%s" % (edition_label, APP_VERSION)
     cv.create_text(PAD_X, cy, text=left, anchor="w",
                    fill=T.footer_text_soft, font=f)
     cv.create_text(PAD_X + tw(left, f) + 14, cy, text="●  " + STATUS, anchor="w",
