@@ -23,10 +23,13 @@ import sys
 
 # 必须随产物携带的资源（build.py 据此生成 --include-data-files=…）。
 REQUIRED_ASSETS = (
+    "brand_mark.png",  # 界面品牌标（羽毛；MarkSrc 优先用它，缺则退回矢量）
     "icon.png",                 # 窗口图标（Tk 用 PNG）
     "icon.ico",                 # Windows 窗口/文件图标
     "icon.icns",                # macOS
-    "qrcode.png",               # 咨询/客服二维码
+    "qrcode.png",  # 公众号关注码（旧 UI 沿用；新版 UI 用 gz_qrcode.png）
+    "gz_qrcode.png",  # 官方公众号二维码（关注入口浮层）
+    "kf_qrcode.png",  # 客服微信二维码（真人客服号）
     "miniapp_qrcode.png",       # 小程序二维码
     "watermark.png",            # 试用水印图（正文穿插）
     "watermark_bg.png",         # 试用水印背景图（页眉 VML）—— 业务资源，非界面背景

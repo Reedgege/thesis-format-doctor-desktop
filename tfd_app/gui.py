@@ -136,7 +136,7 @@ ERRC    = _T.error_text  # 出错（朱红）
 # F_XXX 命名对象只留给「关于 / 使用帮助」等 tk 原生窗口，运行时由 _init_fonts()
 # 创建。字号**只从 TYPE 表取名**（唯一权威表，见 _ui_ref/TYPE_SCALE.md）——
 # 这里没有第二套字号，也没有运行期缩放。
-APP_VERSION = "1.3.111"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.112"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名

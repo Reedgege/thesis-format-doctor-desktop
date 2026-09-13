@@ -34,8 +34,44 @@ def main():
         )
         sys.exit(1)
 
-    from tfd_app import gui
-    gui.main()
+    # ---------------------------------------------------------------
+    # 界面选择：默认新版（国风），--old-ui 回退旧界面。
+    # 只把「构造失败」当启动失败；已经起来的窗口后续崩了不再重开一个（否则双窗）。
+    # ---------------------------------------------------------------
+    if "--old-ui" in sys.argv:
+        from tfd_app import gui
+        gui.main()
+        return
+
+    try:
+        from tfd_app.app_ui import App
+        app = App()
+    except Exception:
+        import traceback
+        tb = traceback.format_exc()
+        sys.stderr.write("[main] 新版界面启动失败，回退旧界面：\n" + tb + "\n")
+        try:
+            _log_crash(tb)
+        except Exception:
+            pass
+        from tfd_app import gui
+        gui.main()
+        return
+
+    app.run()
+
+
+def _log_crash(tb):
+    """把启动失败原因落盘（不静默；出问题能查）。"""
+    try:
+        d = os.path.join(os.path.expanduser("~"), ".thesis_format_doctor")
+        os.makedirs(d, exist_ok=True)
+        import time
+        with open(os.path.join(d, "ui_start_fail.log"), "a", encoding="utf-8") as f:
+            f.write("\n===== %s =====\n%s" % (time.strftime("%Y-%m-%d %H:%M:%S"), tb))
+    except Exception:
+        pass
+
 
 
 if __name__ == "__main__":

@@ -140,7 +140,9 @@ jobs:
   release:
     name: Publish Release
     needs: build
-    if: needs.build.result == 'success'
+    # 只在打 tag 时发布：workflow_dispatch 仅构建 + 上传 artifact。
+    # 否则手动构建会把「未发版的产物」写到已发布版本的 Release 上（tag 与产物错配）。
+    if: needs.build.result == 'success' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: write
