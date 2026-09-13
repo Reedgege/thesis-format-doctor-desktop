@@ -242,8 +242,12 @@ def _run_has_image(run):
 
 
 def _format_runs(p, spec):
-    """对段落内全部 run 应用 spec 字体/字号/加粗；含图片的 run 自动跳过，不受影响。"""
+    """对段落内全部 run 应用 spec 字体/字号/加粗；含图片的 run 自动跳过，不受影响。
+    批注引用 run（commentReference）不套格式——避免给批注 run 注入 rPr，
+    也避免二次修正时把批注残留误当作正文格式处理。"""
     for r in p.iter(WR + "r"):
+        if r.find(WR + "commentReference") is not None:
+            continue
         _set_run_rpr(r, spec)
 
 
@@ -358,8 +362,19 @@ def _para_needs_fix(p, spec):
     """正文段落是否需要按模板修正：字体 / 字号 / 对齐 / 首行缩进 / 段前 / 段后 / 行距
     任一不符，即视为需改。覆盖用户要求的全部 per-level 要素。"""
     for r in p.iter(WR + 'r'):
+        # 批注引用 run（commentReference）或纯图片/空 run 不算正文格式：
+        # 用户删除批注后段落可能残留空 run——既可能是"无 rPr"的 <w:r></w:r>，
+        # 也可能是"带一个空 rPr"的 <w:r><w:rPr/></w:r>。后者仍会被字体检查判成
+        # _cur_zh=None != 模板字体 → 误认需改，导致二次修正重复套格式/重复框注（非幂等）。
+        # 空 run 无实际文字，不参与格式判定；只按"含真实文字"的 run 判定。
+        if r.find(WR + 'commentReference') is not None:
+            continue
+        # 无实际文字的 run（删批注残留的空 run 等）直接跳过，避免空 rPr 触发误判
+        if not ''.join(t.text or '' for t in r.iter(WR + 't')).strip():
+            continue
         rpr = r.find(WR + 'rPr')
         if rpr is None:
+            # 含实际文字却无 rPr（字体继承自样式/未显式设置）→ 需改
             return True
         rf = rpr.find(WR + 'rFonts')
         # v1.3.80：字体漏判修复——run 无 rFonts 或无 eastAsia（中文字体继承、

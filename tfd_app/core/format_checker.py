@@ -770,13 +770,34 @@ def main():
         _sc = Counter(s for s, _ in all_issues)
         L.append(f'- 严重程度分布：🔴高危 **{_sc.get("高", 0)}** · 🟡中危 **{_sc.get("中", 0)}** · 🟢低危 **{_sc.get("低", 0)}**')
     L.append('')
+    # 分层：把问题分成"本工具可自动修正"（标题/正文/题注/标点，一键修正已处理或可处理）
+    # 与"需手动处理"（表格三线化/参考文献/结构页，本工具暂不自动修正）。
+    # 这样"改完再查"时，残留清单不再像一堆未修复的错，而是清楚的"已处理 + 待手动"。
+    _manual_kw = ("三线", "表格", "参考文献", "GB/T", "封面", "声明", "目录", "结构页",
+                  "附录", "原创性", "题注", "致谢")
+    def _is_manual(msg):
+        return any(k in msg for k in _manual_kw)
+    _auto_issues = [(s, m) for s, m in all_issues if not _is_manual(m)]
+    _manual_issues = [(s, m) for s, m in all_issues if _is_manual(m)]
     L.append('## 一、问题清单（按严重度）')
     L.append('')
-    if not all_issues:
-        L.append('✅ 未发现明显格式红线问题。')
+    L.append('> 本工具自动处理：标题样式、正文格式、题注、半角标点；暂不自动处理：表格三线化、参考文献重排、结构页（封面/声明/目录）。')
+    L.append('')
+    L.append('### （一）本工具可自动修正（一键修正已处理 / 可处理）')
+    L.append('')
+    if not _auto_issues:
+        L.append('✅ 无（相关维度已符合模板要求）。')
     else:
-        for s, m in all_issues:
+        for s, m in _auto_issues:
             L.append(f'- {SEV_ICON[s]} **[{s}]** {m}')
+    L.append('')
+    L.append('### （二）需手动处理（本工具暂不自动修正，建议对照模板）')
+    L.append('')
+    if not _manual_issues:
+        L.append('✅ 无。')
+    else:
+        for s, m in _manual_issues:
+            L.append(f'- {SEV_ICON.get(s, "")} **[{s}]** {m}')
     L.append('')
     L.append('## 二、当前格式画像（统计，供参考/复检）')
     L.append('')
@@ -808,10 +829,14 @@ def main():
     L.append('')
     L.append('---')
     L.append('> 报告由 thesis-format-doctor · 格式校验脚本生成（仅诊断不修改文档）。')
-    if all_issues:
-        L.append('> 💡 以上问题均需整改。存在高危/中危项时，可使用 headings-fix.py 套标题样式出目录、ref-reformat.py 按 GB/T 7714 重排参考文献。')
-    else:
+    if not all_issues:
         L.append('> ✨ 格式已达标，无需修正。')
+    else:
+        if _manual_issues:
+            L.append('> 💡 （二）"需手动处理"项为表格三线化、参考文献重排、结构页等本工具暂不自动修正的类别，'
+                     '可对照学校模板手动调整；其中参考文献可单独用"参考文献重排"功能按 GB/T 7714 规范。')
+        if _auto_issues:
+            L.append('> ℹ️ （一）"可自动修正"项已在一键修正中处理；若仍列出，说明本次未覆盖，可再次修正或反馈。')
     report = '\n'.join(L)
     if out:
         with open(out, 'w', encoding='utf-8') as f:

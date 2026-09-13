@@ -1608,6 +1608,20 @@ class App:
         report = engine.run_fix_headings(
             docx_path, dst, profile_path=profile,
             report_docx=rep, add_comments=True)
+        # 参考文献 GB/T 7714 重排（用户选定的"参考文献+报告优化"范围）：
+        # 在标题/正文修正之后独立 pass 执行；失败不影响主交付物（已修正论文）。
+        try:
+            _ref_out = os.path.splitext(dst)[0] + "_ref.docx"
+            engine.run_reformat_refs(dst, _ref_out)
+            if os.path.isfile(_ref_out):
+                try:
+                    os.replace(_ref_out, dst)
+                except Exception:
+                    if os.path.isfile(_ref_out):
+                        os.remove(_ref_out)
+                report = (report or "") + "\n\n> 参考文献已按 GB/T 7714 自动重排。"
+        except Exception as e:
+            self._debug("[参考文献重排跳过] " + str(e))
         if not licensed:
             # 试用版：给修正后的论文加水印+只读保护，并让客户知道正式版可编辑无水印
             if watermark.apply_watermark(dst):
