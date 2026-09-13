@@ -35,30 +35,30 @@ def main():
         sys.exit(1)
 
     # ---------------------------------------------------------------
-    # 界面选择：默认新版（国风），--old-ui 回退旧界面。
-    # 只把「构造失败」当启动失败；已经起来的窗口后续崩了不再重开一个（否则双窗）。
+    # 界面选择：默认旧界面（稳定、为 tkinter 原生能力量身）。
+    # --new-ui 才启用新版（国风）；新版若构造失败，回退旧界面并落盘日志（不静默）。
+    # 已起来的窗口后续崩了不再重开一个（否则双窗）。
     # ---------------------------------------------------------------
-    if "--old-ui" in sys.argv:
-        from tfd_app import gui
-        gui.main()
-        return
-
-    try:
-        from tfd_app.app_ui import App
-        app = App()
-    except Exception:
-        import traceback
-        tb = traceback.format_exc()
-        sys.stderr.write("[main] 新版界面启动失败，回退旧界面：\n" + tb + "\n")
+    if "--new-ui" in sys.argv:
         try:
-            _log_crash(tb)
+            from tfd_app.app_ui import App
+            app = App()
         except Exception:
-            pass
-        from tfd_app import gui
-        gui.main()
+            import traceback
+            tb = traceback.format_exc()
+            sys.stderr.write("[main] 新版界面启动失败，回退旧界面：\n" + tb + "\n")
+            try:
+                _log_crash(tb)
+            except Exception:
+                pass
+            from tfd_app import gui
+            gui.main()
+            return
+        app.run()
         return
 
-    app.run()
+    from tfd_app import gui
+    gui.main()
 
 
 def _log_crash(tb):
