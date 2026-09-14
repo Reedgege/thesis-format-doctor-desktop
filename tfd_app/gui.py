@@ -91,7 +91,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.113"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.114"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -853,7 +853,15 @@ class App:
                 self._set_btn_text(self._prev_btn, "再处理一篇", state="normal",
                                       command=self._reset_wizard)
         else:
-            self._set_btn_text(self._next_btn, "下一步", command=self._run_step,
+            # 第①/②步按钮文案随步骤精细变化（不再一律“下一步”）
+            if self.step_index == 0:
+                _next = ("① 提取模板要求" if self.template_path.get().strip()
+                         else "① 按通用规范继续")
+            elif self.step_index == 1:
+                _next = "② 开始检查"
+            else:
+                _next = "下一步"
+            self._set_btn_text(self._next_btn, _next, command=self._run_step,
                                   state="disabled" if self.running else "normal")
             self._set_btn_text(self._prev_btn, "上一步",
                                   state="disabled" if (self.running or self.step_index == 0) else "normal",
@@ -1686,7 +1694,7 @@ class App:
     def _update_profile_box(self):
         p = self.profile_path.get().strip()
         if p and os.path.isfile(p):
-            self.profile_info_var.set("已载入格式画像：" + os.path.basename(p))
+            self.profile_info_var.set("已载入模板格式")
             if not self.profile_box.winfo_ismapped():
                 self.profile_box.pack(fill="x", padx=14, pady=(4, 8), after=self._template_box)
         else:
