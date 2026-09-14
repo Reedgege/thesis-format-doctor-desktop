@@ -91,7 +91,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.114"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.115"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -676,7 +676,7 @@ class App:
                                     highlightthickness=1, highlightbackground="#b7c6ae")
         tk.Label(self.profile_box, text="●", bg="#f0f3ec", fg=OKC,
                  font=F_FOOT).pack(side="left", padx=(10, 4), pady=6)
-        self.profile_info_var = tk.StringVar(value="已载入格式画像")
+        self.profile_info_var = tk.StringVar(value="已载入模板格式")
         tk.Label(self.profile_box, textvariable=self.profile_info_var, bg="#f0f3ec",
                  fg="#4c5f49", font=F_FOOT).pack(side="left", fill="x", expand=True)
         ttk.Button(self.profile_box, text="清除", width=6, style="Ghost.TButton",
