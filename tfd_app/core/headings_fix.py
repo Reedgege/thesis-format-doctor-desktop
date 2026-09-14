@@ -498,6 +498,26 @@ def _heading_needs_fix(p, hspec, target):
             _cur_rule = sp.get(WR + "lineRule") if sp is not None else None
             if _cur_line is None or int(_cur_line) != line or (_cur_rule or "auto") != lr:
                 return True
+    # 加粗（v1.1.10：手动表单支持加粗；引擎原先不检查 bold，导致手动要求加粗的标题
+    # 首遍不改、二遍也不判，等于加粗形同虚设。这里补上：hspec 要求加粗时，遍历标题
+    # 段落的显式 run，任一含 <w:b>（非 false/0/off）即视为已加粗；否则判需改。）
+    if hspec.get("bold"):
+        _bold_ok = False
+        for r in p.iter(WR + "r"):
+            if r.find(WR + "commentReference") is not None:
+                continue
+            if not "".join(t.text or "" for t in r.iter(WR + "t")).strip():
+                continue
+            rpr = r.find(WR + "rPr")
+            if rpr is not None:
+                b = rpr.find(WR + "b")
+                if b is not None:
+                    _bv = b.get(WR + "val")
+                    if _bv not in ("false", "0", "off"):
+                        _bold_ok = True
+                        break
+        if not _bold_ok:
+            return True
     return False
 
 

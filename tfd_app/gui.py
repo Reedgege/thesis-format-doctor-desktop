@@ -91,7 +91,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.115"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.116"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -262,6 +262,61 @@ _CN_SIZE_PT = {  # 中文字号名 → 磅（通用印刷规范，非学校特�
     "三号": 16, "小三": 15, "四号": 14, "小四": 12, "五号": 10.5, "小五": 9,
     "六号": 7.5, "小六": 6.5, "七号": 5.5, "八号": 5,
 }
+
+# v1.3.116：手动填写格式（与学校模板互斥）——候选常量
+_MANUAL_ZH_FONTS = ["宋体", "黑体", "仿宋", "楷体", "微软雅黑"]
+_MANUAL_EN_FONTS = ["Times New Roman", "Arial", "Calibri"]
+_MANUAL_SIZES = ["初号", "小初", "一号", "小一", "二号", "小二", "三号", "小三",
+                 "四号", "小四", "五号", "小五", "六号", "小六", "七号", "八号"]
+_MANUAL_ALIGNS = ["居中", "左对齐", "右对齐", "两端对齐"]
+_MANUAL_LINE_TYPES = ["单倍行距", "1.5倍行距", "2倍行距", "固定值(磅)", "最小值(磅)"]
+
+
+def _build_manual_form():
+    """手动填写格式表单的字段定义：[(分区标题, key, 控件类型, 灰字说明)]。
+
+    控件类型：zh_font/en_font=可手输下拉；size=纯下拉(不可手输)；align=纯下拉；
+    bold=勾选；num=数字输入；line_type=纯下拉；line_val=数字输入。
+    key=None 表示这是一个分区标题行（不生成输入控件）。
+    """
+    F = []
+    def sec(n):
+        F.append((n, None, None, None))
+    for lk, lbl in (("1", "一级标题"), ("2", "二级标题"), ("3", "三级标题")):
+        sec("%s %s" % (lk, lbl))
+        for k, hint in (("zh_font", "中文如 黑体"), ("en_font", "英文如 Times New Roman"),
+                        ("size", "如 小二"), ("align", ""), ("bold", "是否加粗"),
+                        ("before", "段前·磅"), ("after", "段后·磅"),
+                        ("line_type", ""), ("line_val", "固定/最小值时填磅")):
+            F.append((lbl, "%s_%s" % (lk, k), k, hint))
+    sec("正文")
+    for k, hint in (("zh_font", "中文如 宋体"), ("en_font", "英文如 Times New Roman"),
+                    ("size", "如 小四"), ("align", ""), ("line_type", ""),
+                    ("line_val", "固定/最小值时填磅"), ("indent", "首行缩进·字符")):
+        F.append(("正文", "body_%s" % k, k, hint))
+    sec("摘要")
+    for k, hint in (("zh_font", "中文如 黑体"), ("en_font", "英文如 Times New Roman"),
+                    ("size", "如 小二")):
+        F.append(("摘要标题", "abs_t_%s" % k, k, hint))
+    for k, hint in (("zh_font", "中文如 宋体"), ("en_font", "英文如 Times New Roman"),
+                    ("size", "如 小四"), ("line_type", ""), ("line_val", "固定/最小值时填磅")):
+        F.append(("摘要正文", "abs_%s" % k, k, hint))
+    sec("参考文献（引用格式默认 GB/T 7714 顺序编码制）")
+    for k, hint in (("zh_font", "中文如 黑体"), ("en_font", "英文如 Times New Roman"),
+                    ("size", "如 小四")):
+        F.append(("参考文献标题", "ref_t_%s" % k, k, hint))
+    for k, hint in (("zh_font", "中文如 宋体"), ("en_font", "英文如 Times New Roman"),
+                    ("size", "如 小四"), ("line_type", ""), ("line_val", "固定/最小值时填磅"),
+                    ("hanging", "悬挂缩进·字符")):
+        F.append(("参考文献条目", "ref_i_%s" % k, k, hint))
+    sec("页面边距（留空用通用规范 2.5 厘米）")
+    for k, lbl, hint in (("top", "上", "厘米"), ("bottom", "下", "厘米"),
+                         ("left", "左", "厘米"), ("right", "右", "厘米")):
+        F.append((lbl, "page_%s" % k, "num", hint))
+    return F
+
+
+_MANUAL_FORM = _build_manual_form()
 
 
 def _cn_size_to_pt(text):
@@ -470,8 +525,19 @@ class App:
                           "确认后生成符合规范的论文文件"]
         self.step_index = 0
 
+        # v1.1.10：第①步输入方式互斥（学校模板 / 手动填写格式）——二选一，不可混用
+        self.input_mode = tk.StringVar(value="template")
+        self.manual_profile_path = ""      # 手动填写生成的画像 json 路径
+        self._manual_form_values = {}      # 已填写表单原始值（用于预填 / 记住）
+        self._manual_remember = False      # 是否记住手动配置
+        self._manual_filled = False        # 是否已填写手动格式
+        self._manual_frame = None          # 手动填写区（按钮 + 状态）
+        self._manual_btn = None            # 手动填写按钮
+        self._manual_status = None         # 已填写状态标签
+
         self._build_style()
         self._build_widgets()
+        self._restore_manual_config()   # 已记住手动配置则自动载入
 
         # v1.3.109：绿色 zip 版首次启动自动创建桌面快捷方式（静默，仅 Windows 正式版生效）
         self.root.after(800, self._maybe_auto_shortcut)
@@ -614,6 +680,32 @@ class App:
             card, "模", "学校模板", "可选", MUTED,
             "用于按学校要求检查 / 修正，更贴合要求", "选择…", self._pick_template)
 
+        # v1.1.10：第①步输入方式互斥（学校模板 / 手动填写格式）——二选一，不可混用
+        self._mode_frame = tk.Frame(card, bg=PANEL)
+        self._mode_frame.pack(fill="x", padx=14, pady=(2, 2))
+        tk.Label(self._mode_frame, text="格式来源", bg=PANEL, fg=MUTED, font=F_FOOT).pack(side="left", padx=(0, 6))
+        tk.Radiobutton(self._mode_frame, text="使用学校模板", variable=self.input_mode,
+                       value="template", bg=PANEL, fg=INK, font=F_SMALL,
+                       activebackground=PANEL, command=self._set_input_mode).pack(side="left", padx=(2, 8))
+        tk.Radiobutton(self._mode_frame, text="手动填写格式", variable=self.input_mode,
+                       value="manual", bg=PANEL, fg=INK, font=F_SMALL,
+                       activebackground=PANEL, command=self._set_input_mode).pack(side="left", padx=(2, 0))
+        # 优先级声明（压一行）
+        tk.Label(self._mode_frame, text="格式优先级：模板批注 ＞ 样式 ＞ 通用规范；无模板时手动填写",
+                 bg=PANEL, fg="#9a9486", font=F_FOOT).pack(side="left", padx=(10, 0))
+
+        # 手动填写区（默认隐藏；切到“手动填写格式”时显示，同时隐藏模板区）
+        self._manual_frame = tk.Frame(card, bg="#fdf3e7", highlightthickness=1, highlightbackground="#e6c794")
+        self._manual_btn = tk.Button(self._manual_frame, text="手动填写格式要求 ›",
+                                     bg="#e3a93b", fg="#5a3d12", relief="flat",
+                                     activebackground="#f0bf5e", activeforeground="#5a3d12",
+                                     font=F_SMALL, padx=10, pady=4, cursor="hand2",
+                                     command=self._open_manual_dialog)
+        self._manual_btn.pack(side="left", padx=10, pady=8)
+        self._manual_status = tk.Label(self._manual_frame, text="", bg="#fdf3e7", fg="#7a4e0e", font=F_SMALL)
+        self._manual_status.pack(side="left", padx=(0, 10), pady=8)
+        self._manual_frame.pack_forget()
+
         # v1.3.46：模板驱动说明常驻提示（防止客户上传无批注模板造成误解，减少纠纷）
         # v1.3.50：升级为标准 Info 提示框——圆角浅色容器 + 加粗标题 + 说明文字行距 1.6
         def _round_pts(x1, y1, x2, y2, r):
@@ -622,6 +714,7 @@ class App:
 
         tpl_canvas = tk.Canvas(card, bg=PANEL, highlightthickness=0)
         tpl_canvas.pack(fill="x", padx=14, pady=(4, 2))
+        self._tpl_info = tpl_canvas   # v1.1.10：手动模式时与模板区一起隐藏
         tpl_body = tk.Frame(tpl_canvas, bg="#fdf3e7")
         tk.Label(tpl_body, text="模板驱动：以学校模板【批注】写明的格式要求为准（批注优先于样式定义）",
                  bg="#fdf3e7", fg="#7a4e0e", font=F_SMALL_B,
@@ -855,8 +948,11 @@ class App:
         else:
             # 第①/②步按钮文案随步骤精细变化（不再一律“下一步”）
             if self.step_index == 0:
-                _next = ("① 提取模板要求" if self.template_path.get().strip()
-                         else "① 按通用规范继续")
+                if self.input_mode.get() == "manual":
+                    _next = ("① 使用手动格式" if self._manual_filled else "① 填写格式要求")
+                else:
+                    _next = ("① 提取模板要求" if self.template_path.get().strip()
+                             else "① 按通用规范继续")
             elif self.step_index == 1:
                 _next = "② 开始检查"
             else:
@@ -946,6 +1042,416 @@ class App:
         self.profile_path.set("")
         self._update_profile_box()
 
+    # --------------------------------------------------- 手动填写格式（与模板互斥）
+    def _set_input_mode(self, *_a):
+        """第①步输入方式互斥：学校模板 ↔ 手动填写格式，二选一。"""
+        if self.input_mode.get() == "manual":
+            if self._template_box.winfo_ismapped():
+                self._template_box.pack_forget()
+            if self._tpl_info.winfo_ismapped():
+                self._tpl_info.pack_forget()
+            if not self._manual_frame.winfo_ismapped():
+                self._manual_frame.pack(fill="x", padx=14, pady=(2, 6), after=self._mode_frame)
+        else:
+            if self._manual_frame.winfo_ismapped():
+                self._manual_frame.pack_forget()
+            if not self._template_box.winfo_ismapped():
+                self._template_box.pack(fill="x", padx=14, pady=6)
+            if not self._tpl_info.winfo_ismapped():
+                self._tpl_info.pack(fill="x", padx=14, pady=(4, 2))
+            # 切回模板：清空手动填写状态（已记住配置保留，下次自动载入）
+            self._manual_filled = False
+            self.manual_profile_path = ""
+        self._refresh_manual_status()
+        self._refresh_wizard()
+
+    def _refresh_manual_status(self):
+        if self._manual_filled:
+            self._manual_btn.config(text="重新填写格式 ›", bg="#f0e7d2", fg="#6f5526",
+                                    activebackground="#e3dccb", activeforeground="#6f5526")
+            self._manual_status.config(text="✓ 已填写手动格式（点此修改）")
+        else:
+            self._manual_btn.config(text="手动填写格式要求 ›", bg="#e3a93b", fg="#5a3d12",
+                                    activebackground="#f0bf5e", activeforeground="#5a3d12")
+            self._manual_status.config(text="")
+
+    def _open_manual_dialog(self):
+        """打开手动填写格式大弹窗；确认后构建画像并写临时 json，标记已填写。"""
+        ok, values = self._manual_profile_dialog(self._manual_form_values)
+        if not ok:
+            return
+        remember = values.pop("_remember", False)
+        self._manual_form_values = values
+        self._manual_remember = remember
+        if remember:
+            self._save_manual_config(values)
+        else:
+            self._delete_manual_config()
+        profile = self._build_manual_profile(values)
+        try:
+            out = os.path.join(tempfile.gettempdir(),
+                               "tfd_manual_profile_%s.json"
+                               % hashlib.sha1(json.dumps(values, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:10])
+            with open(out, "w", encoding="utf-8") as f:
+                json.dump(profile, f, ensure_ascii=False, indent=2)
+            self.manual_profile_path = out
+            self._manual_filled = True
+            self.root.after(0, lambda: self.profile_path.set(out))
+            self._profile_confirmed = True
+            self.root.after(0, self._update_profile_box)
+            self.root.after(0, self._refresh_wizard)
+        except Exception as e:
+            self._debug("[手动画像构建失败] " + str(e))
+            messagebox.showerror("构建失败", "手动格式画像生成失败：%s" % e)
+
+    def _manual_profile_dialog(self, init):
+        """手动填写格式弹窗。返回 (ok, values)；values 含 _remember 键。
+
+        init：已记住/上次填写的表单值，用于预填。
+        """
+        result = {"ok": False, "values": {}}
+        top = tk.Toplevel(self.root)
+        top.title("手动填写格式要求")
+        top.configure(bg=PAPER)
+        top.transient(self.root)
+        top.grab_set()
+        top.geometry(_geo(820, 760) + "+%d+%d" % (self.root.winfo_rootx() + 40,
+                                                  self.root.winfo_rooty() + 20))
+
+        tk.Label(top, text="没有学校模板？手动录入格式要求", bg=PAPER, fg=INK,
+                 font=F_DIALOG_TITLE).pack(pady=(12, 2))
+        tk.Label(top, text="留空的项按通用规范处理；字体可下拉选择，也可直接输入特殊字体。",
+                 bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(0, 4))
+
+        # 滚动区
+        body = tk.Frame(top, bg=PAPER)
+        body.pack(fill="both", expand=True, padx=16, pady=2)
+        canvas = tk.Canvas(body, bg=PAPER, highlightthickness=0)
+        vbar = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
+        form = tk.Frame(canvas, bg=PAPER)
+        form.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=form, anchor="nw")
+        canvas.configure(yscrollcommand=vbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        vbar.pack(side="right", fill="y")
+
+        def _wheel(e):
+            d = getattr(e, "delta", 0) or 0
+            canvas.yview_scroll(-3 if d > 0 else 3, "units")
+        for w in (canvas, form):
+            w.bind("<MouseWheel>", _wheel)
+            w.bind("<Button-4>", _wheel)
+            w.bind("<Button-5>", _wheel)
+
+        widgets = {}
+        row = 0
+        for label, key, kind, hint in _MANUAL_FORM:
+            if key is None:  # 分区标题
+                tk.Label(form, text=label, bg="#eef1ea", fg="#3f5a35",
+                         font=F_SMALL_B, anchor="w").grid(
+                    row=row, column=0, columnspan=3, sticky="ew", padx=4, pady=(8, 3))
+                row += 1
+                continue
+            tk.Label(form, text=label, bg=PAPER, fg=INK, font=F_SMALL).grid(
+                row=row, column=0, sticky="e", padx=(0, 8), pady=3)
+            cur = (init or {}).get(key, "")
+            if kind in ("zh_font", "en_font"):
+                var = tk.StringVar(value=cur)
+                cb = ttk.Combobox(form, textvariable=var, width=22, font=F_SMALL,
+                                  values=_MANUAL_ZH_FONTS if kind == "zh_font" else _MANUAL_EN_FONTS)
+                cb.grid(row=row, column=1, sticky="w", pady=3)
+                widgets[key] = (var, "combo_edit")
+            elif kind == "size":
+                var = tk.StringVar(value=cur)
+                cb = ttk.Combobox(form, textvariable=var, width=14, font=F_SMALL,
+                                  values=_MANUAL_SIZES, state="readonly")
+                cb.grid(row=row, column=1, sticky="w", pady=3)
+                widgets[key] = (var, "combo")
+            elif kind == "align":
+                var = tk.StringVar(value=cur)
+                cb = ttk.Combobox(form, textvariable=var, width=14, font=F_SMALL,
+                                  values=_MANUAL_ALIGNS, state="readonly")
+                cb.grid(row=row, column=1, sticky="w", pady=3)
+                widgets[key] = (var, "combo")
+            elif kind == "line_type":
+                var = tk.StringVar(value=cur)
+                cb = ttk.Combobox(form, textvariable=var, width=14, font=F_SMALL,
+                                  values=_MANUAL_LINE_TYPES, state="readonly")
+                cb.grid(row=row, column=1, sticky="w", pady=3)
+                widgets[key] = (var, "combo")
+            elif kind == "bold":
+                var = tk.BooleanVar(value=bool(cur))
+                cb = tk.Checkbutton(form, variable=var, bg=PAPER,
+                                    activebackground=PAPER)
+                cb.grid(row=row, column=1, sticky="w", pady=3)
+                widgets[key] = (var, "bool")
+            else:  # num
+                var = tk.StringVar(value=cur)
+                ent = tk.Entry(form, textvariable=var, width=14, font=F_SMALL,
+                               relief="solid", bd=1)
+                ent.grid(row=row, column=1, sticky="w", pady=3)
+                widgets[key] = (var, "text")
+            if hint:
+                tk.Label(form, text=hint, bg=PAPER, fg="#9a9486",
+                         font=F_FOOT).grid(row=row, column=2, sticky="w", padx=(6, 0), pady=3)
+            row += 1
+
+        top.after(10, lambda: canvas.yview_moveto(0))
+
+        def on_confirm():
+            vals = {}
+            for key, (var, typ) in widgets.items():
+                if typ == "bool":
+                    if var.get():
+                        vals[key] = True
+                    continue
+                text = (var.get() or "").strip()
+                if text:
+                    vals[key] = text
+            result["values"] = vals
+            result["ok"] = True
+            top.destroy()
+
+        def on_cancel():
+            result["ok"] = False
+            top.destroy()
+
+        # 底部：记住勾选 + 按钮（固定贴底）
+        btns = tk.Frame(top, bg=PAPER)
+        btns.pack(side="bottom", fill="x", pady=10, padx=16)
+        rem_var = tk.BooleanVar(value=self._manual_remember)
+        tk.Checkbutton(btns, text="记住此手动配置", variable=rem_var, bg=PAPER,
+                       activebackground=PAPER, font=F_SMALL).pack(side="left", padx=4)
+        # 把 rem_var 纳入 result：确认后补写 _remember
+        def _wrap_confirm():
+            on_confirm()
+            if result["ok"]:
+                result["values"]["_remember"] = rem_var.get()
+        ttk.Button(btns, text="确定，使用此格式", style="Primary.TButton",
+                   command=_wrap_confirm).pack(side="right", padx=6)
+        ttk.Button(btns, text="取消", command=on_cancel).pack(side="right", padx=6)
+
+        top.wait_window()
+        return result["ok"], result.get("values", {})
+
+    def _build_manual_profile(self, v):
+        """把手动表单值转成引擎消费的 profile（仅填了的字段写入，空项留空→引擎用通用规范兜底）。"""
+        def _m_num(x):
+            try:
+                return float(x)
+            except (TypeError, ValueError):
+                return None
+        def _m_sz(name):
+            if not name:
+                return (None, None)
+            pt = _CN_SIZE_PT.get(name)
+            if pt is None:
+                try:
+                    pt = float(name)
+                except (TypeError, ValueError):
+                    return (None, None)
+            return (int(pt * 2), name)
+        def _m_line(rule, val):
+            if not rule:
+                return (None, None)
+            if rule.startswith("单倍"):
+                return ("single", 240)
+            if rule.startswith("1.5"):
+                return ("auto", 360)
+            if rule.startswith("2倍"):
+                return ("auto", 480)
+            p = _m_num(val)
+            if rule.startswith("固定"):
+                return ("exact", p) if p is not None else (None, None)
+            if rule.startswith("最小"):
+                return ("atLeast", p) if p is not None else (None, None)
+            return (None, None)
+        def _m_align(disp):
+            return ALIGN_CODE.get(disp)
+
+        levels = {}
+        for lk in ("1", "2", "3"):
+            spec = {}
+            if v.get("%s_zh_font" % lk):
+                spec["zh_font"] = v["%s_zh_font" % lk]
+            if v.get("%s_en_font" % lk):
+                spec["en_font"] = v["%s_en_font" % lk]
+            sz, size = _m_sz(v.get("%s_size" % lk))
+            if sz:
+                spec["sz"] = sz
+                spec["size"] = size
+            al = _m_align(v.get("%s_align" % lk))
+            if al:
+                spec["align"] = al
+            if v.get("%s_bold" % lk):
+                spec["bold"] = True
+            bp = _m_num(v.get("%s_before" % lk))
+            if bp is not None:
+                spec["before_pt"] = bp
+            ap = _m_num(v.get("%s_after" % lk))
+            if ap is not None:
+                spec["after_pt"] = ap
+            lr, lv = _m_line(v.get("%s_line_type" % lk), v.get("%s_line_val" % lk))
+            if lr:
+                spec["line_rule"] = lr
+                spec["line_val"] = lv
+            if spec:
+                levels[lk] = spec
+        # 正文
+        body = {}
+        if v.get("body_zh_font"):
+            body["zh_font"] = v["body_zh_font"]
+        if v.get("body_en_font"):
+            body["en_font"] = v["body_en_font"]
+        sz, size = _m_sz(v.get("body_size"))
+        if sz:
+            body["sz"] = sz
+            body["size"] = size
+        al = _m_align(v.get("body_align"))
+        if al:
+            body["align"] = al
+        lr, lv = _m_line(v.get("body_line_type"), v.get("body_line_val"))
+        if lr:
+            body["line_rule"] = lr
+            body["line_val"] = lv
+        ic = _m_num(v.get("body_indent"))
+        if ic is not None:
+            body["indent_chars"] = ic
+            body["indent_type"] = "first"
+        if body:
+            levels["body"] = body
+        # 摘要标题 / 摘要正文
+        at = {}
+        if v.get("abs_t_zh_font"):
+            at["zh_font"] = v["abs_t_zh_font"]
+        if v.get("abs_t_en_font"):
+            at["en_font"] = v["abs_t_en_font"]
+        sz, size = _m_sz(v.get("abs_t_size"))
+        if sz:
+            at["sz"] = sz
+            at["size"] = size
+        if at:
+            levels["abstract_title"] = at
+        ab = {}
+        if v.get("abs_zh_font"):
+            ab["zh_font"] = v["abs_zh_font"]
+        if v.get("abs_en_font"):
+            ab["en_font"] = v["abs_en_font"]
+        sz, size = _m_sz(v.get("abs_size"))
+        if sz:
+            ab["sz"] = sz
+            ab["size"] = size
+        lr, lv = _m_line(v.get("abs_line_type"), v.get("abs_line_val"))
+        if lr:
+            ab["line_rule"] = lr
+            ab["line_val"] = lv
+        if ab:
+            levels["abstract"] = ab
+        # 参考文献标题 / 条目
+        rt = {}
+        if v.get("ref_t_zh_font"):
+            rt["zh_font"] = v["ref_t_zh_font"]
+        if v.get("ref_t_en_font"):
+            rt["en_font"] = v["ref_t_en_font"]
+        sz, size = _m_sz(v.get("ref_t_size"))
+        if sz:
+            rt["sz"] = sz
+            rt["size"] = size
+        if rt:
+            levels["ref_title"] = rt
+        ri = {}
+        if v.get("ref_i_zh_font"):
+            ri["zh_font"] = v["ref_i_zh_font"]
+        if v.get("ref_i_en_font"):
+            ri["en_font"] = v["ref_i_en_font"]
+        sz, size = _m_sz(v.get("ref_i_size"))
+        if sz:
+            ri["sz"] = sz
+            ri["size"] = size
+        lr, lv = _m_line(v.get("ref_line_type"), v.get("ref_line_val"))
+        if lr:
+            ri["line_rule"] = lr
+            ri["line_val"] = lv
+        hc = _m_num(v.get("ref_hanging"))
+        if hc is not None:
+            ri["hanging_cm"] = hc
+            ri["indent_type"] = "hanging"
+        if ri:
+            levels["ref_item"] = ri
+        # 参考文献引用格式标记（GB/T 7714 顺序编码制，修正后自动重排）
+        levels["reference"] = {"style": "gb7714", "format": "sequential"}
+        # 标题样式映射（通用 Heading1/2/3，让引擎识别标题段落）
+        heading_styles = {str(i): {"styleId": "Heading%d" % i, "name": "标题 %d" % i}
+                          for i in (1, 2, 3)}
+        # 页面边距（cm → twips）
+        page = {}
+        for ck, kk in (("page_top", "top"), ("page_bottom", "bottom"),
+                       ("page_left", "left"), ("page_right", "right")):
+            cm = _m_num(v.get(ck))
+            if cm is not None:
+                page[kk] = int(round(cm * 567))
+        profile = {
+            "source": "手动填写格式",
+            "manual": True,
+            "comment_count": 0,
+            "headingStyles": heading_styles,
+            "levels": levels,
+        }
+        if page:
+            profile["spec"] = {"page": page}
+        return profile
+
+    def _manual_config_path(self):
+        return os.path.join(os.path.expanduser("~"), ".tfd_license", "manual_profile.json")
+
+    def _save_manual_config(self, values):
+        try:
+            p = self._manual_config_path()
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump({"values": values, "remember": True}, f, ensure_ascii=False)
+        except Exception as e:
+            self._debug("[手动配置保存失败] " + str(e))
+
+    def _load_manual_config(self):
+        try:
+            p = self._manual_config_path()
+            if not os.path.isfile(p):
+                return None
+            return json.load(open(p, encoding="utf-8"))
+        except Exception:
+            return None
+
+    def _delete_manual_config(self):
+        try:
+            p = self._manual_config_path()
+            if os.path.isfile(p):
+                os.remove(p)
+        except Exception:
+            pass
+
+    def _restore_manual_config(self):
+        """启动时：若已记住手动配置，自动切到手动模式并构建画像。"""
+        cfg = self._load_manual_config()
+        if not cfg:
+            return
+        self._manual_form_values = cfg.get("values", {})
+        self._manual_remember = True
+        self.input_mode.set("manual")
+        self._set_input_mode()
+        profile = self._build_manual_profile(self._manual_form_values)
+        try:
+            out = os.path.join(tempfile.gettempdir(), "tfd_manual_profile_autoload.json")
+            with open(out, "w", encoding="utf-8") as f:
+                json.dump(profile, f, ensure_ascii=False, indent=2)
+            self.manual_profile_path = out
+            self._manual_filled = True
+            self.profile_path.set(out)
+            self._profile_confirmed = True
+        except Exception as e:
+            self._debug("[手动配置自动载入失败] " + str(e))
+        self._update_profile_box()
+
     # ---------------------------------------------------------------- run（向导）
     def _go_prev(self):
         """上一步：回退一个步骤，该步及其后的进度重置为待办，可重新执行。
@@ -986,6 +1492,13 @@ class App:
         src = self.thesis_path.get().strip()
         if not src or not os.path.isfile(src):
             messagebox.showerror("缺少输入", "请先选择“待处理论文”。")
+            return
+
+        # v1.3.116：第①步手动模式但未填写格式→拦截，提示先填表单
+        if idx == 0 and self.input_mode.get() == "manual" and not self._manual_filled:
+            messagebox.showinfo("请先填写格式要求",
+                                "您选择了「手动填写格式」，但尚未填写格式要求。\n\n"
+                                "请点击「手动填写格式要求 ›」按钮，录入标题 / 正文 / 页边距等格式，再继续。")
             return
 
         # 第③步的「保存位置」放到修正【完成之后】再弹（先修正、后导出）：
@@ -1101,6 +1614,9 @@ class App:
         客户修改的字段会写回画像 json，后续检查/修正均按修改后的要求执行。
         返回画像路径；客户选择“放弃”时返回 None（本次按通用规范处理）。
         """
+        # 手动模式：画像已由表单构建，跳过模板确认弹窗
+        if self.input_mode.get() == "manual" and self._manual_filled and self.manual_profile_path:
+            return self.manual_profile_path
         p = self._ensure_profile_ready()
         if not p or not os.path.isfile(p) or self._profile_confirmed:
             return p
@@ -1322,6 +1838,19 @@ class App:
         画像必须来自学校模板才有意义；若未选模板，则没有“学校要求”可提取，
         走通用规范并明确告知客户，且不弹一个空的“确认模板要求”框。
         """
+        # v1.3.116：手动模式——画像已由表单构建，跳过模板提取（互斥）
+        if self.input_mode.get() == "manual":
+            if self._manual_filled and self.manual_profile_path:
+                self.profile_path.set(self.manual_profile_path)
+                self._profile_confirmed = True
+                self.root.after(0, self._update_profile_box)
+                self.root.after(0, self._refresh_wizard)
+            else:
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "请先填写格式要求",
+                    "您选择了「手动填写格式」，但尚未填写格式要求。\n\n"
+                    "请点击「手动填写格式要求 ›」按钮，录入标题 / 正文 / 页边距等格式，再继续。"))
+            return
         tpl = self.template_path.get().strip()
         if tpl and os.path.isfile(tpl):
             out = self._extract_profile(tpl)
@@ -1694,9 +2223,16 @@ class App:
     def _update_profile_box(self):
         p = self.profile_path.get().strip()
         if p and os.path.isfile(p):
-            self.profile_info_var.set("已载入模板格式")
+            # v1.3.116：手动模式下显示为"已填写手动格式"，与模板来源区分
+            if self.input_mode.get() == "manual" and self._manual_filled:
+                self.profile_info_var.set("已填写手动格式")
+            else:
+                self.profile_info_var.set("已载入模板格式")
             if not self.profile_box.winfo_ismapped():
-                self.profile_box.pack(fill="x", padx=14, pady=(4, 8), after=self._template_box)
+                # 跟随当前可见的来源区：手动模式跟手动区，模板模式跟模板区（避免 after 未 pack 控件报错）
+                _anchor = self._manual_frame if (self.input_mode.get() == "manual"
+                                                 and self._manual_frame.winfo_ismapped()) else self._template_box
+                self.profile_box.pack(fill="x", padx=14, pady=(4, 8), after=_anchor)
         else:
             if self.profile_box.winfo_ismapped():
                 self.profile_box.pack_forget()
@@ -1714,6 +2250,9 @@ class App:
         self.thesis_path.set("")
         self.template_path.set("")
         self.profile_path.set("")
+        self._manual_filled = False
+        self.manual_profile_path = ""
+        self._set_input_mode()
         self._thesis_name.config(text="Word 文档 .docx / .doc / .wps", fg=MUTED)
         self._template_name.config(text="用于按学校要求检查 / 修正，更贴合要求", fg=MUTED)
         self._thesis_dot.config(text="○", fg=MUTED)
