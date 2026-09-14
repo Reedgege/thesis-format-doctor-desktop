@@ -441,6 +441,66 @@ def _para_needs_fix(p, spec):
     return False
 
 
+def _heading_needs_fix(p, hspec, target):
+    """标题是否确需修正（幂等判定，专用于标题块）：
+
+    - 段落样式与 target 不符 → 需改；
+    - 样式已对时，仅当 hspec 显式要求的字体/字号/对齐/段距，与段落「显式」run/pPr
+      属性存在冲突才判需改。不拿「样式继承字体但 run 无显式 rPr」误判为需改
+      （那是正常状态，避免首遍误加批注、二遍又误判，导致标题被反复框）。
+
+    用于让标题修正幂等：已符合的标题下一次修正直接跳过，不再重复套格式/加批注。
+    """
+    ppr = p.find(WR + "pPr")
+    cur = ppr.find(WR + "pStyle").get(WR + "val") if (ppr is not None and ppr.find(WR + "pStyle") is not None) else None
+    if cur != target:
+        return True
+    # 样式已对：比对 hspec 显式要素与段落「显式」属性（继承字体的 run 不参与判定）
+    if hspec.get("zh_font") or hspec.get("sz"):
+        for r in p.iter(WR + "r"):
+            if r.find(WR + "commentReference") is not None:
+                continue
+            if not "".join(t.text or "" for t in r.iter(WR + "t")).strip():
+                continue
+            rpr = r.find(WR + "rPr")
+            if rpr is None:
+                continue  # 无显式 rPr = 继承样式，字体由样式提供，不判需改
+            rf = rpr.find(WR + "rFonts")
+            if hspec.get("zh_font"):
+                _cur_zh = rf.get(WR + "eastAsia") if rf is not None else None
+                if _cur_zh is not None and _cur_zh != hspec["zh_font"]:
+                    return True
+            if hspec.get("sz"):
+                sz = rpr.find(WR + "sz")
+                _cur_sz = sz.get(WR + "val") if sz is not None else None
+                if _cur_sz is not None and int(_cur_sz) != int(_num(hspec["sz"])):
+                    return True
+    # 段级对齐
+    if hspec.get("align"):
+        jc = ppr.find(WR + "jc") if ppr is not None else None
+        if jc is not None and jc.get(WR + "val") != _align(hspec["align"]):
+            return True
+    sp = ppr.find(WR + "spacing") if ppr is not None else None
+    # 段前 / 段后
+    if hspec.get("before_pt") is not None:
+        _cur = sp.get(WR + "before") if sp is not None else None
+        if _cur is not None and abs(int(_cur) - int(_num(hspec["before_pt"])) * 20) > 20:
+            return True
+    if hspec.get("after_pt") is not None:
+        _cur = sp.get(WR + "after") if sp is not None else None
+        if _cur is not None and abs(int(_cur) - int(_num(hspec["after_pt"])) * 20) > 20:
+            return True
+    # 行距
+    if hspec.get("line_rule") or hspec.get("line_val"):
+        lr, line = _line(hspec)
+        if lr is not None and line is not None:
+            _cur_line = sp.get(WR + "line") if sp is not None else None
+            _cur_rule = sp.get(WR + "lineRule") if sp is not None else None
+            if _cur_line is None or int(_cur_line) != line or (_cur_rule or "auto") != lr:
+                return True
+    return False
+
+
 def _fmt_summary(spec):
     parts = []
     if spec.get('zh_font'):
@@ -1511,23 +1571,28 @@ def fix(src, dst, profile=None, add_comments=True):
             if not hspec and not template_exact:
                 hspec = dict(_GENERIC_HEADING)
             if hspec:
-                # 标题文本 run 格式化（_set_run_rpr 内部已跳过含图 run），
-                # 段落格式（jc/spacing/ind）也正常设置——标题规格不用固定值行距(lineRule=exact)，
-                # 不会压缩图片；图片 run 的 rPr 由 _run_has_image 守卫保持原样。
-                _format_runs(p, hspec)
-                _set_para_format(p, hspec, style_val=target)
+                if _heading_needs_fix(p, hspec, target):
+                    _format_runs(p, hspec)
+                    _set_para_format(p, hspec, style_val=target)
+                    new_sid, new_name = disp.get(lvl, (target, target))
+                    changes.append({
+                        "kind": "heading", "text": txt[:60], "level": lvl,
+                        "old": cur if cur else "（无/自定义样式）", "new": new_sid,
+                        "new_name": new_name, "conf": conf, "_para": p,
+                    })
+                else:
+                    already_ok += 1
             else:
-                _set_style(p, target)
-            if cur == target:
-                already_ok += 1
-                continue
-            old_disp = cur if cur else "（无/自定义样式）"
-            new_sid, new_name = disp.get(lvl, (target, target))
-            changes.append({
-                "kind": "heading", "text": txt[:60], "level": lvl,
-                "old": old_disp, "new": new_sid, "new_name": new_name,
-                "conf": conf, "_para": p,
-            })
+                if cur != target:
+                    _set_style(p, target)
+                    new_sid, new_name = disp.get(lvl, (target, target))
+                    changes.append({
+                        "kind": "heading", "text": txt[:60], "level": lvl,
+                        "old": cur if cur else "（无/自定义样式）", "new": new_sid,
+                        "new_name": new_name, "conf": conf, "_para": p,
+                    })
+                else:
+                    already_ok += 1
             continue
         # ===== 正文：按批注 body spec 写字体/字号/首行缩进/行距 =====
         # 含图片的段落整段跳过：向图片段落注入首行缩进/固定值行距会压缩图片、与文字重叠
