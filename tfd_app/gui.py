@@ -91,7 +91,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.118"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.119"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -723,11 +723,9 @@ class App:
         self._thesis_box, self._thesis_name = self._file_row(
             card, "论", "待处理论文", "必选", CINNABAR,
             "Word 文档 .docx / .doc / .wps", "选择…", self._pick_input)
-        self._template_box, self._template_name = self._file_row(
-            card, "模", "学校模板", "可选", MUTED,
-            "用于按学校要求检查 / 修正，更贴合要求", "选择…", self._pick_template)
 
         # v1.1.10：第①步输入方式互斥（学校模板 / 手动填写格式）——二选一，不可混用
+        # 放在「学校模板」框上方，与导师版布局一致，避免切换时上下跳动
         self._mode_frame = tk.Frame(card, bg=PANEL)
         self._mode_frame.pack(fill="x", padx=14, pady=(8, 0))
         tk.Frame(self._mode_frame, bg=ACCENT, width=4, height=15).pack(side="left", padx=(0, 7))
@@ -738,6 +736,10 @@ class App:
         tk.Radiobutton(self._mode_frame, text="手动填写格式", variable=self.input_mode,
                        value="manual", bg=PANEL, fg=ACCENT, font=F_SMALL_B,
                        activebackground=PANEL, command=self._set_input_mode).pack(side="left", padx=(4, 0))
+
+        self._template_box, self._template_name = self._file_row(
+            card, "模", "学校模板", "可选", MUTED,
+            "用于按学校要求检查 / 修正，更贴合要求", "选择…", self._pick_template)
 
         # 手动填写区（默认隐藏；切到“手动填写格式”时显示，同时隐藏模板区）
         self._manual_frame = tk.Frame(card, bg="#fdf3e7", highlightthickness=1, highlightbackground="#e6c794")
@@ -752,33 +754,18 @@ class App:
         self._manual_frame.pack_forget()
 
         # v1.3.46：模板驱动说明常驻提示（防止客户上传无批注模板造成误解，减少纠纷）
-        # v1.3.50：升级为标准 Info 提示框——圆角浅色容器 + 加粗标题 + 说明文字行距 1.6
+        # v1.3.50：升级为标准 Info 提示框——圆角浅色容器 + 加粗标题 + 说明文字
         def _round_pts(x1, y1, x2, y2, r):
             return [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
                     x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
 
         tpl_canvas = tk.Canvas(card, bg=PANEL, highlightthickness=0)
         tpl_canvas.pack(fill="x", padx=14, pady=(4, 2))
-        self._tpl_info = tpl_canvas   # v1.1.10：手动模式时与模板区一起隐藏
+        self._tpl_info = tpl_canvas
         tpl_body = tk.Frame(tpl_canvas, bg="#fdf3e7")
-        # 格式优先级声明（对齐导师版：放在模板提示框顶部，不再挤在「格式来源」单选行内）
         tk.Label(tpl_body, text="格式优先级：模板批注 ＞ 样式 ＞ 通用规范；无模板时手动填写",
                  bg="#fdf3e7", fg="#7a4e0e", font=F_SMALL_B,
-                 justify="left", anchor="w").pack(fill="x", padx=14, pady=(9, 0))
-        tk.Label(tpl_body, text="模板驱动：以学校模板【批注】写明的格式要求为准（批注优先于样式定义）",
-                 bg="#fdf3e7", fg="#7a4e0e", font=F_SMALL_B,
-                 justify="left", anchor="w").pack(fill="x", padx=14, pady=(4, 0))
-        # 说明文字：Text 的 spacing2 即"段内行距"，实现约 1.6 倍行高；relief=flat 无边框
-        # 注意：tk.Text 的 pady 只接受单值（不支持 (0,9) 元组），下边距放 pack 上
-        tpl_note_txt = tk.Text(tpl_body, wrap="word", bg="#fdf3e7", fg="#8a5a1a",
-                               font=F_FOOT, relief="flat", bd=0, height=3,
-                               spacing1=5, spacing2=5, spacing3=5,
-                               padx=14, highlightthickness=0, cursor="arrow")
-        tpl_note_txt.insert("1.0", "请优先使用学校官方模板（通常批注中写明了格式要求）；"
-                                   "若模板无批注，将按模板样式定义 / 通用规范处理，"
-                                   "可能与学校要求有出入。")
-        tpl_note_txt.config(state="disabled")
-        tpl_note_txt.pack(fill="x", pady=(0, 9))
+                 justify="left", anchor="w").pack(fill="x", padx=14, pady=(9, 9))
         _tpl_rect = tpl_canvas.create_polygon([0, 0, 20, 20], smooth=True,
                                               fill="#fdf3e7", outline="#e6c794")
         _tpl_win = tpl_canvas.create_window(1, 1, window=tpl_body, anchor="nw")
@@ -1095,22 +1082,19 @@ class App:
     def _set_input_mode(self, *_a):
         """第①步输入方式互斥：学校模板 ↔ 手动填写格式，二选一。"""
         if self.input_mode.get() == "manual":
-            # 用 winfo_manager()=="pack" 守卫：既能覆盖“启动期已 pack 但未 map”的情况
-            # （避免两区域同时显示），又不会对“从未 pack”的控件（如导师版默认隐藏的手动区）报错
+            # 模板模式 → 手动模式：隐藏模板区，手动区显示在格式来源框下方
             if self._template_box.winfo_manager() == "pack":
                 self._template_box.pack_forget()
-            if self._tpl_info.winfo_manager() == "pack":
-                self._tpl_info.pack_forget()
             if self._manual_frame.winfo_manager() != "pack":
                 self._manual_frame.pack(fill="x", padx=14, pady=(2, 6), after=self._mode_frame)
         else:
             if self._manual_frame.winfo_manager() == "pack":
                 self._manual_frame.pack_forget()
-            # 关键：用 after= 锚定原始位置，否则重新 pack 会落到卡片底部、打乱上方“格式来源”框顺序
+            # 格式来源框在学校模板框上方，模板框 pack 在格式来源框下方
             if self._template_box.winfo_manager() != "pack":
-                self._template_box.pack(fill="x", padx=14, pady=6, after=self._thesis_box)
+                self._template_box.pack(fill="x", padx=14, pady=(2, 2), after=self._mode_frame)
             if self._tpl_info.winfo_manager() != "pack":
-                self._tpl_info.pack(fill="x", padx=14, pady=(4, 2), after=self._mode_frame)
+                self._tpl_info.pack(fill="x", padx=14, pady=(4, 2), after=self._template_box)
             # 切回模板：清空手动填写状态（已记住配置保留，下次自动载入）
             self._manual_filled = False
             self.manual_profile_path = ""
@@ -1118,7 +1102,6 @@ class App:
             self.profile_path.set("")
         self._refresh_manual_status()
         self._refresh_wizard()
-
     def _refresh_manual_status(self):
         if self._manual_filled:
             self._manual_btn.config(text="重新填写格式 ›", bg="#f0e7d2", fg="#6f5526",
@@ -1199,17 +1182,28 @@ class App:
             w.bind("<Button-5>", _wheel)
 
         widgets = {}
-        ref_widgets = []   # [(tk控件, 原state)] 受「引用默认格式」开关联动禁用
+        ref_detail_widgets = []   # 受「引用默认格式」开关控制折叠的所有控件
+        _in_ref_detail = False      # 当前是否处于参考文献详情区
         row = 0
         for label, key, kind, hint in _MANUAL_FORM:
+            row_widgets = []   # 本行所有 tk 控件
             if key is None:  # 分区标题
-                tk.Label(form, text=label, bg="#eef1ea", fg="#3f5a35",
-                         font=F_SMALL_B, anchor="w").grid(
-                    row=row, column=0, columnspan=3, sticky="ew", padx=4, pady=(8, 3))
+                w = tk.Label(form, text=label, bg="#eef1ea", fg="#3f5a35",
+                             font=F_SMALL_B, anchor="w")
+                w.grid(row=row, column=0, columnspan=3, sticky="ew", padx=4, pady=(8, 3))
+                row_widgets.append(w)
+                # 进出参考文献详情区：标题「参考文献·标题」开始，「页面边距」结束
+                if "参考文献·标题" in label:
+                    _in_ref_detail = True
+                elif "页面边距" in label:
+                    _in_ref_detail = False
+                if _in_ref_detail:
+                    ref_detail_widgets.extend(row_widgets)
                 row += 1
                 continue
-            tk.Label(form, text=label, bg=PAPER, fg=INK, font=F_SMALL).grid(
-                row=row, column=0, sticky="e", padx=(0, 8), pady=3)
+            w = tk.Label(form, text=label, bg=PAPER, fg=INK, font=F_SMALL)
+            w.grid(row=row, column=0, sticky="e", padx=(0, 8), pady=3)
+            row_widgets.append(w)
             cur = (init or {}).get(key, "")
             ctl = None
             if kind == "ref_default":
@@ -1264,26 +1258,30 @@ class App:
                 ctl = ent
                 widgets[key] = (var, "text")
             if hint:
-                tk.Label(form, text=hint, bg=PAPER, fg="#9a9486",
-                         font=F_FOOT).grid(row=row, column=2, sticky="w", padx=(6, 0), pady=3)
-            # 记录参考文献相关控件（「引用默认格式」开关联动禁用用）
-            if ctl is not None and key and (key.startswith("ref_t_") or key.startswith("ref_i_")):
-                ref_widgets.append((ctl, ctl.cget("state")))
+                h = tk.Label(form, text=hint, bg=PAPER, fg="#9a9486",
+                             font=F_FOOT)
+                h.grid(row=row, column=2, sticky="w", padx=(6, 0), pady=3)
+                row_widgets.append(h)
+            if ctl is not None:
+                row_widgets.append(ctl)
+            if _in_ref_detail:
+                ref_detail_widgets.extend(row_widgets)
             row += 1
 
-        # 「引用默认格式」开关：勾选则禁用下方参考文献字段，确认时也不写入
+        # 「引用默认格式」开关：勾选则折叠隐藏下方参考文献字段，确认时也不写入
         _ref_def_var = widgets.get("ref_use_default", (None,))[0]
-        if _ref_def_var is not None and ref_widgets:
+        if _ref_def_var is not None and ref_detail_widgets:
             def _apply_ref_state(*_a):
-                _st = "disabled" if _ref_def_var.get() else None
-                for _w, _orig in ref_widgets:
-                    try:
-                        _w.configure(state=_st if _st else _orig)
-                    except Exception:
-                        pass
+                if _ref_def_var.get():
+                    for w in ref_detail_widgets:
+                        w.grid_remove()
+                else:
+                    for w in ref_detail_widgets:
+                        w.grid()
+                # 隐藏/展开后滚动区域变化，触发重算
+                form.event_generate("<Configure>")
             _ref_def_var.trace_add("write", _apply_ref_state)
             _apply_ref_state()
-
         top.after(10, lambda: canvas.yview_moveto(0))
 
         def on_confirm():
@@ -2335,9 +2333,14 @@ class App:
             else:
                 self.profile_info_var.set("已载入模板格式")
             if not self.profile_box.winfo_ismapped():
-                # 跟随当前可见的来源区：手动模式跟手动区，模板模式跟模板区（避免 after 未 pack 控件报错）
-                _anchor = self._manual_frame if (self.input_mode.get() == "manual"
-                                                 and self._manual_frame.winfo_ismapped()) else self._template_box
+                # 跟随当前可见的来源区：用 winfo_manager 判断谁真正被 pack
+                #（winfo_ismapped 在无头/启动期恒 False，会误选已被 pack_forget 的控件导致 after 报错）
+                if self._manual_frame.winfo_manager() == "pack":
+                    _anchor = self._manual_frame
+                elif self._template_box.winfo_manager() == "pack":
+                    _anchor = self._template_box
+                else:
+                    _anchor = self._mode_frame
                 self.profile_box.pack(fill="x", padx=14, pady=(4, 8), after=_anchor)
         else:
             if self.profile_box.winfo_ismapped():
