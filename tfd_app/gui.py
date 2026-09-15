@@ -91,7 +91,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.121"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.122"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -1155,7 +1155,7 @@ class App:
         top.configure(bg=PAPER)
         top.transient(self.root)
         top.grab_set()
-        top.geometry(_geo(820, 760) + "+%d+%d" % (self.root.winfo_rootx() + 40,
+        top.geometry(_geo(960, 780) + "+%d+%d" % (self.root.winfo_rootx() + 40,
                                                   self.root.winfo_rooty() + 20))
 
         tk.Label(top, text="没有学校模板？手动录入格式要求", bg=PAPER, fg=INK,
@@ -1187,6 +1187,7 @@ class App:
         ref_detail_widgets = []   # 受「引用默认格式」开关控制折叠的所有控件
         _in_ref_detail = False      # 当前是否处于参考文献详情区
         row = 0
+        form.grid_columnconfigure(2, minsize=200)   # 保证右侧灰字说明列永不被挤掉/截断
         for label, key, kind, hint in _MANUAL_FORM:
             row_widgets = []   # 本行所有 tk 控件
             if key is None:  # 分区标题
@@ -1219,28 +1220,28 @@ class App:
                 continue
             if kind in ("zh_font", "en_font"):
                 var = tk.StringVar(value=cur)
-                cb = ttk.Combobox(form, textvariable=var, width=22, font=F_SMALL,
+                cb = ttk.Combobox(form, textvariable=var, width=20, font=F_SMALL,
                                   values=_MANUAL_ZH_FONTS if kind == "zh_font" else _MANUAL_EN_FONTS)
                 cb.grid(row=row, column=1, sticky="w", pady=3)
                 ctl = cb
                 widgets[key] = (var, "combo_edit")
             elif kind == "size":
                 var = tk.StringVar(value=cur)
-                cb = ttk.Combobox(form, textvariable=var, width=14, font=F_SMALL,
+                cb = ttk.Combobox(form, textvariable=var, width=12, font=F_SMALL,
                                   values=_MANUAL_SIZES, state="readonly")
                 cb.grid(row=row, column=1, sticky="w", pady=3)
                 ctl = cb
                 widgets[key] = (var, "combo")
             elif kind == "align":
                 var = tk.StringVar(value=cur)
-                cb = ttk.Combobox(form, textvariable=var, width=14, font=F_SMALL,
+                cb = ttk.Combobox(form, textvariable=var, width=12, font=F_SMALL,
                                   values=_MANUAL_ALIGNS, state="readonly")
                 cb.grid(row=row, column=1, sticky="w", pady=3)
                 ctl = cb
                 widgets[key] = (var, "combo")
             elif kind == "line_type":
                 var = tk.StringVar(value=cur)
-                cb = ttk.Combobox(form, textvariable=var, width=14, font=F_SMALL,
+                cb = ttk.Combobox(form, textvariable=var, width=12, font=F_SMALL,
                                   values=_MANUAL_LINE_TYPES, state="readonly")
                 cb.grid(row=row, column=1, sticky="w", pady=3)
                 ctl = cb
@@ -1254,14 +1255,14 @@ class App:
                 widgets[key] = (var, "bool")
             else:  # num
                 var = tk.StringVar(value=cur)
-                ent = tk.Entry(form, textvariable=var, width=14, font=F_SMALL,
+                ent = tk.Entry(form, textvariable=var, width=12, font=F_SMALL,
                                relief="solid", bd=1)
                 ent.grid(row=row, column=1, sticky="w", pady=3)
                 ctl = ent
                 widgets[key] = (var, "text")
             if hint:
                 h = tk.Label(form, text=hint, bg=PAPER, fg="#9a9486",
-                             font=F_FOOT)
+                             font=F_FOOT, wraplength=200, justify="left")
                 h.grid(row=row, column=2, sticky="w", padx=(6, 0), pady=3)
                 row_widgets.append(h)
             if ctl is not None:
