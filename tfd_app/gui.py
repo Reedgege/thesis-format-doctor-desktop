@@ -332,7 +332,11 @@ def _build_manual_form():
     ):
         F.append((flbl, "abs_%s" % k, k, hint))
     # 参考文献
-    sec("参考文献·标题（引用格式默认 GB/T 7714 顺序编码制）")
+    sec("参考文献（引用格式默认 GB/T 7714 顺序编码制）")
+    # 「引用默认格式」开关：勾选则下方参考文献项无需填写，引擎按 GB/T 7714 默认处理
+    F.append(("引用默认格式（GB/T 7714）", "ref_use_default", "ref_default",
+              "勾选则下方参考文献项无需填写"))
+    sec("参考文献·标题")
     for k, flbl, hint in (
         ("zh_font", "中文字体", "中文如 黑体"),
         ("en_font", "英文字体", "英文如 Times New Roman"),
@@ -725,17 +729,15 @@ class App:
 
         # v1.1.10：第①步输入方式互斥（学校模板 / 手动填写格式）——二选一，不可混用
         self._mode_frame = tk.Frame(card, bg=PANEL)
-        self._mode_frame.pack(fill="x", padx=14, pady=(2, 2))
-        tk.Label(self._mode_frame, text="格式来源", bg=PANEL, fg=INK, font=F_SMALL).pack(side="left", padx=(0, 6))
+        self._mode_frame.pack(fill="x", padx=14, pady=(8, 0))
+        tk.Frame(self._mode_frame, bg=ACCENT, width=4, height=15).pack(side="left", padx=(0, 7))
+        tk.Label(self._mode_frame, text="格式来源", bg=PANEL, fg=INK, font=F_SMALL).pack(side="left")
         tk.Radiobutton(self._mode_frame, text="使用学校模板", variable=self.input_mode,
                        value="template", bg=PANEL, fg=ACCENT, font=F_SMALL_B,
-                       activebackground=PANEL, command=self._set_input_mode).pack(side="left", padx=(2, 8))
+                       activebackground=PANEL, command=self._set_input_mode).pack(side="left", padx=(10, 4))
         tk.Radiobutton(self._mode_frame, text="手动填写格式", variable=self.input_mode,
                        value="manual", bg=PANEL, fg=ACCENT, font=F_SMALL_B,
-                       activebackground=PANEL, command=self._set_input_mode).pack(side="left", padx=(2, 0))
-        # 优先级声明（压一行）
-        tk.Label(self._mode_frame, text="格式优先级：模板批注 ＞ 样式 ＞ 通用规范；无模板时手动填写",
-                 bg=PANEL, fg="#9a9486", font=F_FOOT).pack(side="left", padx=(10, 0))
+                       activebackground=PANEL, command=self._set_input_mode).pack(side="left", padx=(4, 0))
 
         # 手动填写区（默认隐藏；切到“手动填写格式”时显示，同时隐藏模板区）
         self._manual_frame = tk.Frame(card, bg="#fdf3e7", highlightthickness=1, highlightbackground="#e6c794")
@@ -759,9 +761,13 @@ class App:
         tpl_canvas.pack(fill="x", padx=14, pady=(4, 2))
         self._tpl_info = tpl_canvas   # v1.1.10：手动模式时与模板区一起隐藏
         tpl_body = tk.Frame(tpl_canvas, bg="#fdf3e7")
-        tk.Label(tpl_body, text="模板驱动：以学校模板【批注】写明的格式要求为准（批注优先于样式定义）",
+        # 格式优先级声明（对齐导师版：放在模板提示框顶部，不再挤在「格式来源」单选行内）
+        tk.Label(tpl_body, text="格式优先级：模板批注 ＞ 样式 ＞ 通用规范；无模板时手动填写",
                  bg="#fdf3e7", fg="#7a4e0e", font=F_SMALL_B,
                  justify="left", anchor="w").pack(fill="x", padx=14, pady=(9, 0))
+        tk.Label(tpl_body, text="模板驱动：以学校模板【批注】写明的格式要求为准（批注优先于样式定义）",
+                 bg="#fdf3e7", fg="#7a4e0e", font=F_SMALL_B,
+                 justify="left", anchor="w").pack(fill="x", padx=14, pady=(4, 0))
         # 说明文字：Text 的 spacing2 即"段内行距"，实现约 1.6 倍行高；relief=flat 无边框
         # 注意：tk.Text 的 pady 只接受单值（不支持 (0,9) 元组），下边距放 pack 上
         tpl_note_txt = tk.Text(tpl_body, wrap="word", bg="#fdf3e7", fg="#8a5a1a",
@@ -1193,6 +1199,7 @@ class App:
             w.bind("<Button-5>", _wheel)
 
         widgets = {}
+        ref_widgets = []   # [(tk控件, 原state)] 受「引用默认格式」开关联动禁用
         row = 0
         for label, key, kind, hint in _MANUAL_FORM:
             if key is None:  # 分区标题
@@ -1204,52 +1211,88 @@ class App:
             tk.Label(form, text=label, bg=PAPER, fg=INK, font=F_SMALL).grid(
                 row=row, column=0, sticky="e", padx=(0, 8), pady=3)
             cur = (init or {}).get(key, "")
+            ctl = None
+            if kind == "ref_default":
+                var = tk.BooleanVar(value=bool(cur))
+                ctl = tk.Checkbutton(form, variable=var, bg=PAPER,
+                                     activebackground=PAPER,
+                                     text="使用 GB/T 7714 默认格式（下方参考文献项无需填写）")
+                ctl.grid(row=row, column=1, sticky="w", pady=3)
+                widgets[key] = (var, "bool")
+                row += 1
+                continue
             if kind in ("zh_font", "en_font"):
                 var = tk.StringVar(value=cur)
                 cb = ttk.Combobox(form, textvariable=var, width=22, font=F_SMALL,
                                   values=_MANUAL_ZH_FONTS if kind == "zh_font" else _MANUAL_EN_FONTS)
                 cb.grid(row=row, column=1, sticky="w", pady=3)
+                ctl = cb
                 widgets[key] = (var, "combo_edit")
             elif kind == "size":
                 var = tk.StringVar(value=cur)
                 cb = ttk.Combobox(form, textvariable=var, width=14, font=F_SMALL,
                                   values=_MANUAL_SIZES, state="readonly")
                 cb.grid(row=row, column=1, sticky="w", pady=3)
+                ctl = cb
                 widgets[key] = (var, "combo")
             elif kind == "align":
                 var = tk.StringVar(value=cur)
                 cb = ttk.Combobox(form, textvariable=var, width=14, font=F_SMALL,
                                   values=_MANUAL_ALIGNS, state="readonly")
                 cb.grid(row=row, column=1, sticky="w", pady=3)
+                ctl = cb
                 widgets[key] = (var, "combo")
             elif kind == "line_type":
                 var = tk.StringVar(value=cur)
                 cb = ttk.Combobox(form, textvariable=var, width=14, font=F_SMALL,
                                   values=_MANUAL_LINE_TYPES, state="readonly")
                 cb.grid(row=row, column=1, sticky="w", pady=3)
+                ctl = cb
                 widgets[key] = (var, "combo")
             elif kind == "bold":
                 var = tk.BooleanVar(value=bool(cur))
                 cb = tk.Checkbutton(form, variable=var, bg=PAPER,
                                     activebackground=PAPER)
                 cb.grid(row=row, column=1, sticky="w", pady=3)
+                ctl = cb
                 widgets[key] = (var, "bool")
             else:  # num
                 var = tk.StringVar(value=cur)
                 ent = tk.Entry(form, textvariable=var, width=14, font=F_SMALL,
                                relief="solid", bd=1)
                 ent.grid(row=row, column=1, sticky="w", pady=3)
+                ctl = ent
                 widgets[key] = (var, "text")
             if hint:
                 tk.Label(form, text=hint, bg=PAPER, fg="#9a9486",
                          font=F_FOOT).grid(row=row, column=2, sticky="w", padx=(6, 0), pady=3)
+            # 记录参考文献相关控件（「引用默认格式」开关联动禁用用）
+            if ctl is not None and key and (key.startswith("ref_t_") or key.startswith("ref_i_")):
+                ref_widgets.append((ctl, ctl.cget("state")))
             row += 1
+
+        # 「引用默认格式」开关：勾选则禁用下方参考文献字段，确认时也不写入
+        _ref_def_var = widgets.get("ref_use_default", (None,))[0]
+        if _ref_def_var is not None and ref_widgets:
+            def _apply_ref_state(*_a):
+                _st = "disabled" if _ref_def_var.get() else None
+                for _w, _orig in ref_widgets:
+                    try:
+                        _w.configure(state=_st if _st else _orig)
+                    except Exception:
+                        pass
+            _ref_def_var.trace_add("write", _apply_ref_state)
+            _apply_ref_state()
 
         top.after(10, lambda: canvas.yview_moveto(0))
 
         def on_confirm():
             vals = {}
+            _use_def = widgets.get("ref_use_default", (None,))[0]
+            _use_def = _use_def.get() if _use_def else False
             for key, (var, typ) in widgets.items():
+                if _use_def and key and (key.startswith("ref_t_") or key.startswith("ref_i_")):
+                    continue
                 if typ == "bool":
                     if var.get():
                         vals[key] = True
@@ -1396,49 +1439,53 @@ class App:
             ab["line_val"] = lv
         if ab:
             levels["abstract"] = ab
-        # 参考文献标题 / 条目
-        rt = {}
-        if v.get("ref_t_zh_font"):
-            rt["zh_font"] = v["ref_t_zh_font"]
-        if v.get("ref_t_en_font"):
-            rt["en_font"] = v["ref_t_en_font"]
-        sz, size = _m_sz(v.get("ref_t_size"))
-        if sz:
-            rt["sz"] = sz
-            rt["size"] = size
-        if rt:
-            levels["reference_heading"] = rt
-        ri = {}
-        if v.get("ref_i_zh_font"):
-            ri["zh_font"] = v["ref_i_zh_font"]
-        if v.get("ref_i_en_font"):
-            ri["en_font"] = v["ref_i_en_font"]
-        sz, size = _m_sz(v.get("ref_i_size"))
-        if sz:
-            ri["sz"] = sz
-            ri["size"] = size
-        lr, lv = _m_line(v.get("ref_line_type"), v.get("ref_line_val"))
-        if lr:
-            ri["line_rule"] = lr
-            ri["line_val"] = lv
-        # 参考文献条目悬挂缩进：按编号位数三档（字符），与引擎 _ref_entry_spec_for_text 对齐
-        # 同时修掉旧版 ref_hanging 缺 ref_i_ 前缀导致读不到的隐藏 bug
-        _tiers = []
-        for _dig, _key in ((1, "ref_i_hanging_1"), (2, "ref_i_hanging_2"), (3, "ref_i_hanging_3")):
-            _hc = _m_num(v.get(_key))
-            if _hc is not None:
-                _tiers.append({"digits": _dig, "chars": _hc})
-        if _tiers:
-            ri["hanging_tiers"] = _tiers
-            ri["indent_type"] = "hanging"
-        # 参考文献条目格式必须写入 levels["reference"]（引擎参考文献条目循环读的就是这个 key，
-        # 不是 ref_item）；GB/T 7714 引用格式标记一并带上，便于引擎自动重排
-        if ri:
-            ri["style"] = "gb7714"
-            ri["format"] = "sequential"
-            levels["reference"] = ri
-        else:
+        # 参考文献：若勾选「引用默认格式」，直接按 GB/T 7714 默认处理，下方手动项不写入
+        if v.get("ref_use_default"):
             levels["reference"] = {"style": "gb7714", "format": "sequential"}
+        else:
+            # 参考文献标题 / 条目
+            rt = {}
+            if v.get("ref_t_zh_font"):
+                rt["zh_font"] = v["ref_t_zh_font"]
+            if v.get("ref_t_en_font"):
+                rt["en_font"] = v["ref_t_en_font"]
+            sz, size = _m_sz(v.get("ref_t_size"))
+            if sz:
+                rt["sz"] = sz
+                rt["size"] = size
+            if rt:
+                levels["reference_heading"] = rt
+            ri = {}
+            if v.get("ref_i_zh_font"):
+                ri["zh_font"] = v["ref_i_zh_font"]
+            if v.get("ref_i_en_font"):
+                ri["en_font"] = v["ref_i_en_font"]
+            sz, size = _m_sz(v.get("ref_i_size"))
+            if sz:
+                ri["sz"] = sz
+                ri["size"] = size
+            lr, lv = _m_line(v.get("ref_line_type"), v.get("ref_line_val"))
+            if lr:
+                ri["line_rule"] = lr
+                ri["line_val"] = lv
+            # 参考文献条目悬挂缩进：按编号位数三档（字符），与引擎 _ref_entry_spec_for_text 对齐
+            # 同时修掉旧版 ref_hanging 缺 ref_i_ 前缀导致读不到的隐藏 bug
+            _tiers = []
+            for _dig, _key in ((1, "ref_i_hanging_1"), (2, "ref_i_hanging_2"), (3, "ref_i_hanging_3")):
+                _hc = _m_num(v.get(_key))
+                if _hc is not None:
+                    _tiers.append({"digits": _dig, "chars": _hc})
+            if _tiers:
+                ri["hanging_tiers"] = _tiers
+                ri["indent_type"] = "hanging"
+            # 参考文献条目格式必须写入 levels["reference"]（引擎参考文献条目循环读的就是这个 key，
+            # 不是 ref_item）；GB/T 7714 引用格式标记一并带上，便于引擎自动重排
+            if ri:
+                ri["style"] = "gb7714"
+                ri["format"] = "sequential"
+                levels["reference"] = ri
+            else:
+                levels["reference"] = {"style": "gb7714", "format": "sequential"}
         # 标题样式映射（通用 Heading1/2/3，让引擎识别标题段落）
         heading_styles = {str(i): {"styleId": "Heading%d" % i, "name": "标题 %d" % i}
                           for i in (1, 2, 3)}
