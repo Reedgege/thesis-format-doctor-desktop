@@ -799,11 +799,12 @@ def _ref_number_digits(text):
 
 
 def _ref_entry_spec_for_text(text, base_spec):
-    """根据参考文献条目编号位数返回带正确 hanging_cm 的 spec 副本。
+    """根据参考文献条目编号位数返回带正确悬挂缩进的 spec 副本。
 
-    若 base_spec 含 hanging_tiers（多档悬挂缩进，由批注"编号1-9悬挂缩进0.6厘米
-    编号10-99悬挂缩进0.74厘米..."解析得到），则按条目编号位数选对应档位；
-    否则使用 base_spec.hanging_cm（单档，向后兼容）。无法识别编号时回退首档。
+    若 base_spec 含 hanging_tiers（多档悬挂缩进，由模板批注"编号1-9悬挂缩进0.6厘米
+    编号10-99悬挂缩进0.74厘米..."解析得到，或手动表单按编号位数填写的字符数），
+    则按条目编号位数选对应档位；否则使用 base_spec.hanging_cm/hanging_chars
+    （单档，向后兼容）。无法识别编号时回退首档。
     """
     tiers = (base_spec or {}).get("hanging_tiers")
     if not tiers:
@@ -813,15 +814,20 @@ def _ref_entry_spec_for_text(text, base_spec):
     if digits is not None:
         for tier in tiers:
             if tier.get("digits") == digits:
-                chosen = tier.get("cm")
+                chosen = tier
                 break
         if chosen is None:
             # 编号位数超出已配置档位（如配置到3位但出现4位编号），用最大档位兜底
-            chosen = tiers[-1].get("cm")
+            chosen = tiers[-1]
     else:
-        chosen = tiers[0].get("cm")
+        chosen = tiers[0]
     spec = dict(base_spec)
-    spec["hanging_cm"] = chosen
+    spec.pop("hanging_cm", None)
+    spec.pop("hanging_chars", None)
+    if chosen.get("chars") is not None:
+        spec["hanging_chars"] = chosen["chars"]
+    else:
+        spec["hanging_cm"] = chosen.get("cm")
     return spec
 
 

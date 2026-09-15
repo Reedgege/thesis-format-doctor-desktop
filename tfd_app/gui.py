@@ -683,12 +683,12 @@ class App:
         # v1.1.10：第①步输入方式互斥（学校模板 / 手动填写格式）——二选一，不可混用
         self._mode_frame = tk.Frame(card, bg=PANEL)
         self._mode_frame.pack(fill="x", padx=14, pady=(2, 2))
-        tk.Label(self._mode_frame, text="格式来源", bg=PANEL, fg=MUTED, font=F_FOOT).pack(side="left", padx=(0, 6))
+        tk.Label(self._mode_frame, text="格式来源", bg=PANEL, fg=INK, font=F_SMALL).pack(side="left", padx=(0, 6))
         tk.Radiobutton(self._mode_frame, text="使用学校模板", variable=self.input_mode,
-                       value="template", bg=PANEL, fg=INK, font=F_SMALL,
+                       value="template", bg=PANEL, fg=ACCENT, font=F_SMALL_B,
                        activebackground=PANEL, command=self._set_input_mode).pack(side="left", padx=(2, 8))
         tk.Radiobutton(self._mode_frame, text="手动填写格式", variable=self.input_mode,
-                       value="manual", bg=PANEL, fg=INK, font=F_SMALL,
+                       value="manual", bg=PANEL, fg=ACCENT, font=F_SMALL_B,
                        activebackground=PANEL, command=self._set_input_mode).pack(side="left", padx=(2, 0))
         # 优先级声明（压一行）
         tk.Label(self._mode_frame, text="格式优先级：模板批注 ＞ 样式 ＞ 通用规范；无模板时手动填写",
@@ -1055,10 +1055,11 @@ class App:
         else:
             if self._manual_frame.winfo_ismapped():
                 self._manual_frame.pack_forget()
+            # 关键：用 after= 锚定原始位置，否则重新 pack 会落到卡片底部、打乱上方“格式来源”框顺序
             if not self._template_box.winfo_ismapped():
-                self._template_box.pack(fill="x", padx=14, pady=6)
+                self._template_box.pack(fill="x", padx=14, pady=6, after=self._thesis_box)
             if not self._tpl_info.winfo_ismapped():
-                self._tpl_info.pack(fill="x", padx=14, pady=(4, 2))
+                self._tpl_info.pack(fill="x", padx=14, pady=(4, 2), after=self._mode_frame)
             # 切回模板：清空手动填写状态（已记住配置保留，下次自动载入）
             self._manual_filled = False
             self.manual_profile_path = ""
@@ -1358,7 +1359,7 @@ class App:
             rt["sz"] = sz
             rt["size"] = size
         if rt:
-            levels["ref_title"] = rt
+            levels["reference_heading"] = rt
         ri = {}
         if v.get("ref_i_zh_font"):
             ri["zh_font"] = v["ref_i_zh_font"]
@@ -1372,14 +1373,24 @@ class App:
         if lr:
             ri["line_rule"] = lr
             ri["line_val"] = lv
-        hc = _m_num(v.get("ref_hanging"))
-        if hc is not None:
-            ri["hanging_cm"] = hc
+        # 参考文献条目悬挂缩进：按编号位数三档（字符），与引擎 _ref_entry_spec_for_text 对齐
+        # 同时修掉旧版 ref_hanging 缺 ref_i_ 前缀导致读不到的隐藏 bug
+        _tiers = []
+        for _dig, _key in ((1, "ref_i_hanging_1"), (2, "ref_i_hanging_2"), (3, "ref_i_hanging_3")):
+            _hc = _m_num(v.get(_key))
+            if _hc is not None:
+                _tiers.append({"digits": _dig, "chars": _hc})
+        if _tiers:
+            ri["hanging_tiers"] = _tiers
             ri["indent_type"] = "hanging"
+        # 参考文献条目格式必须写入 levels["reference"]（引擎参考文献条目循环读的就是这个 key，
+        # 不是 ref_item）；GB/T 7714 引用格式标记一并带上，便于引擎自动重排
         if ri:
-            levels["ref_item"] = ri
-        # 参考文献引用格式标记（GB/T 7714 顺序编码制，修正后自动重排）
-        levels["reference"] = {"style": "gb7714", "format": "sequential"}
+            ri["style"] = "gb7714"
+            ri["format"] = "sequential"
+            levels["reference"] = ri
+        else:
+            levels["reference"] = {"style": "gb7714", "format": "sequential"}
         # 标题样式映射（通用 Heading1/2/3，让引擎识别标题段落）
         heading_styles = {str(i): {"styleId": "Heading%d" % i, "name": "标题 %d" % i}
                           for i in (1, 2, 3)}
