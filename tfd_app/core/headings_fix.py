@@ -438,6 +438,17 @@ def _para_needs_fix(p, spec):
         cur_left = ind.get(WR + 'left') if ind is not None else None
         if cur_left is None or abs(int(cur_left) - want_hanging) > 10:
             return True
+    # 悬挂缩进（字符档）：引擎以 w:leftChars/w:hangingChars 写入（字符×100 twips），
+    # 幂等判定原先只比对 hanging_cm，导致走 hanging_chars 的手动三档重跑不生效
+    if spec.get('hanging_chars') is not None:
+        ind = ppr.find(WR + 'ind') if ppr is not None else None
+        want_chars = int(round(_num(spec['hanging_chars']) * 100))
+        cur_hanging = ind.get(WR + 'hangingChars') if ind is not None else None
+        if cur_hanging is None or abs(int(cur_hanging) - want_chars) > 10:
+            return True
+        cur_left = ind.get(WR + 'leftChars') if ind is not None else None
+        if cur_left is None or abs(int(cur_left) - want_chars) > 10:
+            return True
     return False
 
 

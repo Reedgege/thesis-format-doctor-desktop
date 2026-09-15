@@ -1089,23 +1089,27 @@ class App:
     def _set_input_mode(self, *_a):
         """第①步输入方式互斥：学校模板 ↔ 手动填写格式，二选一。"""
         if self.input_mode.get() == "manual":
-            if self._template_box.winfo_ismapped():
+            # 用 winfo_manager()=="pack" 守卫：既能覆盖“启动期已 pack 但未 map”的情况
+            # （避免两区域同时显示），又不会对“从未 pack”的控件（如导师版默认隐藏的手动区）报错
+            if self._template_box.winfo_manager() == "pack":
                 self._template_box.pack_forget()
-            if self._tpl_info.winfo_ismapped():
+            if self._tpl_info.winfo_manager() == "pack":
                 self._tpl_info.pack_forget()
-            if not self._manual_frame.winfo_ismapped():
+            if self._manual_frame.winfo_manager() != "pack":
                 self._manual_frame.pack(fill="x", padx=14, pady=(2, 6), after=self._mode_frame)
         else:
-            if self._manual_frame.winfo_ismapped():
+            if self._manual_frame.winfo_manager() == "pack":
                 self._manual_frame.pack_forget()
             # 关键：用 after= 锚定原始位置，否则重新 pack 会落到卡片底部、打乱上方“格式来源”框顺序
-            if not self._template_box.winfo_ismapped():
+            if self._template_box.winfo_manager() != "pack":
                 self._template_box.pack(fill="x", padx=14, pady=6, after=self._thesis_box)
-            if not self._tpl_info.winfo_ismapped():
+            if self._tpl_info.winfo_manager() != "pack":
                 self._tpl_info.pack(fill="x", padx=14, pady=(4, 2), after=self._mode_frame)
             # 切回模板：清空手动填写状态（已记住配置保留，下次自动载入）
             self._manual_filled = False
             self.manual_profile_path = ""
+            # 清空真正被引擎读取的画像路径，避免沿用刚才的手动画像
+            self.profile_path.set("")
         self._refresh_manual_status()
         self._refresh_wizard()
 
@@ -1144,6 +1148,7 @@ class App:
             self._profile_confirmed = True
             self.root.after(0, self._update_profile_box)
             self.root.after(0, self._refresh_wizard)
+            self.root.after(0, self._refresh_manual_status)
         except Exception as e:
             self._debug("[手动画像构建失败] " + str(e))
             messagebox.showerror("构建失败", "手动格式画像生成失败：%s" % e)
@@ -1437,13 +1442,13 @@ class App:
         # 标题样式映射（通用 Heading1/2/3，让引擎识别标题段落）
         heading_styles = {str(i): {"styleId": "Heading%d" % i, "name": "标题 %d" % i}
                           for i in (1, 2, 3)}
-        # 页面边距（cm → twips）
+        # 页面边距（cm）：写入 *_cm 键、保留厘米值，引擎 _fix_sect_margins 只读 top_cm 等
         page = {}
-        for ck, kk in (("page_top", "top"), ("page_bottom", "bottom"),
-                       ("page_left", "left"), ("page_right", "right")):
+        for ck, cmkey in (("page_top", "top_cm"), ("page_bottom", "bottom_cm"),
+                          ("page_left", "left_cm"), ("page_right", "right_cm")):
             cm = _m_num(v.get(ck))
             if cm is not None:
-                page[kk] = int(round(cm * 567))
+                page[cmkey] = cm
         profile = {
             "source": "手动填写格式",
             "manual": True,
