@@ -273,42 +273,85 @@ _MANUAL_LINE_TYPES = ["单倍行距", "1.5倍行距", "2倍行距", "固定值(�
 
 
 def _build_manual_form():
-    """手动填写格式表单的字段定义：[(分区标题, key, 控件类型, 灰字说明)]。
+    """手动填写格式表单的字段定义：[(字段显示名, key, 控件类型, 灰字说明)]。
 
     控件类型：zh_font/en_font=可手输下拉；size=纯下拉(不可手输)；align=纯下拉；
     bold=勾选；num=数字输入；line_type=纯下拉；line_val=数字输入。
     key=None 表示这是一个分区标题行（不生成输入控件）。
+
+    分区标题仅做层级分组（① 一级标题 / ② 二级标题 / ③ 三级标题 / 正文 / 摘要·标题
+    / 摘要·正文 / 参考文献·标题 / 参考文献·条目 / 页面边距）；每个字段的显示名写「具体
+    类目」（中文字体/英文字体/字号…），不再重复写分区标题，层级一眼看清。
     """
     F = []
     def sec(n):
         F.append((n, None, None, None))
-    for lk, lbl in (("1", "一级标题"), ("2", "二级标题"), ("3", "三级标题")):
-        sec("%s %s" % (lk, lbl))
-        for k, hint in (("zh_font", "中文如 黑体"), ("en_font", "英文如 Times New Roman"),
-                        ("size", "如 小二"), ("align", ""), ("bold", "是否加粗"),
-                        ("before", "段前·磅"), ("after", "段后·磅"),
-                        ("line_type", ""), ("line_val", "固定/最小值时填磅")):
-            F.append((lbl, "%s_%s" % (lk, k), k, hint))
+    # 标题层级：固定 3 级，每级字段相同，仅分区标题区分级别
+    _HEAD = (
+        ("zh_font", "中文字体", "中文如 黑体"),
+        ("en_font", "英文字体", "英文如 Times New Roman"),
+        ("size", "字号", "如 小二"),
+        ("align", "对齐方式", ""),
+        ("bold", "加粗", "是否加粗"),
+        ("before", "段前间距", "单位：磅"),
+        ("after", "段后间距", "单位：磅"),
+        ("line_type", "行距类型", ""),
+        ("line_val", "行距值", "固定/最小值时填磅"),
+    )
+    for lk, lbl in (("1", "① 一级标题"), ("2", "② 二级标题"), ("3", "③ 三级标题")):
+        sec(lbl)
+        for k, flbl, hint in _HEAD:
+            F.append((flbl, "%s_%s" % (lk, k), k, hint))
+    # 正文
     sec("正文")
-    for k, hint in (("zh_font", "中文如 宋体"), ("en_font", "英文如 Times New Roman"),
-                    ("size", "如 小四"), ("align", ""), ("line_type", ""),
-                    ("line_val", "固定/最小值时填磅"), ("indent", "首行缩进·字符")):
-        F.append(("正文", "body_%s" % k, k, hint))
-    sec("摘要")
-    for k, hint in (("zh_font", "中文如 黑体"), ("en_font", "英文如 Times New Roman"),
-                    ("size", "如 小二")):
-        F.append(("摘要标题", "abs_t_%s" % k, k, hint))
-    for k, hint in (("zh_font", "中文如 宋体"), ("en_font", "英文如 Times New Roman"),
-                    ("size", "如 小四"), ("line_type", ""), ("line_val", "固定/最小值时填磅")):
-        F.append(("摘要正文", "abs_%s" % k, k, hint))
-    sec("参考文献（引用格式默认 GB/T 7714 顺序编码制）")
-    for k, hint in (("zh_font", "中文如 黑体"), ("en_font", "英文如 Times New Roman"),
-                    ("size", "如 小四")):
-        F.append(("参考文献标题", "ref_t_%s" % k, k, hint))
-    for k, hint in (("zh_font", "中文如 宋体"), ("en_font", "英文如 Times New Roman"),
-                    ("size", "如 小四"), ("line_type", ""), ("line_val", "固定/最小值时填磅"),
-                    ("hanging", "悬挂缩进·字符")):
-        F.append(("参考文献条目", "ref_i_%s" % k, k, hint))
+    for k, flbl, hint in (
+        ("zh_font", "中文字体", "中文如 宋体"),
+        ("en_font", "英文字体", "英文如 Times New Roman"),
+        ("size", "字号", "如 小四"),
+        ("align", "对齐方式", ""),
+        ("line_type", "行距类型", ""),
+        ("line_val", "行距值", "固定/最小值时填磅"),
+        ("indent", "首行缩进", "单位：字符"),
+    ):
+        F.append((flbl, "body_%s" % k, k, hint))
+    # 摘要
+    sec("摘要·标题")
+    for k, flbl, hint in (
+        ("zh_font", "中文字体", "中文如 黑体"),
+        ("en_font", "英文字体", "英文如 Times New Roman"),
+        ("size", "字号", "如 小二"),
+    ):
+        F.append((flbl, "abs_t_%s" % k, k, hint))
+    sec("摘要·正文")
+    for k, flbl, hint in (
+        ("zh_font", "中文字体", "中文如 宋体"),
+        ("en_font", "英文字体", "英文如 Times New Roman"),
+        ("size", "字号", "如 小四"),
+        ("line_type", "行距类型", ""),
+        ("line_val", "行距值", "固定/最小值时填磅"),
+    ):
+        F.append((flbl, "abs_%s" % k, k, hint))
+    # 参考文献
+    sec("参考文献·标题（引用格式默认 GB/T 7714 顺序编码制）")
+    for k, flbl, hint in (
+        ("zh_font", "中文字体", "中文如 黑体"),
+        ("en_font", "英文字体", "英文如 Times New Roman"),
+        ("size", "字号", "如 小四"),
+    ):
+        F.append((flbl, "ref_t_%s" % k, k, hint))
+    sec("参考文献·条目")
+    for k, flbl, hint in (
+        ("zh_font", "中文字体", "中文如 宋体"),
+        ("en_font", "英文字体", "英文如 Times New Roman"),
+        ("size", "字号", "如 小四"),
+        ("line_type", "行距类型", ""),
+        ("line_val", "行距值", "固定/最小值时填磅"),
+    ):
+        F.append((flbl, "ref_i_%s" % k, k, hint))
+    # 参考文献条目悬挂缩进：按编号位数分三档（字符），与引擎 _ref_entry_spec_for_text 对齐
+    for dig, flbl in ((1, "1-9 条·悬挂缩进"), (2, "10-99 条·悬挂缩进"), (3, "100-999 条·悬挂缩进")):
+        F.append((flbl, "ref_i_hanging_%d" % dig, "num", "单位：字符"))
+    # 页面边距
     sec("页面边距（留空用通用规范 2.5 厘米）")
     for k, lbl, hint in (("top", "上", "厘米"), ("bottom", "下", "厘米"),
                          ("left", "左", "厘米"), ("right", "右", "厘米")):
