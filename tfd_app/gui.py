@@ -91,7 +91,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.119"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.120"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -1073,6 +1073,8 @@ class App:
             # 换了新模板：重新允许提取画像（清除"放弃"标记）
             self._profile_abandoned = False
             self._profile_confirmed = False
+            # v1.3.120：选了模板后刷新向导，按钮文案"按通用规范继续"→"提取模板要求"
+            self._refresh_wizard()
 
     def _clear_profile(self):
         self.profile_path.set("")

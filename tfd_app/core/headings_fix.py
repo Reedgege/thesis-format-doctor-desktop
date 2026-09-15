@@ -581,6 +581,48 @@ def _style_map_from_profile(profile):
     return out
 
 
+def _style_xml_to_hspec(xml_str):
+    """v1.3.120：从模板标题样式定义 xml 片段反推引擎 hspec（字体/对齐/加粗/字号）。
+
+    模板模式下若画像未带该级标题的字体规格（hspec 为空），原逻辑只 _set_style 换样式名，
+    不写 run 字体/段落对齐，导致原稿 run 里的显式宋体 / 左对齐盖掉模板样式，二次检查误报。
+    本函数从模板标题样式定义（已注入 need_defs）取显式声明的要素，供 _format_runs +
+    _set_para_format（含 _heading_needs_fix 幂等判定）真正把格式落进 run 与段落。
+    仅取样式显式声明的要素，未声明的留空由样式继承兜底。"""
+    if not xml_str:
+        return None
+    try:
+        reg_ns()
+        el = ET.fromstring(xml_str)
+    except Exception:
+        return None
+    spec = {}
+    rpr = el.find(WR + "rPr")
+    if rpr is not None:
+        rf = rpr.find(WR + "rFonts")
+        if rf is not None:
+            ea = rf.get(WR + "eastAsia")
+            if ea:
+                spec["zh_font"] = ea
+            asc = rf.get(WR + "ascii") or rf.get(WR + "hAnsi")
+            if asc:
+                spec["en_font"] = asc
+        sz = rpr.find(WR + "sz")
+        if sz is not None and sz.get(WR + "val"):
+            try:
+                spec["sz"] = int(sz.get(WR + "val"))
+            except (ValueError, TypeError):
+                pass
+        if rpr.find(WR + "b") is not None:
+            spec["bold"] = True
+    ppr = el.find(WR + "pPr")
+    if ppr is not None:
+        jc = ppr.find(WR + "jc")
+        if jc is not None and jc.get(WR + "val"):
+            spec["align"] = _align(jc.get(WR + "val"))
+    return spec if spec else None
+
+
 def _inject_style_defs(src, need_defs):
     """把模板的样式定义注入目标 styles.xml，覆盖同名 styleId，返回新 styles.xml 字符串。"""
     reg_ns()
@@ -1595,7 +1637,8 @@ def fix(src, dst, profile=None, add_comments=True):
         # （原 > 会导致“第一章”永远不被格式化，是真实缺陷）。
         _in_body_for_heading = (first_chap is not None and idx >= first_chap
                                 and (ref_start is None or idx < ref_start))
-        if lvl in (1, 2, 3, 4) and idx not in demote_chapter and _in_body_for_heading:
+        if lvl in (1, 2, 3, 4) and idx not in demote_chapter and _in_body_for_heading \
+                and not _looks_like_body_despite_heading_style(txt):
             # 4 级标题（如"2.1.2.1"）若模板无独立样式，回退用 3 级样式承载
             target = style_for.get(lvl) or style_for.get(3)
             if not target:
@@ -1604,9 +1647,14 @@ def fix(src, dst, profile=None, add_comments=True):
             cur = ppr.find(WR + "pStyle").get(WR + "val") if (ppr is not None and ppr.find(WR + "pStyle") is not None) else None
             hspec = _lvl_spec(str(lvl), "h%d" % lvl)
             # v1.3.47：通用模式（未选模板）下标题规格为空时补通用黑体，
-            # 使"按通用规范修正"时标题字体也能落定（模板模式保持 _set_style 不动）
+            # 使"按通用规范修正"时标题字体也能落定。
             if not hspec and not template_exact:
                 hspec = dict(_GENERIC_HEADING)
+            # v1.3.120：模板模式画像未带该级标题字体规格时，从模板标题样式定义反推 hspec，
+            # 真正把字体/对齐落进 run 与段落，而非只换样式名（否则原稿显式宋体/左对齐盖掉模板样式，二次检查误报）。
+            if not hspec and template_exact:
+                _hxml = need_defs.get(target)
+                hspec = _style_xml_to_hspec(_hxml) if _hxml else None
             if hspec:
                 if _heading_needs_fix(p, hspec, target):
                     _format_runs(p, hspec)
@@ -1622,6 +1670,7 @@ def fix(src, dst, profile=None, add_comments=True):
             else:
                 if cur != target:
                     _set_style(p, target)
+                    _set_para_format(p, {}, style_val=target)  # 清直接缩进，让样式生效
                     new_sid, new_name = disp.get(lvl, (target, target))
                     changes.append({
                         "kind": "heading", "text": txt[:60], "level": lvl,
