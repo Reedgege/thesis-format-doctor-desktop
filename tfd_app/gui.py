@@ -91,7 +91,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.120"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.121"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -2017,7 +2017,9 @@ class App:
 
     def _guard_license(self):
         """付费操作前守卫：本地失效立即拦；联网实时校验（次卡扣次、其他卡只校验）。
-        返回 True=放行；False=已拦截。离线放行（不拦不扣）。"""
+        返回 True=放行；False=已拦截。
+        v1.3.121：次卡（type=times）断网时 consume_use 返回 offline，此前不拦不扣，
+        可无限修正；改为次卡离线视为扣次失败并拦截。永久/周卡/月卡保留离线放行。"""
         if license.is_revoked():
             self.root.after(0, self._handle_revoked)
             return False
@@ -2025,6 +2027,13 @@ class App:
         if st in ("revoked", "expired"):
             self.root.after(0, self._handle_revoked)
             return False
+        if st == "offline":
+            # 仅次卡：离线即扣次失败，必须拦截；其余卡种（永久/周/月）离线可正常使用。
+            _lic = license.load_local_license()
+            if (_lic or {}).get("type") == "times":
+                self.root.after(0, lambda: messagebox.showwarning(
+                    "需要联网", "次卡需在联网状态下扣减次数。\n请连接网络后重试。"))
+                return False
         return True
 
     def _do_fix(self, src, docx_path, dst):

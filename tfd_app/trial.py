@@ -148,7 +148,9 @@ def consume_trial():
             json.dump({"machine": machine, "used": used,
                        "sig": _sign(machine, used)}, f, ensure_ascii=False)
     except Exception:
-        pass
+        # v1.3.121：计次文件写盘失败（权限/磁盘/路径异常）→ 扣减失败，按"已用完"拦截，
+        # 与"扣减失败也拦"的计费边界一致（Codex 审查 P2-9）。
+        return False
     return True
 
 
