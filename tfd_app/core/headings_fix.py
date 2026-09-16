@@ -91,6 +91,32 @@ def _is_toc_style(sid, styles_map, heading_sids=None):
     return False
 
 
+def _para_has_toc_field(p):
+    """段落含真实 Word 目录域（TOC 域，或 HYPERLINK _Toc / PAGEREF _Toc 目录条目）则跳过。
+
+    这些段落没有 toc 样式（仍套正文/Normal），也没有 .doc→.docx 的脏残留标记，
+    所以 is_toc_residue / _is_toc_style 都命中不了——但它们就是目录行
+    （'1 绪论 … 12' 那种带页码的条目）。用户要求『目录里的东西不要动』，
+    故在此显式跳过，使其完全不被动，也不被当成正文起点误判首个一级标题。
+    """
+    for it in p.iter(WR + "instrText"):
+        s = (it.text or "").upper()
+        if "TOC" in s or "_TOC" in s:
+            return True
+    return False
+
+
+def _is_toc_para(p, styles_map, heading_sids):
+    """综合判定：目录残留 / 目录样式 / 真实 TOC 域——任一命中即视为目录段。"""
+    t = _text_of(p).strip()
+    if is_toc_residue(t):
+        return True
+    if _is_toc_style(_cur_style_id(p), styles_map, heading_sids):
+        return True
+    if _para_has_toc_field(p):
+        return True
+    return False
+
 
 def _text_of(p):
     return "".join(t.text or "" for t in p.iter(WR + "t"))
@@ -1308,8 +1334,8 @@ def _punctuation_pass(root, first_chap, ref_start, tbl_ps, cap_targets, styles_m
         t = _text_of(p).strip()
         if not t:
             continue
-        # 跳过目录域/书签残留
-        if is_toc_residue(t):
+        # 跳过目录域/书签残留（含真实 Word TOC 域 / _Toc 超链接条目）
+        if is_toc_residue(t) or _para_has_toc_field(p):
             continue
         # 跳过目录样式段
         if _is_toc_style(_cur_style_id(p), styles_map, heading_sids):
@@ -1437,7 +1463,7 @@ def _find_small_text_near_objects(root, body_sz_half_pt, cap_targets,
             continue
         if p in tbl_ps or _has_image(p):
             continue
-        if _is_toc_style(_cur_style_id(p), styles_map):
+        if _is_toc_style(_cur_style_id(p), styles_map) or _para_has_toc_field(p):
             continue
         if is_structural_title(_text_of(p).strip()):
             continue
@@ -1483,7 +1509,7 @@ def _remove_numbering_pass(root, first_chap, ref_start, tbl_ps, cap_targets,
         t = _text_of(p).strip()
         # 空段也处理（可能带 numPr，会产生孤立编号）；其它有文字的段走常规过滤。
         if t:
-            if is_toc_residue(t):
+            if is_toc_residue(t) or _para_has_toc_field(p):
                 continue
             if _is_toc_style(_cur_style_id(p), styles_map, heading_sids):
                 continue
@@ -1591,7 +1617,7 @@ def fix(src, dst, profile=None, add_comments=True):
     ref_start = None
     for i, p in enumerate(paras_list):
         t = _text_of(p).strip()
-        if not t or is_toc_residue(t) or _is_toc_style(_cur_style_id(p), styles_map, heading_sids):
+        if not t or is_toc_residue(t) or _is_toc_style(_cur_style_id(p), styles_map, heading_sids) or _para_has_toc_field(p):
             continue
         lv, _ = detect_heading(t)
         # 一级标题还需满足：要么"第X章"开头，要么是多级编号（含小数点），
@@ -1620,7 +1646,7 @@ def fix(src, dst, profile=None, add_comments=True):
             if _p in tbl_ps:
                 continue
             _t = _text_of(_p).strip()
-            if not _t or is_toc_residue(_t) or _is_toc_style(_cur_style_id(_p), styles_map, heading_sids):
+            if not _t or is_toc_residue(_t) or _is_toc_style(_cur_style_id(_p), styles_map, heading_sids) or _para_has_toc_field(_p):
                 continue
             if is_structural_title(_t):
                 continue
@@ -1687,7 +1713,7 @@ def fix(src, dst, profile=None, add_comments=True):
         if p in tbl_ps:
             continue
         txt = _text_of(p).strip()
-        if is_toc_residue(txt) or _is_toc_style(_cur_style_id(p), styles_map, heading_sids):
+        if is_toc_residue(txt) or _is_toc_style(_cur_style_id(p), styles_map, heading_sids) or _para_has_toc_field(p):
             skipped_residue += 1
             continue
         lvl, conf = detect_heading(txt)
@@ -2020,7 +2046,7 @@ def fix(src, dst, profile=None, add_comments=True):
                         or (_is_head and _hits_end)
                         or _is_appx):
                     break
-            if _is_toc_style(_cur_style_id(p), styles_map, heading_sids):
+            if _is_toc_style(_cur_style_id(p), styles_map, heading_sids) or _para_has_toc_field(p):
                 continue
             if _has_image(p):
                 continue
