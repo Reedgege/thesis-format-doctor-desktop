@@ -44,6 +44,63 @@ _DEFAULT_TEXT_WIDTH_EMU = 5277600
 
 
 _INTEGRITY_TAG = "Q29weXJpZ2h0IChjKSAyMDI2IOiKpuiLh++8iOWxseS4nOWkp+WtpiBNQkHvvIkuIEFsbCByaWdodHMgcmVzZXJ2ZWQuIHwgYnVpbGQ6MjAyNjA4MTkxNjQ5"  # noqa
+# ---------------------------------------------------------------------------
+# 西文 / 拉丁字体处理（模板驱动：英文槽默认字体 + 中文字体识别）
+# ---------------------------------------------------------------------------
+# 中文论文通用规范：学校模板未明确指定英文 / 拉丁字体时，英文统一套用 Times New Roman。
+# 此默认仅作兜底，前端须明确提示客户确认（见 gui._profile_summary / format_profile.profile_summary_block）。
+DEFAULT_EN_FONT = "Times New Roman"
+
+# 常见中文字体名（含简繁 / 异名 / 常见英文拼写）。模板提取时若英文槽(ascii/hAnsi)
+# 识别到的是中文字体，说明 Word 把中文字体同时写进了英文槽（用户在字体框选"宋体"时，
+# eastAsia / ascii / hAnsi 全被填成宋体），不能把它当成英文字体——否则英文会被改写成
+# 宋体（即"摘要英文变宋体"bug 的根因）。命中集合即视为"未指定英文字体"。
+_CJK_FONT_NAMES = {
+    # 简体常用
+    "宋体", "新宋体", "仿宋", "楷体", "黑体", "微软雅黑", "微软雅黑 light",
+    "等线", "华文仿宋", "华文楷体", "华文宋体", "华文中宋", "华文黑体",
+    "方正书宋", "方正黑体", "方正楷体", "方正仿宋", "思源黑体", "思源宋体",
+    "苹方", "文泉驿", "隶书", "幼圆", "琥珀", "姚体",
+    # 常见英文拼写 / 系统字体名
+    "simsun", "nsimsun", "simhei", "kaiti", "kaiti sc", "fangsong", "stfangsong",
+    "stkaiti", "stsong", "stzhongsong", "stxihei", "stheiti", "yahei", "microsoft yahei",
+    "microsoft yahei light", "pingfang sc", "pingfang tc", "source han sans",
+    "source han serif", "noto serif cjk", "noto sans cjk", "dengxian", "fzshusong",
+    "fangzheng", "songti sc", "heiti sc", "kaiti sc", "fangsong gbk",
+}
+
+
+def is_cjk_font(name):
+    """name 是否为中文字体（命中已知中文字体名或其英文拼写变体）。"""
+    if not name:
+        return False
+    n = (name or "").strip()
+    if not n:
+        return False
+    low = n.lower()
+    if low in _CJK_FONT_NAMES:
+        return True
+    # 后缀变体：如 宋体-方正、黑体_GB2312、SimSun-ExtB 等
+    for kw in ("song", "hei", "kai", "fang", "simsun", "simhei", "yahei",
+              "kaiti", "fangsong", "stzhongsong", "stkaiti", "stsong", "stxihei",
+              "pingfang", "source han", "noto serif cjk", "noto sans cjk", "dengxian"):
+        if kw in low:
+            return True
+    return False
+
+
+def normalize_en_font(name):
+    """模板 / 文档读到的英文槽字体：若是中文字体则视为未指定（返回 None），否则原样返回。
+
+    用于提取环节过滤"宋体泄漏进英文槽"；返回 None 后由下游用 DEFAULT_EN_FONT 兜底。
+    """
+    if not name:
+        return None
+    if is_cjk_font(name):
+        return None
+    return name
+
+
 def reg_ns():
     """注册全部命名空间，避免写回 XML 时出现 ns0/ns1 前缀破坏 docx。"""
     ET.register_namespace("w", W)

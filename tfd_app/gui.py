@@ -91,7 +91,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.125"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.126"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -286,6 +286,11 @@ def _build_manual_form():
     F = []
     def sec(n):
         F.append((n, None, None, None))
+    # 全局默认：英文字体（中文论文通用规范 Times New Roman）。留空则所有类目继承此默认；
+    # 任一类目单独填写后覆盖全局。满足"全局默认 + 每类可覆盖"的设计（用户已确认）。
+    sec("全局默认（留空=通用规范）")
+    F.append(("英文字体（默认 Times New Roman）", "global_en_font", "en_font",
+              "所有类目的英文/拉丁字体默认取值；某类目单独填了则覆盖此项"))
     # 标题层级：固定 3 级，每级字段相同，仅分区标题区分级别
     _HEAD = (
         ("zh_font", "中文字体", "中文如 黑体"),
@@ -453,6 +458,8 @@ def _profile_summary(profile):
         font = body.get("zh_font") or body.get("font")
         if font:
             parts.append("字体 %s" % font)
+        _ben = body.get("en_font")
+        parts.append("英文 %s" % (_ben if _ben else "Times New Roman(默认)"))
         size = body.get("size")
         if size:
             parts.append("字号 %s" % size)
@@ -485,6 +492,8 @@ def _profile_summary(profile):
         font = h.get("zh_font") or h.get("font")
         if font:
             parts.append("字体 %s" % font)
+        _hen = h.get("en_font")
+        parts.append("英文 %s" % (_hen if _hen else "Times New Roman(默认)"))
         size = h.get("size")
         if size:
             parts.append("字号 %s" % size)
@@ -505,8 +514,13 @@ def _profile_summary(profile):
                        ("table", "表格"), ("figure", "插图"), ("footnote", "脚注")):
         v = levels.get(key) or spec.get(key)
         if isinstance(v, dict) and v:
-            s = "，".join("%s %s" % (k, val) for k, val in list(v.items())[:4])
-            lines.append("· %s：%s" % (label, s))
+            _f = v.get("zh_font") or v.get("font")
+            _e = v.get("en_font")
+            _parts = []
+            if _f:
+                _parts.append("中文字体 %s" % _f)
+            _parts.append("英文 %s" % (_e if _e else "Times New Roman(默认)"))
+            lines.append("· %s：%s" % (label, "，".join(_parts)))
         elif isinstance(v, str) and v.strip():
             lines.append("· %s：%s" % (label, v.strip()[:40]))
 
@@ -1150,6 +1164,11 @@ class App:
         init：已记住/上次填写的表单值，用于预填。
         """
         result = {"ok": False, "values": {}}
+        # 全局英文字体预填默认 Times New Roman（与 docxutils.DEFAULT_EN_FONT 一致），
+        # 用户在弹窗里可直接确认或改为其它拉丁字体；各类目留空即继承此项。
+        if not (init or {}).get("global_en_font"):
+            init = dict(init or {})
+            init["global_en_font"] = "Times New Roman"
         top = tk.Toplevel(self.root)
         top.title("手动填写格式要求")
         top.configure(bg=PAPER)
@@ -1363,12 +1382,15 @@ class App:
             return ALIGN_CODE.get(disp)
 
         levels = {}
+        # 全局英文字体：所有类目未单独填写时继承此项（默认 Times New Roman，见 _build_manual_form）
+        g_en = v.get("global_en_font")
         for lk in ("1", "2", "3"):
             spec = {}
             if v.get("%s_zh_font" % lk):
                 spec["zh_font"] = v["%s_zh_font" % lk]
-            if v.get("%s_en_font" % lk):
-                spec["en_font"] = v["%s_en_font" % lk]
+            _ef = v.get("%s_en_font" % lk) or g_en
+            if _ef:
+                spec["en_font"] = _ef
             sz, size = _m_sz(v.get("%s_size" % lk))
             if sz:
                 spec["sz"] = sz
@@ -1394,8 +1416,9 @@ class App:
         body = {}
         if v.get("body_zh_font"):
             body["zh_font"] = v["body_zh_font"]
-        if v.get("body_en_font"):
-            body["en_font"] = v["body_en_font"]
+        _ef = v.get("body_en_font") or g_en
+        if _ef:
+            body["en_font"] = _ef
         sz, size = _m_sz(v.get("body_size"))
         if sz:
             body["sz"] = sz
@@ -1417,8 +1440,9 @@ class App:
         at = {}
         if v.get("abs_t_zh_font"):
             at["zh_font"] = v["abs_t_zh_font"]
-        if v.get("abs_t_en_font"):
-            at["en_font"] = v["abs_t_en_font"]
+        _ef = v.get("abs_t_en_font") or g_en
+        if _ef:
+            at["en_font"] = _ef
         sz, size = _m_sz(v.get("abs_t_size"))
         if sz:
             at["sz"] = sz
@@ -1428,8 +1452,9 @@ class App:
         ab = {}
         if v.get("abs_zh_font"):
             ab["zh_font"] = v["abs_zh_font"]
-        if v.get("abs_en_font"):
-            ab["en_font"] = v["abs_en_font"]
+        _ef = v.get("abs_en_font") or g_en
+        if _ef:
+            ab["en_font"] = _ef
         sz, size = _m_sz(v.get("abs_size"))
         if sz:
             ab["sz"] = sz
@@ -1448,8 +1473,9 @@ class App:
             rt = {}
             if v.get("ref_t_zh_font"):
                 rt["zh_font"] = v["ref_t_zh_font"]
-            if v.get("ref_t_en_font"):
-                rt["en_font"] = v["ref_t_en_font"]
+            _ef = v.get("ref_t_en_font") or g_en
+            if _ef:
+                rt["en_font"] = _ef
             sz, size = _m_sz(v.get("ref_t_size"))
             if sz:
                 rt["sz"] = sz
@@ -1459,8 +1485,9 @@ class App:
             ri = {}
             if v.get("ref_i_zh_font"):
                 ri["zh_font"] = v["ref_i_zh_font"]
-            if v.get("ref_i_en_font"):
-                ri["en_font"] = v["ref_i_en_font"]
+            _ef = v.get("ref_i_en_font") or g_en
+            if _ef:
+                ri["en_font"] = _ef
             sz, size = _m_sz(v.get("ref_i_size"))
             if sz:
                 ri["sz"] = sz

@@ -56,7 +56,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from docxutils import (load_styles, load, margins, tables, WR, detect_heading,
                        is_toc_residue, style_xml, comments, extract_comment_specs,
                        is_body_style_name, is_reference_heading, is_structural_title,
-                       classify_structural_title)
+                       classify_structural_title, normalize_en_font, DEFAULT_EN_FONT)
 
 __author__ = "芦苇"
 __copyright__ = "Copyright (c) 2026 芦苇（山东大学 MBA）"
@@ -89,10 +89,16 @@ def _style_spec(info):
         spec["zh_font"] = rpr["eastAsia"]
     elif rpr.get("ascii"):
         spec["zh_font"] = rpr["ascii"]
+    # 英文槽归一化：Word 选"宋体"时会把宋体同时写进 ascii/hAnsi（英文槽），
+    # 不能直接当地英文字体，否则英文会被改成宋体；命中中文字体则视为未指定，下游用 TNR 兜底。
     if rpr.get("hAnsi"):
-        spec["en_font"] = rpr["hAnsi"]
+        _ef = normalize_en_font(rpr["hAnsi"])
+        if _ef:
+            spec["en_font"] = _ef
     elif rpr.get("ascii"):
-        spec["en_font"] = rpr["ascii"]
+        _ef = normalize_en_font(rpr["ascii"])
+        if _ef:
+            spec["en_font"] = _ef
     if rpr.get("sz"):
         try:
             spec["sz"] = int(rpr["sz"])
@@ -551,19 +557,25 @@ def profile_summary_block(profile):
         font = ls.get("zh_font") or ls.get("font") or h.get("font") or ""
         sz = ls.get("size") or ls.get("sz") or h.get("size") or ""
         al = ls.get("align") or ""
+        _enf = ls.get("en_font")
+        _enf_disp = (_enf if _enf else "%s（默认，模板未指定）" % DEFAULT_EN_FONT)
         _frag = []
         if sid:
             _frag.append("样式 `%s`" % sid)
         else:
             _frag.append("样式（未提取）")
-        _frag.append("字体 %s" % (font or "—"))
+        _frag.append("中文字体 %s" % (font or "—"))
+        _frag.append("英文字体 %s" % _enf_disp)
         _frag.append("字号 %s" % (_pt(sz) if sz else "—"))
         if al:
             _frag.append("对齐 %s" % al)
         L.append("- %s L%s：%s" % (_lvl_names.get(lvl, lvl), lvl, " ｜ ".join(_frag)))
     b = levels.get("body") or {}
+    _benf = b.get("en_font")
+    _benf_disp = (_benf if _benf else "%s（默认，模板未指定）" % DEFAULT_EN_FONT)
     _bf = []
-    _bf.append("字体 %s" % (b.get("zh_font") or b.get("font") or "—"))
+    _bf.append("中文字体 %s" % (b.get("zh_font") or b.get("font") or "—"))
+    _bf.append("英文字体 %s" % _benf_disp)
     _bf.append("字号 %s" % (_pt(b.get("size") or b.get("sz")) if (b.get("size") or b.get("sz")) else "—"))
     _bf.append("首行缩进 %s" % (b.get("indent_chars") or b.get("firstLineChars") or "—"))
     _bf.append("行距 %s" % (b.get("line_val") or b.get("line") or "—"))

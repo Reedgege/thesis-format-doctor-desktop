@@ -37,7 +37,8 @@ from docxutils import (load, detect_heading, write_docx_files, to_doc_xml, WR,
                        _DEFAULT_TEXT_WIDTH_EMU,
                        replace_punct_in_paragraph, punct_counts_summary, punct_total,
                        ensure_comments_part, add_comment_marker, max_comment_id,
-                       _looks_like_body_despite_heading_style)
+                       _looks_like_body_despite_heading_style,
+                       DEFAULT_EN_FONT, normalize_en_font, is_cjk_font)
 from report_docx import write_change_report
 import format_checker  # 复用检查报告的"需手动"项，确保修改明细与检查报告同源、逐条对齐
 
@@ -206,6 +207,16 @@ def _fix_sect_margins(root, profile):
     return bool(changed), changed
 
 
+def _eff_en(spec):
+    """取 spec 的有效英文字体：模板/批注显式指定的拉丁字体优先；若指定的是中文字体
+    （旧版写坏的 profile 残留、或手动误填）一律视为无效，回退中文论文通用规范 Times New Roman。
+    双保险：即使 en_font 槽混入了宋体，英文也绝不会被写成中文字体。"""
+    raw = (spec or {}).get('en_font')
+    if raw and not is_cjk_font(raw):
+        return raw
+    return DEFAULT_EN_FONT
+
+
 def _set_run_rpr(run, spec):
     """按批注 spec 重写 run 的 rPr：字体(中/西)、字号、加粗。直接格式化优先于样式继承。
     含图片(w:drawing/w:pict)的 run 不触碰——避免向图片注入字体/字号导致渲染异常。"""
@@ -214,6 +225,8 @@ def _set_run_rpr(run, spec):
     # v1.3.121：spec 只含段落级字段（align/缩进/段距/行距）而无 run 级字段
     # （zh_font/en_font/bold/sz）时，不改写 run 的 rPr，避免清空原显式字体/字号
     # （标题 hspec 仅含 align 时若照旧重写会抹掉原字体/字号，造成二次修正损坏）。
+    # 注：en_font 缺失时仍用 DEFAULT_EN_FONT 兜底（英文统一 Times New Roman），
+    # 故此处不再以 en_font 显式存在作为改写前提。
     if not (spec.get('zh_font') or spec.get('en_font') or spec.get('bold') or spec.get('sz')):
         return
     old = run.find(WR + 'rPr')
@@ -223,8 +236,9 @@ def _set_run_rpr(run, spec):
     fonts = {}
     if spec.get('zh_font'):
         fonts['eastAsia'] = spec['zh_font']
-    if spec.get('en_font'):
-        fonts.update({'ascii': spec['en_font'], 'hAnsi': spec['en_font'], 'cs': spec['en_font']})
+    # 英文槽统一用有效英文字体（默认 Times New Roman，绝不填中文字体，根绝"英文变宋体"）
+    _en = _eff_en(spec)
+    fonts.update({'ascii': _en, 'hAnsi': _en, 'cs': _en})
     if fonts:
         rf = ET.SubElement(rpr, WR + 'rFonts')
         for k, v in fonts.items():
@@ -391,12 +405,11 @@ def _para_needs_fix(p, spec):
             _cur_zh = rf.get(WR + 'eastAsia') if rf is not None else None
             if _cur_zh != spec['zh_font']:
                 return True
-        # v1.3.121：西文字体检查——模板要求西文字体（如 Times New Roman）时，
-        # 若 run 的 ascii/hAnsi 不符也判需改（此前只检查中文字体，导致西文不换）。
-        if spec.get('en_font'):
-            _cur_en = (rf.get(WR + 'ascii') or rf.get(WR + 'hAnsi')) if rf is not None else None
-            if _cur_en != spec['en_font']:
-                return True
+        # 西文字体检查：始终按有效英文字体（默认 Times New Roman）比对，
+        # 避免英文残留中文字体（如"摘要英文变宋体"）或异常字体；模板未指定时按 TNR 兜底。
+        _cur_en = (rf.get(WR + 'ascii') or rf.get(WR + 'hAnsi')) if rf is not None else None
+        if _cur_en != _eff_en(spec):
+            return True
         sz = rpr.find(WR + 'sz')
         # v1.3.80：字号漏判修复——run 无 <w:sz>（字号继承自样式）同样视为需改。
         if spec.get('sz'):
@@ -517,10 +530,10 @@ def _heading_needs_fix(p, hspec, target):
                 _cur_zh = rf.get(WR + "eastAsia") if rf is not None else None
                 if _cur_zh is not None and _cur_zh != hspec["zh_font"]:
                     return True
-            if hspec.get("en_font"):
-                _cur_en = (rf.get(WR + "ascii") or rf.get(WR + "hAnsi")) if rf is not None else None
-                if _cur_en is not None and _cur_en != hspec["en_font"]:
-                    return True
+            # 始终按有效英文字体（默认 TNR）比对，避免英文残留中文字体或异常字体
+            _cur_en = (rf.get(WR + "ascii") or rf.get(WR + "hAnsi")) if rf is not None else None
+            if _cur_en is not None and _cur_en != _eff_en(hspec):
+                return True
             if hspec.get("sz"):
                 sz = rpr.find(WR + "sz")
                 _cur_sz = sz.get(WR + "val") if sz is not None else None
@@ -646,7 +659,10 @@ def _style_xml_to_hspec(xml_str):
                 spec["zh_font"] = ea
             asc = rf.get(WR + "ascii") or rf.get(WR + "hAnsi")
             if asc:
-                spec["en_font"] = asc
+                # 归一化：Word 把中文字体(宋体等)同时写进英文槽，不能直接当地英文字体
+                _ef = normalize_en_font(asc)
+                if _ef:
+                    spec["en_font"] = _ef
         sz = rpr.find(WR + "sz")
         if sz is not None and sz.get(WR + "val"):
             try:
