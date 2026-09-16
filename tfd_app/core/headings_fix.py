@@ -38,6 +38,7 @@ from docxutils import (load, detect_heading, write_docx_files, to_doc_xml, WR,
                        replace_punct_in_paragraph, punct_counts_summary, punct_total,
                        ensure_comments_part, add_comment_marker, max_comment_id)
 from report_docx import write_change_report
+import format_checker  # 复用检查报告的"需手动"项，确保修改明细与检查报告同源、逐条对齐
 
 __author__ = "芦苇"
 __copyright__ = "Copyright (c) 2026 芦苇（山东大学 MBA）"
@@ -2175,7 +2176,7 @@ def fix(src, dst, profile=None, add_comments=True):
     return applied, low_conf, skipped_residue, (sorted(need_defs), template_exact, has_outline, tmpl_name, already_ok, comment_count)
 
 
-def _render(applied, low_conf, skipped_residue, style_info, dst):
+def _render(applied, low_conf, skipped_residue, style_info, dst, manual_items=None):
     used_styles, template_exact, has_outline, tmpl_name, already_ok, comment_count = style_info
     lines = ["# 标题样式套用报告", ""]
     mode = "【按学校模板真实样式】" if template_exact else "【通用 Heading 样式】"
@@ -2238,10 +2239,18 @@ def _render(applied, low_conf, skipped_residue, style_info, dst):
     if skipped_residue:
         lines.append("")
         lines.append(f"## 已跳过 {skipped_residue} 处目录域/书签残留（脏数据，未套样式）")
+    if manual_items:
+        lines.append("")
+        lines.append(f"## 待手动处理（本工具暂不自动修正，共 {len(manual_items)} 项）")
+        lines.append("")
+        lines.append("> 以下项本工具暂不自动修正，请对照学校模板手动调整；与「格式校验报告」的（二）需手动处理项一一对应。")
+        lines.append("")
+        for sev, msg in manual_items:
+            lines.append(f"- **[{sev}]** {msg}")
     return "\n".join(lines)
 
 
-def _build_change_docx(applied, low_conf, skipped_residue, style_info, dst_docx):
+def _build_change_docx(applied, low_conf, skipped_residue, style_info, dst_docx, manual_items=None):
     """生成 Word 版修改明细，供客户逐条验收。"""
     used_styles, template_exact, has_outline, tmpl_name, already_ok, comment_count = style_info
     all_c = applied + low_conf
@@ -2290,6 +2299,9 @@ def _build_change_docx(applied, low_conf, skipped_residue, style_info, dst_docx)
     else:
         summary.append("⚠ 提示：所套用的学校标题样式未含 Word 大纲级别，Word 可能无法据此自动生成目录；"
                        "如需一键出目录请告知，我可改用「套样式+补大纲级别」方案。")
+    if manual_items:
+        summary.append(f"另有 {len(manual_items)} 项本工具暂不自动修正（表格三线化、结构页等），"
+                       "已列于表格末尾「待手动处理」行，需对照学校模板手动调整。")
 
     columns = [("序号", 700), ("类型", 1000), ("修改前", 2100),
                ("修改后", 2100), ("内容摘要", 2260), ("置信度", 900)]
@@ -2302,6 +2314,9 @@ def _build_change_docx(applied, low_conf, skipped_residue, style_info, dst_docx)
         if r.get("kind") == "punctuation" and r.get("para_index") is not None:
             text_disp = f"[第{r['para_index']}段] {r['text']}"
         rows.append([str(i), _type_label(r), r["old"], new_disp, text_disp, conf])
+    # 待手动处理项：与检查报告（二）同源（均来自 format_checker.collect_manual_items）
+    for j, (sev, msg) in enumerate(manual_items or [], len(all_c) + 1):
+        rows.append([str(j), "待手动处理", "—", "需对照模板手动处理", msg, sev])
     write_change_report(
         dst_docx,
         title="论文格式修改明细（标题与正文）",
@@ -2358,7 +2373,13 @@ def main():
     if "--report" in sys.argv:
         report_path = sys.argv[sys.argv.index("--report") + 1]
     applied, low_conf, skipped, sinfo = fix(src, dst, profile, add_comments=add_comments)
-    report = _render(applied, low_conf, skipped, sinfo, dst)
+    # 复用检查报告的"需手动"项（表格三线化/结构页等），确保修改明细与检查报告同源对齐
+    _manual_items = []
+    try:
+        _manual_items = format_checker.collect_manual_items(dst, profile)
+    except Exception:
+        _manual_items = []
+    report = _render(applied, low_conf, skipped, sinfo, dst, manual_items=_manual_items)
     # 模板驱动：报告开头展示"从学校模板提取到了什么"，画像为空时明确警告
     if profile:
         try:
@@ -2368,7 +2389,7 @@ def main():
             pass
     print(report)
     if report_path:
-        _build_change_docx(applied, low_conf, skipped, sinfo, report_path)
+        _build_change_docx(applied, low_conf, skipped, sinfo, report_path, manual_items=_manual_items)
         print(f"\n[已生成修改明细报告] {report_path}")
 
 

@@ -668,6 +668,55 @@ def check_structural_pages(paras, stats):
     return issues
 
 
+def _diagnose(path, profile):
+    """对文档做完整诊断，返回 (all_issues, struct_issues, st)。
+    内部复用，供 main / collect_manual_items 共用，保证同一份口径。"""
+    z, root = docxutils.load(path)
+    paras = docxutils.paragraphs(root)
+    st = collect_stats(z, root, paras)
+    all_issues = []
+    all_issues += check_headings(paras)
+    if not profile:
+        all_issues += check_heading_styles(st)
+    all_issues += check_three_line(st['tables'])
+    if not profile:
+        all_issues += check_fonts(st['font_c'])
+        all_issues += check_sizes(st['sz_c'])
+        all_issues += check_indent(st['body_total'], st['body_no_indent'])
+    if not profile:
+        all_issues += check_margins(st['margins'])
+    all_issues += check_punct(paras)
+    all_issues += check_references(paras)
+    all_issues += check_captions(paras, st['tables'])
+    struct_issues = check_structural_pages(paras, st)
+    if profile:
+        all_issues += template_driven_checks(paras, st, profile)
+    all_issues.sort(key=lambda x: SEV_ORDER.get(x[0], 3))
+    return all_issues, struct_issues, st
+
+
+def _split_issues(all_issues):
+    """按【引擎真实能力】把问题分成（一）可自动修正 /（二）需手动处理。
+    引擎实际能自动处理：标题样式、正文格式、题注、半角标点、页边距、参考文献重排。
+    引擎暂不自动处理：表格三线化、结构页（封面/声明/目录/附录）。
+    曾把"参考文献/题注"误列为需手动，造成检查报告与修改明细自相矛盾，现已纠正。"""
+    _manual_kw = ("三线", "表格线", "封面", "声明", "结构页",
+                  "附录", "原创性声明")
+    _auto = [(s, m) for s, m in all_issues if not any(k in m for k in _manual_kw)]
+    _manual = [(s, m) for s, m in all_issues if any(k in m for k in _manual_kw)]
+    return _auto, _manual
+
+
+def collect_manual_items(path, profile=None):
+    """返回本工具暂不自动修正的问题项 [(severity, msg)]。
+    供修改明细报告复用，确保与检查报告（二）同源、逐条对应。"""
+    try:
+        all_issues, _, _ = _diagnose(path, profile)
+        return _split_issues(all_issues)[1]
+    except Exception:
+        return []
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -684,34 +733,7 @@ def main():
             profile = json.load(f)
     # 数据入口防御：兼容 {lvl:"StyleId"} 旧式写法与规范式，避免消费端 .get 崩溃
     profile = docxutils.normalize_heading_styles(profile)
-    z, root = docxutils.load(path)
-    paras = docxutils.paragraphs(root)
-    st = collect_stats(z, root, paras)
-
-    all_issues = []
-    all_issues += check_headings(paras)
-    # 有模板画像时，标题样式归属由 template_driven_checks 按学校指定样式判定，
-    # 不应再用通用"自定义样式告警"误报（按模板套用 toc 样式本就是正确做法）。
-    if not profile:
-        all_issues += check_heading_styles(st)
-    all_issues += check_three_line(st['tables'])
-    # 模板驱动模式下，字体/字号/缩进由 template_driven_checks 按批注精确核对，
-    # 关闭通用"字体随意混用/字号过多/正文缩进"的启发式检查，避免封面/标题引发的误报。
-    if not profile:
-        all_issues += check_fonts(st['font_c'])
-        all_issues += check_sizes(st['sz_c'])
-        all_issues += check_indent(st['body_total'], st['body_no_indent'])
-    # 页边距在模板驱动模式下由 template_driven_checks 按批注精确核对，关闭通用近似检查避免重复告警。
-    if not profile:
-        all_issues += check_margins(st['margins'])
-    all_issues += check_punct(paras)
-    all_issues += check_references(paras)
-    all_issues += check_captions(paras, st['tables'])
-    # 结构页只读诊断（封面/摘要/声明/目录）——不修改文件，独立分组展示
-    struct_issues = check_structural_pages(paras, st)
-    if profile:
-        all_issues += template_driven_checks(paras, st, profile)
-    all_issues.sort(key=lambda x: SEV_ORDER.get(x[0], 3))
+    all_issues, struct_issues, st = _diagnose(path, profile)
 
     if json_out:
         obj = {
@@ -770,18 +792,15 @@ def main():
         _sc = Counter(s for s, _ in all_issues)
         L.append(f'- 严重程度分布：🔴高危 **{_sc.get("高", 0)}** · 🟡中危 **{_sc.get("中", 0)}** · 🟢低危 **{_sc.get("低", 0)}**')
     L.append('')
-    # 分层：把问题分成"本工具可自动修正"（标题/正文/题注/标点，一键修正已处理或可处理）
-    # 与"需手动处理"（表格三线化/参考文献/结构页，本工具暂不自动修正）。
-    # 这样"改完再查"时，残留清单不再像一堆未修复的错，而是清楚的"已处理 + 待手动"。
-    _manual_kw = ("三线", "表格", "参考文献", "GB/T", "封面", "声明", "目录", "结构页",
-                  "附录", "原创性", "题注", "致谢")
-    def _is_manual(msg):
-        return any(k in msg for k in _manual_kw)
-    _auto_issues = [(s, m) for s, m in all_issues if not _is_manual(m)]
-    _manual_issues = [(s, m) for s, m in all_issues if _is_manual(m)]
+    # 分层：依据【引擎真实能力】把问题分成"本工具可自动修正"与"需手动处理"。
+    # 引擎实际能自动处理的：标题样式、正文格式、题注、半角标点、页边距、参考文献重排（GB/T 7714）。
+    # 引擎暂不自动处理的：表格三线化、结构页（封面/声明/目录/附录）。
+    # 注：曾把"参考文献/题注"误列为需手动，造成检查报告与修改明细自相矛盾，现已纠正。
+    _auto_issues, _manual_issues = _split_issues(all_issues)
     L.append('## 一、问题清单（按严重度）')
     L.append('')
-    L.append('> 本工具自动处理：标题样式、正文格式、题注、半角标点；暂不自动处理：表格三线化、参考文献重排、结构页（封面/声明/目录）。')
+    L.append('> 本工具自动处理：标题样式、正文格式、题注、半角标点、页边距、参考文献重排（GB/T 7714）；'
+             '暂不自动处理：表格三线化、结构页（封面/声明/目录/附录），需对照模板手动调整。')
     L.append('')
     L.append('### （一）本工具可自动修正（一键修正已处理 / 可处理）')
     L.append('')
@@ -833,10 +852,11 @@ def main():
         L.append('> ✨ 格式已达标，无需修正。')
     else:
         if _manual_issues:
-            L.append('> 💡 （二）"需手动处理"项为表格三线化、参考文献重排、结构页等本工具暂不自动修正的类别，'
-                     '可对照学校模板手动调整；其中参考文献可单独用"参考文献重排"功能按 GB/T 7714 规范。')
+            L.append('> 💡 （二）"需手动处理"项为表格三线化、结构页（封面/声明/目录/附录）等本工具暂不自动修正的类别，'
+                     '可对照学校模板手动调整。')
         if _auto_issues:
-            L.append('> ℹ️ （一）"可自动修正"项已在一键修正中处理；若仍列出，说明本次未覆盖，可再次修正或反馈。')
+            L.append('> ℹ️ （一）"可自动修正"项（标题样式、正文格式、题注、半角标点、页边距、参考文献重排）已在一键修正中处理；'
+                     '若仍列出，说明本次未覆盖，可再次修正或反馈。')
     report = '\n'.join(L)
     if out:
         with open(out, 'w', encoding='utf-8') as f:
