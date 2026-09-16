@@ -80,9 +80,40 @@ jobs:
           python tools/make_portable_assets.py --dist "dist\论文格式医生（免安装版）" --exe "1.论文格式医生.exe" --install-sub "ThesisFormatDoctor" --product "论文格式医生"
 
       # Windows：用 NSIS 把 standalone 文件夹打成单个安装器 exe（用户双击安装、得一个图标）。
+      # 2026-09-16 修复：choco 社区源在 GitHub runner 上偶发不可达，导致 makensis 缺失、
+      # 安装包步骤偶发失败。改为「官方包直下（确定性）+ choco 兜底 + 重试」。
       - name: Install NSIS (Windows)
         if: matrix.os == 'windows'
-        run: choco install nsis --no-progress
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $nsisDir = "C:\Program Files (x86)\NSIS"
+          if (Test-Path "$nsisDir\makensis.exe") { Write-Host "NSIS already present"; exit 0 }
+          $ok = $false
+          # 主方案：直接下载官方 NSIS 便携包（规避 choco 社区源偶发不可达）
+          try {
+            $zip = "$env:TEMP\nsis.zip"
+            for ($a = 1; $a -le 3; $a++) {
+              try { Invoke-WebRequest -Uri "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip" -OutFile $zip -TimeoutSec 180; break }
+              catch { Start-Sleep -Seconds 8 }
+            }
+            Expand-Archive -Path $zip -DestinationPath "$env:TEMP\nsis_ext" -Force
+            $mk = Get-ChildItem "$env:TEMP\nsis_ext" -Recurse -Filter "makensis.exe" | Select-Object -First 1
+            if ($mk) {
+              New-Item -ItemType Directory -Force -Path $nsisDir | Out-Null
+              Copy-Item "$($mk.Directory.FullName)\*" $nsisDir -Recurse -Force
+              $ok = $true
+            }
+          } catch { Write-Host "direct download failed: $_" }
+          # 兜底：choco
+          if (-not $ok) {
+            for ($i = 1; $i -le 3; $i++) {
+              try { choco install nsis -y --no-progress; if (Test-Path "$nsisDir\makensis.exe") { $ok = $true; break } }
+              catch { Start-Sleep -Seconds 8 }
+            }
+          }
+          if (-not (Test-Path "$nsisDir\makensis.exe")) { throw "NSIS 安装失败" }
+          & "$nsisDir\makensis.exe" /VERSION
 
       # 注意：此步骤必须用 pwsh 而非 bash。Git Bash(MSYS) 会把 /DVERSION=...
       # 误当成路径转换成 C:/Program Files/Git/DVERSION=...，导致 makensis 找不到脚本。
