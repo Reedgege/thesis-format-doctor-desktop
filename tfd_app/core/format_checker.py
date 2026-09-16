@@ -461,6 +461,21 @@ def template_driven_checks(paras, stats, profile):
         rpr = p.get("rpr") or {}
         ppr = p.get("pPr") or {}
 
+        # v1.3.125：标题核查必须与 headings-fix 完全对齐，否则会凭空制造"字体应为黑体"
+        # 等误报，导致检查报告与修改明细对不上（用户实测：表格数据 80.92 / 列表项 1.利用…
+        # / 章概述长句 第三章通过研究分析… 被反复列成"标题应为黑体"）。三道闸与修正器一致：
+        #  (a) 表格内段落：修正器整体跳过表格，表格数据不该当标题；
+        #  (b) 正文特征明显的段落（长句/句末标点/论证短语）：修正器已降级为正文；
+        #  (c) 正文区之外（首个一级标题之前 / 参考文献之后）：修正器不套标题样式。
+        if p.get("in_table"):
+            continue
+        if docxutils._looks_like_body_despite_heading_style(t):
+            continue
+        _in_body_heading = (first_chap is not None and idx >= first_chap
+                            and (ref_start is None or idx < ref_start))
+        if not _in_body_heading:
+            continue
+
         if lvl in (1, 2, 3):
             hs = (profile.get("headingStyles") or {}).get(str(lvl)) or {}
             exp_sid = hs.get("styleId")
@@ -802,7 +817,7 @@ def main():
     L.append('> 本工具自动处理：标题样式、正文格式、题注、半角标点、页边距、参考文献重排（GB/T 7714）；'
              '暂不自动处理：表格三线化、结构页（封面/声明/目录/附录），需对照模板手动调整。')
     L.append('')
-    L.append('### （一）本工具可自动修正（一键修正已处理 / 可处理）')
+    L.append('### （一）本工具可自动修正（一键修正会处理；仅做检查时尚未改动，请先执行一键修正）')
     L.append('')
     if not _auto_issues:
         L.append('✅ 无（相关维度已符合模板要求）。')

@@ -36,7 +36,8 @@ from docxutils import (load, detect_heading, write_docx_files, to_doc_xml, WR,
                        load_styles, WPR, AR, PICR, EMU_PER_TWIP, EMU_PER_CM,
                        _DEFAULT_TEXT_WIDTH_EMU,
                        replace_punct_in_paragraph, punct_counts_summary, punct_total,
-                       ensure_comments_part, add_comment_marker, max_comment_id)
+                       ensure_comments_part, add_comment_marker, max_comment_id,
+                       _looks_like_body_despite_heading_style)
 from report_docx import write_change_report
 import format_checker  # 复用检查报告的"需手动"项，确保修改明细与检查报告同源、逐条对齐
 
@@ -1354,50 +1355,6 @@ def _is_heading_para(p, styles_map, heading_sids):
             return True
         if sid in ("Heading1", "Heading2", "Heading3"):
             return True
-    return False
-
-
-def _looks_like_body_despite_heading_style(text):
-    """v1.3.5：段落虽套有 Heading 样式，但内容明显是正文，应降级为正文。
-
-    判定条件（满足任一即视为误套标题样式的正文）：
-      - 段落以句号/问号/感叹号/分号结尾（完整句子特征）；
-      - 段落长度 > 30 字（标题通常较短）；
-      - 不含任何标题编号特征（非"第X章/节"、非"1 / 1.1 / 1.1.1"多级编号、
-        非"一、二、"等），且文本不以英文字母+数字编号开头。
-
-    返回 True 表示"像正文，应降级"。
-    """
-    t = (text or "").strip()
-    if not t:
-        return False
-    # v1.3.121：强标题前缀豁免（即便超长或带句末标点）——避免真实长章标题被误降级
-    # （Codex 审查指出的长标题 >30 字误判正文）。以"第X章/节/篇/编"或多级编号
-    # (1.1/2.3.1) 或中文序数(一、二、)开头的段落，默认判为标题而非正文。
-    # v1.3.123：但"第X章…"后接的是完整分析/论证句（含"通过…分析/得出/因此/从而/
-    # 综上所述/本文认为"等论证性短语），实为章节内容概述而非标题，不应套 Heading 样式。
-    # 例："第三章通过研究分析H证券公司…外部环境，得出现阶段…可通过…获得有利的机会
-    # 和避开不利的威胁"——这是正文误被识别成一级标题。仅当去除章序号后的"标题残余"
-    # 不含论证短语时才豁免（保持真实长标题为标题，不误伤 v1.3.121）。
-    m_chap = re.match(r"^第[一二三四五六七八九十百千\d]+[章篇编节]\s*", t)
-    if m_chap:
-        tail = t[m_chap.end():]
-        _explain = re.search(
-            r"(通过.{0,12}分析|得出|因此|从而|综上所述|本文认为|本文|笔者|可见|研究发现|我们(认为|发现))",
-            tail)
-        if not _explain:
-            return False  # 标题形态，保持为标题（豁免降级）
-        # 含论证短语 → 落到下方按长句/句末标点判定，多半判为正文
-    if re.match(r"^\d+\.\d+", t):
-        return False
-    if re.match(r"^[一二三四五六七八九十百千]+、", t):
-        return False
-    # 完整句子结尾
-    if t[-1] in "。！？；.!?;":
-        return True
-    # 长度超阈值（v1.3.123：纯编号/序数标题不受影响；第X章+论证短语已先走正文判定）
-    if len(t) > 30:
-        return True
     return False
 
 
