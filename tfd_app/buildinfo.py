@@ -10,4 +10,4 @@
 发布时改**两处**即可：本文件的 ``APP_VERSION`` + 仓库根 ``VERSION`` 文件；
 ``tests/test_assets.py`` 会断言两者一致（含界面源码里不得再出现写死版本号）。
 """
-APP_VERSION = "1.3.127"
+APP_VERSION = "1.3.128"

@@ -1278,7 +1278,7 @@ def _existing_comment_texts(z, p):
     return out
 
 
-def _apply_comments(z, root, changes, replacements):
+def _apply_comments(z, root, changes, replacements, author=None):
     """为 changes 中每个带 `_para` 段落引用的 change 添加 Word 批注。
 
     批注 ID 从文档现有最大 ID + 1 开始，绝不覆盖已有批注（学校模板批注/导师批注）。
@@ -1589,7 +1589,7 @@ def _remove_numbering_pass(root, first_chap, ref_start, tbl_ps, cap_targets,
     return changes
 
 
-def fix(src, dst, profile=None, add_comments=True):
+def fix(src, dst, profile=None, add_comments=True, author=None):
     # 数据入口防御：兼容 {lvl:"StyleId"} 旧式写法与规范式，避免消费端 .get 崩溃
     profile = normalize_heading_styles(profile)
     z, root = load(src)
@@ -1972,6 +1972,11 @@ def fix(src, dst, profile=None, add_comments=True):
             for i, p in enumerate(paras_list):
                 if p in tbl_ps:
                     continue
+                # v1.3.128：目录条目（如「摘要I」「ABSTRACTII」）含页码后缀，
+                # 会被 classify_structural_title 误判为摘要标题；此处显式跳过任何
+                # 目录样式/目录域段落，保证目录零触碰。
+                if _is_toc_style(_cur_style_id(p), styles_map) or _para_has_toc_field(p):
+                    continue
                 _t = _text_of(p).strip()
                 if not _t:
                     continue
@@ -2037,6 +2042,10 @@ def fix(src, dst, profile=None, add_comments=True):
                 for _j in range(_i + 1, _end):
                     _cp = paras_list[_j]
                     if _cp in tbl_ps:
+                        continue
+                    # 目录条目不应被上一结构页标题的内容 sweep 覆盖（如「摘要I」标题后
+                    # 的「ABSTRACTII」目录条目被误当摘要内容）。
+                    if _is_toc_style(_cur_style_id(_cp), styles_map) or _para_has_toc_field(_cp):
                         continue
                     _ct = _text_of(_cp).strip()
                     if not _ct or _has_image(_cp):
