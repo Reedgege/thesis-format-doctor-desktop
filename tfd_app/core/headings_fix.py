@@ -1316,6 +1316,53 @@ def _apply_comments(z, root, changes, replacements):
     return n
 
 
+def _detach_elem(root, el):
+    """xml.etree.ElementTree 无 getparent()，用遍历找到 el 的父元素并移除它。"""
+    for parent in root.iter():
+        for child in list(parent):
+            if child is el:
+                parent.remove(child)
+                return
+
+
+def _strip_our_comments(z, root, replacements, author):
+    """fix 开头清掉本工具上次加的批注，使重跑（第二/三遍）输出干净：
+    已修正的段落不再残留旧批注气泡。仅按作者名识别本工具批注
+    （author 或 author+'·提示'），保留用户/学校模板原有批注。
+    返回被清理的批注条数。"""
+    base = author or "论文格式医生"
+    try:
+        croot = ET.fromstring(z.read("word/comments.xml"))
+    except Exception:
+        return 0
+    our_ids = set()
+    for c in croot.findall(WR + "comment"):
+        a = c.get(WR + "author") or ""
+        if a == base or a.startswith(base + "·"):
+            cid = c.get(WR + "id")
+            if cid is not None:
+                our_ids.add(cid)
+    if not our_ids:
+        return 0
+    # 清 comments.xml 中的本工具批注
+    for c in list(croot.findall(WR + "comment")):
+        if c.get(WR + "id") in our_ids:
+            croot.remove(c)
+    replacements["word/comments.xml"] = to_doc_xml(croot)
+    # 清 document.xml 中的批注标记：commentRangeStart / commentRangeEnd / commentReference
+    for p in root.iter(WR + "p"):
+        for el in list(p):
+            if el.tag in (WR + "commentRangeStart", WR + "commentRangeEnd") and el.get(WR + "id") in our_ids:
+                p.remove(el)
+        for r in p.iter(WR + "r"):
+            for cr in list(r.iter(WR + "commentReference")):
+                if cr.get(WR + "id") in our_ids:
+                    # 仅移除 commentReference 元素本身（通常独占一个空 run），
+                    # 不删整个 run，避免误删含文字的 run。
+                    r.remove(cr)
+    return len(our_ids)
+
+
 def _punctuation_pass(root, first_chap, ref_start, tbl_ps, cap_targets, styles_map, heading_sids):
     """正文段落半角→全角标点替换（独立 pass，在正文格式套用之后执行）。
 
@@ -2147,11 +2194,14 @@ def fix(src, dst, profile=None, add_comments=True):
     applied = [c for c in changes if c["conf"] >= 0.8]
     low_conf = [c for c in changes if c["conf"] < 0.8]
 
+    # ---- 清掉本工具上次加的批注，使重跑输出干净（格式已对的段第二/三遍不再残留气泡）----
+    if add_comments:
+        _strip_our_comments(z, root, replacements, author)
     # ---- Word 批注：为每个有对应段落的 change 添加批注（默认开启）----
     # 批注 ID 从文档现有最大 ID+1 开始，不覆盖已有批注（学校模板/导师批注）。
     comment_count = 0
     if add_comments:
-        comment_count = _apply_comments(z, root, changes, replacements)
+        comment_count = _apply_comments(z, root, changes, replacements, author=author)
 
     replacements["word/document.xml"] = to_doc_xml(root)
     # 题注/脚注 pass 可能已往 replacements 写入 footnotes.xml，这里以 document 为基准并集

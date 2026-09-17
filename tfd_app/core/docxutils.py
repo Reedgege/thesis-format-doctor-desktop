@@ -1145,7 +1145,15 @@ def ensure_comments_part(z, replacements):
     若文档已有 comments.xml，直接返回已解析的 root。
     """
     reg_ns()
-    comments_root = _ensure_comments_xml(z)
+    # fix 开头若已清理过本工具上次加的旧批注（写入 replacements["word/comments.xml"]），
+    # 以清理后的为准，否则会把旧批注又合并回来，导致第二/三遍重跑残留旧气泡。
+    if replacements and "word/comments.xml" in replacements:
+        try:
+            comments_root = ET.fromstring(replacements["word/comments.xml"])
+        except Exception:
+            comments_root = _ensure_comments_xml(z)
+    else:
+        comments_root = _ensure_comments_xml(z)
 
     # 注册 [Content_Types].xml
     ct_name = '[Content_Types].xml'
