@@ -45,6 +45,7 @@ from . import engine, license
 
 
 ICON = os.path.join(HERE, "assets", "icon.png")
+ICON_ICO = os.path.join(HERE, "assets", "icon.ico")
 QRCODE = os.path.join(HERE, "assets", "qrcode.png")
 MINIAPP_QRCODE = os.path.join(HERE, "assets", "miniapp_qrcode.png")
 MINIAPP_NAME = "芦苇论文格式"
@@ -91,7 +92,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.130"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.131"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -554,8 +555,15 @@ class App:
         except tk.TclError:
             pass
         try:
-            if os.path.isfile(ICON):
-                self.root.iconphoto(True, tk.PhotoImage(file=ICON))
+            if sys.platform.startswith("win"):
+                # Windows 下用原生 .ico 的 iconbitmap 更可靠，保证任务栏图标与 exe 文件图标一致
+                if os.path.isfile(ICON_ICO):
+                    self.root.iconbitmap(ICON_ICO)
+            else:
+                # macOS/Linux 仍用 PNG PhotoImage；保留 Python 引用防 GC 导致图标消失
+                if os.path.isfile(ICON):
+                    self._icon_photo = tk.PhotoImage(file=ICON)
+                    self.root.iconphoto(True, self._icon_photo)
         except Exception:
             pass
 
