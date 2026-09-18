@@ -18,8 +18,8 @@ import hashlib
 
 from .license import LICENSE_DIR, get_machine_code  # 相对导入：与 gui 同款，打包后可用
 
-# 试用总次数（可调：卖家用）。2026-09-12 老板定：1 次免费试用，第 2 次起弹购买引导。
-TRIAL_LIMIT = 1
+# 试用总次数（可调：卖家用）。2026-09-12 老板定：2 次免费试用，第 3 次起弹购买引导。
+TRIAL_LIMIT = 2
 
 TRIAL_FILE = os.path.join(LICENSE_DIR, "trial.json")
 

@@ -91,7 +91,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.129"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.130"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -2051,6 +2051,9 @@ class App:
         if license.is_revoked():
             self.root.after(0, self._handle_revoked)
             return False
+        # v1.3.130：次卡扣次需连中台验证额度；仅次卡提示，永久/周/月静默（不影响使用）
+        if (license.load_local_license() or {}).get("type") == "times":
+            self._set_status("正在验证激活额度，请稍后…", MUTED)
         st = license.consume_use()
         if st in ("revoked", "expired"):
             self.root.after(0, self._handle_revoked)
@@ -2079,6 +2082,8 @@ class App:
             ok = self._ask_trial_confirm(left)  # 主线程弹"修正前提示"
             if not ok:
                 return False
+            # v1.3.130：试用扣减需连中台核验/登记（堵白嫖）；先提示正在验证，避免误判卡死
+            self._set_status("正在验证试用额度，请稍后…", MUTED)
             if not trial.consume_trial():
                 # v1.3.84：扣减失败（计数文件被篡改锁定/损坏/写入失败）→ 按已用完拦截。
                 # 此前返回值被忽略：篡改 trial.json 使其"损坏"后，每次都不扣次数仍放行，
@@ -2167,10 +2172,10 @@ class App:
                 "试用次数已用完",
                 "本机试用已满 %d 次。\n\n"
                 "正式版激活后：不限次数修正、输出无水印文档、一键交稿。\n\n"
-                "获取激活码：请关注公众号【芦苇不熬夜】（ID：reedskill）或联系客服。\n"
-                "激活教程与购买方式详见官网 reedskill.com。\n"
-                "激活码购买与激活问题，公众号留言即可。" % trial.TRIAL_LIMIT,
-                [("ok", "知道了")])
+                "推荐购买：微信扫上方小程序码，或搜索小程序【%s】，付款后自动发码。\n"
+                "也可关注公众号【芦苇不熬夜】（ID：reedskill）或前往官网 reedskill.com 购买。\n"
+                "激活码购买与激活问题，公众号留言即可。" % (trial.TRIAL_LIMIT, MINIAPP_NAME),
+                [("ok", "知道了")], image_path=MINIAPP_QRCODE)
             ev.set()
 
         self.root.after(0, show)
@@ -2256,7 +2261,7 @@ class App:
         self._show_fix_done(dst, (base + "_检查报告.docx") if chk else None,
                            base + "_修改报告.docx")
 
-    def _modal(self, title, text, buttons):
+    def _modal(self, title, text, buttons, image_path=None):
         result = {"v": None}
         top = tk.Toplevel(self.root)
         top.title(title)
@@ -2267,6 +2272,20 @@ class App:
                                  self.root.winfo_rooty() + 120))
         tk.Label(top, text=text, bg=PAPER, fg=BODY, font=F_BODY, justify="left",
                  wraplength=480).pack(padx=24, pady=(20, 14))
+        # v1.3.130：可选二维码（如试用用完窗口放小程序购买码）；资源缺失自动跳过，不影响其余内容
+        if image_path and os.path.isfile(image_path):
+            try:
+                _img = tk.PhotoImage(file=image_path)
+                _img = _img.subsample(max(1, round(_img.width() / 130)))
+                _qr = tk.Frame(top, bg=PAPER)
+                _qr.pack(pady=(0, 6))
+                _qrlbl = tk.Label(_qr, image=_img, bg=PAPER)
+                _qrlbl.image = _img   # 保留引用，防被 GC 后图片消失
+                _qrlbl.pack()
+                tk.Label(_qr, text="微信扫一扫，直接购买激活码",
+                         bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(6, 0))
+            except Exception:
+                pass
         fr = tk.Frame(top, bg=PAPER)
         fr.pack(pady=(0, 18))
         for key, label in buttons:
