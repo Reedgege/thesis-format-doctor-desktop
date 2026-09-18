@@ -46,6 +46,25 @@ from . import engine, license
 
 ICON = os.path.join(HERE, "assets", "icon.png")
 ICON_ICO = os.path.join(HERE, "assets", "icon.ico")
+
+def _apply_app_icon(win, as_default=False):
+    """给窗口套用应用图标（羽毛）。as_default=True 时同时设为所有后续顶层窗口
+    (Toplevel) 的默认图标。**必须在窗口显示前调用**——否则最先弹出的窗口（如
+    「激活窗」）会退回 Tk 默认图标，任务栏图标就和软件(exe)图标不一致了。"""
+    try:
+        if sys.platform.startswith("win") and os.path.isfile(ICON_ICO):
+            win.iconbitmap(ICON_ICO)
+            if as_default:
+                win.iconbitmap(default=ICON_ICO)
+        elif os.path.isfile(ICON):
+            _img = tk.PhotoImage(file=ICON)
+            win.iconphoto(False, _img)
+            if as_default:
+                win.iconphoto(True, _img)
+            win._app_icon_ref = _img      # 保留引用防 GC，否则图标会退回默认
+    except Exception:
+        pass
+
 QRCODE = os.path.join(HERE, "assets", "qrcode.png")
 MINIAPP_QRCODE = os.path.join(HERE, "assets", "miniapp_qrcode.png")
 MINIAPP_NAME = "芦苇论文格式"
@@ -92,7 +111,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.131"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.132"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -2547,6 +2566,7 @@ def show_activation(root, show_trial=True):
     """
     result = {"v": "quit"}
     top = tk.Toplevel(root)
+    _apply_app_icon(top)
     top.title("激活 · 论文格式医生")
     top.configure(bg=PAPER)
     top.resizable(False, False)
@@ -2997,6 +3017,8 @@ def main():
             pass
     root = tk.Tk()
     _init_fonts(root)
+    # 在任何窗口（激活窗/主窗）出现之前先设好图标，否则任务栏会先显示 Tk 默认图标
+    _apply_app_icon(root, as_default=True)
     root.withdraw()
     if (not license.check_local_valid()) or license.is_revoked():
         # v1.3.58：未激活（或被后台撤销）时弹激活窗，但提供"先试用"入口（不进主界面则退出）
