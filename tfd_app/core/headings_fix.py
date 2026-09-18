@@ -132,6 +132,38 @@ def _set_style(p, style_val):
     ps.set(WR + "val", style_val)
 
 
+def _resolve_heading_style(target, styles_map, lvl):
+    """把画像/兜底的标题 styleId 解析成『当前文档里真实存在』的 styleId。
+
+    根因修复（v1.3.129）：画像里的标题 styleId（如山大模板真实的 00001d / 000022 /
+    000010）往往不存在于学生稿的 styles.xml。若直接 _set_style 写进段落，Word 打开时
+    把未定义样式按 Normal 渲染，标题『看着像无样式』，且下一遍 cur(孤儿id) ≠ target
+    必然重新标注 → 一/二级标题非幂等（用户实测复现）。
+
+    解析顺序：
+      ① 画像 id 本身已在文档样式表中 → 直接用（最常见，已存在则不动）；
+      ② 按级别名匹配文档里真实存在的标题样式（name 含 'heading N' / '标题 N' /
+         'N级标题'，且排除 toc/目录）→ 复用学生稿原生标题样式，渲染与模板一致；
+      ③ 仍解析不出 → 退回传入的 target（保持旧行为，不崩溃）。
+
+    apply 与 _heading_needs_fix 必须走同一解析，才能保证 pass1 写入的 id == pass2
+    判等用的 id → 幂等。
+    """
+    if not target:
+        return target
+    if target in (styles_map or {}):
+        return target
+    want = str(int(lvl)) if isinstance(lvl, (int, float)) else str(lvl)
+    for sid, info in (styles_map or {}).items():
+        nm = (info.get("name") or "").strip().lower()
+        if not nm or "toc" in nm or "目录" in nm:
+            continue
+        if nm in (f"heading {want}", f"标题 {want}",
+                  f"heading{want}", f"标题{want}", f"{want}级标题"):
+            return sid
+    return target
+
+
 def _num(v, default=0):
     """安全取数值：兼容 int/float/数字字符串/带单位字符串（如 '2字符'、'20磅'）。
 
@@ -1779,9 +1811,12 @@ def fix(src, dst, profile=None, add_comments=True, author=None):
         if lvl in (1, 2, 3, 4) and idx not in demote_chapter and _in_body_for_heading \
                 and not _looks_like_body_despite_heading_style(txt):
             # 4 级标题（如"2.1.2.1"）若模板无独立样式，回退用 3 级样式承载
-            target = style_for.get(lvl) or style_for.get(3)
-            if not target:
+            target_raw = style_for.get(lvl) or style_for.get(3)
+            if not target_raw:
                 continue
+            # 解析成文档里真实存在的标题样式 id：山大模板真实 styleId（00001d 等）
+            # 常不在学生稿中，直接写会成孤儿 id → 看着像无样式且下一遍重标。
+            target = _resolve_heading_style(target_raw, styles_map, lvl)
             ppr = p.find(WR + "pPr")
             cur = ppr.find(WR + "pStyle").get(WR + "val") if (ppr is not None and ppr.find(WR + "pStyle") is not None) else None
             hspec = _lvl_spec(str(lvl), "h%d" % lvl)
@@ -1792,13 +1827,14 @@ def fix(src, dst, profile=None, add_comments=True, author=None):
             # v1.3.120：模板模式画像未带该级标题字体规格时，从模板标题样式定义反推 hspec，
             # 真正把字体/对齐落进 run 与段落，而非只换样式名（否则原稿显式宋体/左对齐盖掉模板样式，二次检查误报）。
             if not hspec and template_exact:
-                _hxml = need_defs.get(target)
+                _hxml = need_defs.get(target_raw)
                 hspec = _style_xml_to_hspec(_hxml) if _hxml else None
             if hspec:
                 if _heading_needs_fix(p, hspec, target):
                     _format_runs(p, hspec)
                     _set_para_format(p, hspec, style_val=target)
-                    new_sid, new_name = disp.get(lvl, (target, target))
+                    new_sid = target
+                    new_name = (disp.get(lvl) or (target, target))[1]
                     changes.append({
                         "kind": "heading", "text": txt[:60], "level": lvl,
                         "old": cur if cur else "（无/自定义样式）", "new": new_sid,
@@ -1810,7 +1846,8 @@ def fix(src, dst, profile=None, add_comments=True, author=None):
                 if cur != target:
                     _set_style(p, target)
                     _set_para_format(p, {}, style_val=target)  # 清直接缩进，让样式生效
-                    new_sid, new_name = disp.get(lvl, (target, target))
+                    new_sid = target
+                    new_name = (disp.get(lvl) or (target, target))[1]
                     changes.append({
                         "kind": "heading", "text": txt[:60], "level": lvl,
                         "old": cur if cur else "（无/自定义样式）", "new": new_sid,
