@@ -612,6 +612,169 @@ def check_local_valid():
     return True
 
 
+# ---------------------------------------------------------------------------
+# 版本公告（公共端点 GET /api/version?product=xxx，无需授权）+ 启动一次性核验
+# 对齐海外版：启动时后台线程一次联网核对「授权 + 版本」，有效则置位内存可信标志，
+# 之后修正走免联网快路径（不卡顿）。
+# ---------------------------------------------------------------------------
+VERSION_PATH = "/api/version"
+
+
+def _http_get_json(path, timeout=4):
+    """GET JSON，返回 (resp_dict_or_None, error_or_None)。网络错误返回 error。"""
+    url = API_BASE + path
+    prev = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(timeout)
+    try:
+        req = urllib.request.Request(
+            url, method="GET", headers={"User-Agent": "tfd-desktop/1.0"})
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8", "ignore")), None
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read().decode("utf-8", "ignore")), None
+        except Exception:
+            return None, "HTTP %s" % e.code
+    except Exception as e:
+        return None, str(e)
+    finally:
+        socket.setdefaulttimeout(prev)
+
+
+def _parse_version_tuple(v):
+    """把 "1.3.134" 解析成 (1, 3, 134) 用于比较；非法段按 0 处理。"""
+    out = []
+    for part in (v or "").split("."):
+        try:
+            out.append(int(part))
+        except Exception:
+            out.append(0)
+    return tuple(out) if out else (0,)
+
+
+def _check_latest_version():
+    """公共版本端点（无需激活码）；失败软降级为 None（绝不阻塞启动）。"""
+    resp, err = _http_get_json(
+        "%s?product=%s" % (VERSION_PATH, urllib.parse.quote(DEFAULT_PRODUCT)), 4)
+    if err or not isinstance(resp, dict):
+        return None
+    return resp
+
+
+# 国内版下载站域名。中台若未配置本产品的 PRODUCT_RELEASES，会回退到 global（海外版
+# 2.3.x + paperformatpro.com 下载页）→ 国内版会给客户误报「发现新版本 2.3.x」。
+_OWN_HOST = "reedskill.com"
+
+
+def _version_is_ours(info):
+    """中台返回的版本信息是否属于本产品（防跨产品误报更新）。
+
+    判定：带 download_url 且属于本站域名才算数；没有下载页 / 是海外站 → 一律丢弃
+    版本信息（等价于「无更新」），宁可不提示也不误报。
+    """
+    if not isinstance(info, dict):
+        return False
+    url = (info.get("download_url") or "").lower()
+    return bool(url) and _OWN_HOST in url
+
+
+def _version_info_from(hb=None, public=None, current_version=""):
+    """合并心跳 / 公共端点的版本字段；缺失或不属于本产品则 update_available=False。"""
+    src = {}
+    for cand in (public, hb):
+        if _version_is_ours(cand):
+            src.update(cand)                # 后写入的心跳字段优先
+    latest = src.get("latest_version") or src.get("version")
+    url = src.get("download_url")
+    min_v = src.get("min_version")
+    update_available = False
+    if latest:
+        try:
+            update_available = (_parse_version_tuple(latest)
+                                > _parse_version_tuple(current_version))
+        except Exception:
+            update_available = False
+    return {"latest_version": latest, "download_url": url,
+            "min_version": min_v, "update_available": update_available}
+
+
+# 启动一次性核验成功后的内存可信标志：在线激活核对为 active 后方置位，
+# 之后修正走免联网快路径。仅进程内有效，重启重新核验；离线宽限/未核验不置位。
+_launch_verified_active = False
+
+
+def is_launch_verified():
+    """启动是否已一次性核验过在线授权（供修正门禁判断可否免联网）。"""
+    return bool(_launch_verified_active)
+
+
+def refresh_license_on_launch(current_version=""):
+    """启动调用（后台线程，非阻塞）：一次核对授权 + 版本。
+
+    返回 {checked, activated, revoked, locked, offline, network_unreachable,
+          version:{latest_version, download_url, min_version, update_available}}。
+    - 离线激活码（Ed25519）：永不触网，本地可信、不锁。
+    - 在线激活码：心跳核对吊销；active → 置位内存可信标志（之后修正免联网）。
+    - 网络不可达：network_unreachable=True，离线宽限不锁（对齐海外版）。
+    - 未激活（试用）：不做授权核对，但公共版本端点仍给更新提示。
+    """
+    global _launch_verified_active
+    lic = load_local_license()
+    version = _version_info_from(public=_check_latest_version(),
+                                 current_version=current_version)
+
+    if not lic or not check_local_valid():
+        return {"checked": False, "activated": False,
+                "revoked": bool(is_revoked()), "locked": False,
+                "offline": False, "network_unreachable": False,
+                "version": version}
+
+    if lic.get("offline"):
+        # 离线授权（Ed25519 本地验签）：永不触网，本地可信不锁。
+        return {"checked": False, "activated": True, "revoked": False,
+                "locked": False, "offline": True,
+                "network_unreachable": False, "version": version}
+
+    card = lic.get("code")
+    if not card:
+        return {"checked": False, "activated": True, "revoked": False,
+                "locked": False, "offline": True,
+                "network_unreachable": False, "version": version}
+
+    resp, err = _http_json(
+        HEARTBEAT_PATH,
+        {"product": lic.get("product") or DEFAULT_PRODUCT,
+         "code": card, "machine_code": get_machine_code()},
+        4,
+    )
+    if err or not resp or not resp.get("ok"):
+        # 网络不可达 / 服务器异常 → 离线宽限：不锁、不打扰
+        _launch_verified_active = False
+        return {"checked": False, "activated": True, "revoked": False,
+                "locked": False, "offline": True,
+                "network_unreachable": True, "version": version}
+
+    st = resp.get("status")
+    if st in ("revoked", "expired"):
+        _mark_revoked_local()
+        _launch_verified_active = False
+        return {"checked": True, "activated": False, "revoked": True,
+                "locked": True, "offline": False,
+                "network_unreachable": False,
+                "version": _version_info_from(
+                    hb=resp, public=version, current_version=current_version)}
+
+    # active：刷新本地过期时间 + 置位可信标志（之后修正免联网）
+    if resp.get("expires_at") is not None:
+        _update_expire_local(resp.get("expires_at"))
+    _launch_verified_active = True
+    return {"checked": True, "activated": True, "revoked": False,
+            "locked": False, "offline": False, "network_unreachable": False,
+            "version": _version_info_from(
+                hb=resp, public=version, current_version=current_version)}
+
+
 if __name__ == "__main__":
     # 直接运行可查看本机机器码（调试用）
     print("本机机器码：", get_machine_code())

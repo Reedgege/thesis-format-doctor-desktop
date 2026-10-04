@@ -8,7 +8,7 @@
   - 简单防篡改：used 用 机器码+固定密钥 算 HMAC 签名，普通用户改数字无效；
   - 有激活码（license.check_local_valid() 通过）→ 正式版，不走试用。
 
-试用输出：修正后的 docx 带水印（页眉页脚 + 正文穿插），见 watermark.py。
+试用输出：修正后的 docx 不带水印（与海外版对齐：试用即正式体验，干净不脏）。
 """
 import os
 import time
@@ -18,8 +18,8 @@ import hashlib
 
 from .license import LICENSE_DIR, get_machine_code  # 相对导入：与 gui 同款，打包后可用
 
-# 试用总次数（可调：卖家用）。2026-09-12 老板定：2 次免费试用，第 3 次起弹购买引导。
-TRIAL_LIMIT = 2
+# 试用总次数（可调：卖家用）。2026-10 老板定：1 次免费试用，用完弹购买引导；试用不带水印（与海外版对齐）。
+TRIAL_LIMIT = 1
 
 TRIAL_FILE = os.path.join(LICENSE_DIR, "trial.json")
 

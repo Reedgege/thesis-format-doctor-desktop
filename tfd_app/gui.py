@@ -25,10 +25,13 @@ import time
 import queue
 import tempfile
 import hashlib
+import re
 import threading
 import subprocess
 import shutil
 import webbrowser
+import urllib.parse
+import urllib.request
 
 # 把 tfd_app 加入搜索路径（打包成 exe 后 sys.path 已含，但开发态下保险）
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -36,7 +39,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 from . import trial       # v1.3.56：试用计数（机器码绑定，2 次）——相对导入，PyInstaller 才收集
-from . import watermark   # v1.3.56：试用水印（页眉页脚+正文穿插）
+# 2026-10：试用水印已移除——试用即正式版体验，输出无水印（与海外版对齐）。
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import tkinter.font as tkfont
@@ -685,6 +688,9 @@ class App:
             lbl.bind("<Leave>", lambda e: lbl.config(fg=ACCENT))
             return lbl
 
+        _link(topbar, "反 馈", self._feedback_dialog).pack(side="right")
+        tk.Label(topbar, text="｜", bg=PAPER, fg="#c9c0ae",
+                 font=("Microsoft YaHei", 12)).pack(side="right", padx=(0, 8))
         _link(topbar, "帮 助", lambda: show_help(self.root)).pack(side="right")
         tk.Label(topbar, text="｜", bg=PAPER, fg="#c9c0ae",
                  font=("Microsoft YaHei", 12)).pack(side="right", padx=(0, 8))
@@ -2078,8 +2084,13 @@ class App:
         if license.is_revoked():
             self.root.after(0, self._handle_revoked)
             return False
+        _lic = license.load_local_license() or {}
+        # 启动已一次性核验成功（对齐海外版「内存可信标志」）且非次卡 → 免联网直接放行：
+        # 修正不必再等一次网络往返，点「修正」立刻开工。次卡必须联网扣次，不在此列。
+        if license.is_launch_verified() and _lic.get("type") != "times":
+            return True
         # v1.3.130：次卡扣次需连中台验证额度；仅次卡提示，永久/周/月静默（不影响使用）
-        if (license.load_local_license() or {}).get("type") == "times":
+        if _lic.get("type") == "times":
             self._set_status("正在验证激活额度，请稍后…", MUTED)
         st = license.consume_use()
         if st in ("revoked", "expired"):
@@ -2098,7 +2109,7 @@ class App:
         # 授权实时校验（防退款撤销/到期/次卡用尽）+ 次卡联网扣次
         if not self._guard_license():
             return False
-        # v1.3.56 试用版：未激活时只能试 N 次，输出带水印；用完弹升级引导。
+        # v1.3.56 试用版：未激活时只能试 N 次（现 1 次），输出即正式版格式（无水印）；用完弹升级引导。
         # 返回 True=已产出修正；False=被试用拦截（次数用完/客户取消），不进入完成态。
         licensed = trial.is_licensed()
         if not licensed:
@@ -2148,13 +2159,7 @@ class App:
                 report = (report or "") + "\n\n> 参考文献已按 GB/T 7714 自动重排。"
         except Exception as e:
             self._debug("[参考文献重排跳过] " + str(e))
-        if not licensed:
-            # 试用版：给修正后的论文加水印+只读保护，并让客户知道正式版可编辑无水印
-            if watermark.apply_watermark(dst):
-                report += ("\n\n> 本预览版带水印且为【只读】文档（编辑需密码，仅作效果预览）；"
-                           "激活码解锁后输出可编辑无水印正式版，可一键交稿。\n")
-            else:
-                self._debug("[试用水印注入失败，已跳过]")
+        # 2026-10：试用改为「一次即正式版体验」—— 输出无水印可编辑文档（与海外版对齐），不再加试用水印。
         self._debug(report)
         # 修改明细报告若因引擎内报告环节异常未落盘，置空（主交付物已修正论文不受影响）
         if rep and not os.path.isfile(rep):
@@ -2179,9 +2184,9 @@ class App:
         def show():
             box["ok"] = messagebox.askyesno(
                 "试用版提示",
-                "当前为试用版（本机剩余 %d 次），修正后的论文将带水印，且为只读预览文档"
-                "（编辑需密码）。\n\n"
-                "正式版输出可编辑无水印文档，可一键交稿。\n\n是否继续？" % left,
+                "当前为试用版（本机剩余 %d 次），可完整体验一次一键修正，输出即正式版格式"
+                "（无水印、可编辑）。\n\n"
+                "正式版不限次数修正、可一键交稿。\n\n是否继续？" % left,
                 parent=self.root)
             ev.set()
 
@@ -2524,6 +2529,173 @@ class App:
         self._set_status(status, ERRC)
         self._modal(title, body, [("ok", "知道了")])
 
+    # ------------------------------------------------------------ 意见反馈
+    # 提交到中台 /api/feedback → 邮件（正文会标「学生版」来源）；断网/失败回落 mailto:。
+    FEEDBACK_ENDPOINT = "https://api.reedskill.com/api/feedback"
+
+    @staticmethod
+    def _is_valid_email(email):
+        """宽松够用的邮箱格式校验（仅反馈收集用，不做严格 RFC 校验）。"""
+        if not email or "@" not in email:
+            return False
+        return re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email) is not None
+
+    @staticmethod
+    def _feedback_post(email, message, version):
+        """POST 到中台 /api/feedback；任何异常 / 非 2xx / ok=false 一律返回 False
+        （fail-soft，交给 _feedback_deliver 走 mailto 兜底）。"""
+        payload = {"email": email or "", "message": message,
+                   "app": license.DEFAULT_PRODUCT, "version": version or ""}
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                App.FEEDBACK_ENDPOINT, data=data, method="POST",
+                headers={"Content-Type": "application/json",
+                         "User-Agent": "tfd-desktop/%s" % (version or "")})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                if not (200 <= getattr(resp, "status", 0) < 300):
+                    return False
+                try:
+                    body = json.loads(resp.read().decode("utf-8"))
+                except Exception:
+                    return True      # 2xx 但无法解析：保守按已送达处理
+                return bool(body.get("ok", True))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _feedback_mailto(email, message):
+        """兜底：开邮件客户端，内容预填好（from 行 + 正文）。"""
+        body = message if not email else "From: %s\n\n%s" % (email, message)
+        try:
+            webbrowser.open("mailto:%s?subject=%s&body=%s" % (
+                ABOUT_MAIL,
+                urllib.parse.quote("论文格式医生 用户反馈"),
+                urllib.parse.quote(body)))
+        except Exception:
+            pass
+
+    @classmethod
+    def _feedback_deliver(cls, email, message, version):
+        """纯函数：裁决反馈提交结果，返回 ``(status, detail)``。
+
+        status ∈ {"invalid_email", "empty", "sent", "mailto"}
+        - 邮箱非必填；填了但格式不对 → invalid_email
+        - 反馈内容必填，空 → empty
+        - 网络可达且 2xx → sent
+        - 否则回落 mailto 兜底 → mailto
+        """
+        email = (email or "").strip()
+        message = (message or "").strip()
+        if email and not cls._is_valid_email(email):
+            return ("invalid_email", "")
+        if not message:
+            return ("empty", "")
+        if cls._feedback_post(email, message, version):
+            return ("sent", "")
+        cls._feedback_mailto(email, message)
+        return ("mailto", "")
+
+    def _feedback_dialog(self):
+        """意见反馈：邮箱（选填）+ 反馈内容（必填）+ 隐私说明 + 行内状态。"""
+        top = tk.Toplevel(self.root)
+        top.title("意见反馈 · 论文格式医生")
+        top.configure(bg=PAPER)
+        top.transient(self.root)
+        try:
+            top.grab_set()
+        except Exception:
+            pass
+        inner = tk.Frame(top, bg=PAPER, padx=22, pady=18)
+        inner.pack(fill="both", expand=True)
+
+        tk.Label(inner, text="遇到什么问题，或有什么想让我们改的？写下来，我们看得到。",
+                 bg=PAPER, fg=MUTED, font=F_SMALL, anchor="w", justify="left",
+                 wraplength=420).pack(fill="x")
+
+        tk.Label(inner, text="邮箱（选填，方便我们回复您）", bg=PAPER, fg=INK,
+                 font=F_SMALL, anchor="w").pack(fill="x", pady=(14, 4))
+        email_var = tk.StringVar()
+        tk.Entry(inner, textvariable=email_var, width=46, font=F_SMALL,
+                 relief="solid", bd=1).pack(fill="x")
+
+        tk.Label(inner, text="反馈内容（必填）", bg=PAPER, fg=INK,
+                 font=F_SMALL, anchor="w").pack(fill="x", pady=(14, 4))
+        msg = tk.Text(inner, width=46, height=7, font=F_SMALL,
+                      relief="solid", bd=1, wrap="word", bg=PAPER, fg=INK)
+        msg.pack(fill="x")
+
+        tk.Label(inner, text="我们只收反馈内容，不读取也不上传您的论文。",
+                 bg=PAPER, fg=MUTED, font=F_FOOT, anchor="w", justify="left",
+                 wraplength=420).pack(fill="x", pady=(10, 0))
+
+        status_var = tk.StringVar(value="")
+        status_lbl = tk.Label(inner, textvariable=status_var, bg=PAPER,
+                              fg=ERRC, font=F_FOOT, anchor="w", wraplength=420)
+        status_lbl.pack(fill="x", pady=(6, 0))
+
+        def _submit():
+            status_var.set("")
+            email = email_var.get().strip()
+            message = msg.get("1.0", "end").strip()
+            result, _ = App._feedback_deliver(email, message, APP_VERSION)
+            if result == "invalid_email":
+                status_var.set("邮箱格式不对，请检查一下（也可留空）。")
+                status_lbl.config(fg=ERRC)
+                return
+            if result == "empty":
+                status_var.set("请先写点什么再提交吧。")
+                status_lbl.config(fg=ERRC)
+                return
+            if result == "sent":
+                status_var.set("已收到，谢谢你。")
+                status_lbl.config(fg=OKC)
+                top.after(1000, top.destroy)
+                return
+            status_var.set("网络没通，已帮你打开邮件客户端，直接发送即可。")
+            status_lbl.config(fg=MUTED)
+
+        row = tk.Frame(inner, bg=PAPER)
+        row.pack(fill="x", pady=(14, 0))
+        tk.Button(row, text="提交反馈", bg=ACCENT, fg=PAPER, font=F_SMALL,
+                  relief="flat", padx=18, pady=6, command=_submit).pack(side="left")
+        tk.Button(row, text="取消", bg=PAPER, fg=MUTED, font=F_SMALL,
+                  relief="flat", padx=14, pady=6, command=top.destroy).pack(
+            side="left", padx=(10, 0))
+
+    # ------------------------------------------------ 启动核验（对齐海外版 5 态）
+    def _on_launch_check(self, res):
+        """启动核验结果分状态处理（对齐海外版）。
+
+        - locked（吊销/过期）→ 锁定并弹失效窗
+        - network_unreachable → 状态栏软提示，不锁、可继续用（离线宽限）
+        - 有更新 → 软提示更新（可忽略）
+        - 有效 + 最新 → 静默
+        """
+        version = res.get("version") or {}
+        if res.get("locked"):
+            self._handle_revoked()
+            return
+        if res.get("network_unreachable"):
+            self._set_status("未能联网核验授权（离线可继续使用）", MUTED)
+        if version.get("update_available"):
+            self._offer_update(version.get("latest_version"),
+                               version.get("download_url"))
+
+    def _offer_update(self, latest, url):
+        """发现新版本：软提示（可忽略，不强制升级）。"""
+        if not latest:
+            return
+        try:
+            ok = messagebox.askyesno(
+                "发现新版本",
+                "检测到新版本 v%s（当前 v%s）。\n\n是否前往下载页更新？"
+                % (latest, APP_VERSION), parent=self.root)
+            if ok and url:
+                webbrowser.open(url)
+        except Exception:
+            pass
+
 
 # ---------------------------------------------------------------------------
 _APP_REF = None  # App 实例引用，在 App.__init__ 中赋值
@@ -2670,7 +2842,7 @@ def show_activation(root, show_trial=True):
     if show_trial:
         ttk.Button(top, text="还没有激活码？先试用（免费 2 次）", style="Ghost.TButton",
                    command=lambda: (result.update(v="trial"), top.destroy())).pack(pady=(4, 2))
-        tk.Label(top, text="试用版可完整体验一键修正，输出带水印且为只读预览；正式版可编辑无水印。",
+        tk.Label(top, text="试用版可完整体验一次一键修正，输出即正式版格式（无水印、可编辑）；激活后不限次数一键交稿。",
                  bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=540).pack(pady=(0, 6))
 
     tk.Label(top, text="— 以下为特殊情形使用 —", bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(8, 4))
@@ -2951,7 +3123,7 @@ def show_help(parent):
          "非必带，但带批注的学校官方模板效果最佳。软件定格式时，批注说明优先于样式定义："
          "批注有明确要求则遵批注，无批注则读样式定义，样式亦无则以通用规范兜底。"),
         ("Q3 · 试用版与正式版有何区别？卡片有哪些种类？",
-         "试用版：免费试用 2 次，输出带水印的只读预览（不可直接编辑）。\n"
+         "试用版：免费试用 1 次，输出即正式版格式（无水印、可编辑）。\n"
          "正式版：无水印、可编辑、可保存。卡片共 4 种：\n"
          "· 永久卡 — 一次付费终身可用，激活后完全离线；\n"
          "· 周卡 / 月卡 — 期限内不限次数使用，到期后续费即可继续；\n"
@@ -2981,7 +3153,7 @@ def show_help(parent):
                "· 微信小程序：微信搜【%s】，可直接购买激活码，付款后自动发码（推荐）\n"
                "· 微信公众号：【%s】（ID：%s），关注后留言\n"
                "· 官网：reedskill.com（产品介绍 · 激活教程 · 购买方式）\n"
-               "· 公众号设关键词自动回复（试用 / 激活 / 水印 / 报错），常见问题即时应答\n"
+               "· 公众号设关键词自动回复（试用 / 激活 / 报错），常见问题即时应答\n"
                "· 较复杂的问题，由人工回复\n"
                "· 联系邮箱：%s") % (MINIAPP_NAME, WECHAT_NAME, WECHAT_ID, ABOUT_MAIL),
               BODY, F_SUBTITLE)
@@ -3029,20 +3201,19 @@ def main():
         if r not in ("ok", "trial"):
             root.destroy()
             return
-    else:
-        # 启动实时校验：本地有效时再联网确认一次（退款撤销/到期/次卡用尽 → 拦；断网放行）
-        st = license.validate_now()
-        if st in ("revoked", "expired"):
-            title, body = _revoked_message(license.get_lock_reason())
-            root.deiconify()
-            messagebox.showerror(title, body, parent=root)
-            root.destroy()
-            return
     root.deiconify()
-    App(root)
-    # 启动后台心跳：联网时若授权被撤销（退款），自动锁死软件
-    if license.check_local_valid() and not license.is_revoked():
-        license.start_heartbeat(product=license.DEFAULT_PRODUCT, on_revoked=_on_license_revoked)
+    app = App(root)
+
+    def _refresh_license_at_launch():
+        """后台线程：启动即向中台核对授权 + 版本（fail-soft，不阻塞首屏）。"""
+        try:
+            res = license.refresh_license_on_launch(APP_VERSION)
+        except Exception:
+            return
+        root.after(0, lambda: app._on_launch_check(res))
+
+    # 启动即核对（后台线程，非阻塞）：一次联网核对授权 + 版本（对齐海外版）
+    threading.Thread(target=_refresh_license_at_launch, daemon=True).start()
     root.mainloop()
 
 
