@@ -116,7 +116,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.138"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.139"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -2598,6 +2598,13 @@ class App:
             self._badge_warn(s)
         else:
             self._badge_state = None
+            # v1.3.139：曾付费但授权已失效（到期 / 次卡用尽 / 撤销）→ 单独措辞，
+            # 不能跟没买过的试用客户混为一谈（此前一律"试用版（剩 N 次）· 激活"）。
+            _exp = self._expired_badge_text()
+            if _exp:
+                self._trial_btn.config(text=_exp, style="BadgeBad.TButton",
+                                       state="normal")
+                return
             left = trial.trials_left()
             if left > 0:
                 self._trial_btn.config(text="试用版（剩 %d 次）· 激活" % left,
@@ -2605,6 +2612,29 @@ class App:
             else:
                 self._trial_btn.config(text="试用已用完 · 激活",
                                        style="BadgeBad.TButton", state="normal")
+
+    def _expired_badge_text(self):
+        """曾付费但授权已失效时的徽标文案；从未激活、或授权仍有效 → 返回 None。"""
+        try:
+            lic = license.load_local_license()
+        except Exception:
+            return None
+        if not lic:
+            return None                       # 从未激活过 → 走试用文案
+        try:
+            if license.check_local_valid():
+                return None                   # 授权仍有效 → 不归这里管
+        except Exception:
+            return None
+        if lic.get("status") == "revoked":
+            return "授权已失效 · 续费"
+        try:
+            s = license.license_summary()
+        except Exception:
+            s = None
+        if s and s.get("type") == "times" and (s.get("uses_left") or 0) <= 0:
+            return "次卡已用完 · 续费"
+        return "授权已到期 · 续费"
 
     def _badge_warn(self, s):
         """临期/余量不足：状态栏软提示一次（不弹窗、不打断；同状态不重复刷屏）。"""
