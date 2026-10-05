@@ -632,6 +632,12 @@ def check_local_valid():
     exp = lic.get("expire")
     if exp and int(time.time() * 1000) > exp:
         return False
+    # v1.3.140：次卡用尽本地兜底（对齐导师版 v1.1.16）——此前学生版只靠 consume 联网裁定，
+    # 离线时本地仍判"有效"。现在本地 uses_used >= uses_total 即失效，离线也能立刻拦。
+    if (lic.get("type") or "").lower() == "times":
+        _total = lic.get("uses_total")
+        if isinstance(_total, int) and (lic.get("uses_used") or 0) >= _total:
+            return False
     return True
 
 
