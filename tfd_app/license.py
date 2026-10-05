@@ -538,11 +538,21 @@ def license_summary():
     """本地授权的可读摘要（供 UI 展示，两个版本共用）。
 
     返回 dict：
-      kind   — 卡种中文名：永久版 / 周卡 / 月卡 / 次卡 / 正式版（未知类型时兜底）
-      desc   — 状态描述：永久有效 / YYYY-MM-DD 到期（剩 N 天） / 剩余 X / Y 次
-      badge  — 右上角徽章短文案，如「正式版 · 周卡（剩 5 天）」
+      kind       — 卡种中文名：永久版 / 周卡 / 月卡 / 次卡 / 正式版（未知类型时兜底）
+      desc       — 状态描述：永久有效 / YYYY-MM-DD 到期（剩 N 天） / 剩余 X / Y 次
+      badge      — 徽章短文案（≤8 字，**不含 ✓**，由 UI 按 state 决定是否补 ✓）
+      state      — ok（正常）/ warn（临期或余量告警）/ exhausted（已到期或次数用尽）
+      days_left  — 周期卡剩余天数（向上取整）或 None
+      uses_left  — 次卡剩余次数或 None
+      uses_total — 次卡总次数或 None
+      type       — 原始卡种 key
     未授权时返回 None。
+
+    v1.3.137：① 剩余天数改向上取整（此前向下整除，刚买的 7 天周卡显示"剩 6 天"、
+    剩 1 天显示"剩 0 天"）；② badge 不再自带 ✓（此前 UI 又拼一个 → 双 ✓）；
+    ③ 新增 state / days_left / uses_left，供徽标分色与临期预警。
     """
+    import math as _math
     lic = load_local_license()
     if not lic or lic.get("status") == "revoked":
         return None
@@ -554,45 +564,58 @@ def license_summary():
     if kind is None:
         kind = "永久版" if lic.get("permanent") else "正式版"
 
+    days_left = None
+    uses_left = None
+    uses_total = None
     desc = "永久有效"
+    state = "ok"
+
     if t == "times":
         total = lic.get("uses_total")
         used = lic.get("uses_used") or 0
-        left = (total - used) if isinstance(total, int) else None
-        desc = ("剩余 %d / %d 次" % (left, total)) if left is not None else "按次计费"
+        if isinstance(total, int):
+            uses_total = total
+            uses_left = max(0, total - (used or 0))
+            desc = "剩余 %d / %d 次" % (uses_left, total)
+        else:
+            desc = "按次计费"
     else:
         exp = lic.get("expire") or lic.get("expires_at")
-        days_left = None
         if exp:
             try:
                 import datetime as _dt
                 ms = int(exp)
-                if ms > 1e12:  # 秒级时间戳（历史数据）补成毫秒
-                    pass
                 d = _dt.datetime.fromtimestamp(ms / 1000)
-                days_left = max(0, int((ms - time.time() * 1000) // 86400000))
+                days_left = max(0, int(_math.ceil((ms - time.time() * 1000) / 86400000.0)))
                 desc = "%s 到期（剩 %d 天）" % (d.strftime("%Y-%m-%d"), days_left)
             except Exception:
                 desc = "有效"
 
-    # v1.3.100：徽章收紧为短文案——v1.3.99 用"正式版 · 周卡（剩 N 天）"在
-    # trial_btn 没设 width 的情况下，会撑爆右栏（实测撑到 w=788px/h=403px，
-    # 把 btn_row 挤到顶部、时间线挤压错位）。改为 ≤8 字符的紧凑形式。
-    # 全角按 2、半角按 1 计，最坏"次卡 3/10"=6 字；"月卡 28天"=6 字。
-    badge = "正式版 ✓"
+    # 状态判定：次卡 ≤1 次 / 周期卡 ≤3 天 → warn；用尽或到期 → exhausted
     if t == "times":
-        total = lic.get("uses_total")
-        used = lic.get("uses_used") or 0
-        left = (total - used) if isinstance(total, int) else None
-        if left is not None:
-            badge = "%s %d/%d ✓" % (kind, left, total)
-        else:
-            badge = "%s ✓" % kind
-    elif t in ("weekly", "monthly") and days_left is not None:
-        badge = "%s %d天 ✓" % (kind, days_left)
-    elif kind and t not in ("lifetime",) and t != "永久版":
-        badge = "%s ✓" % kind
-    return {"kind": kind, "desc": desc, "badge": badge, "type": t}
+        if uses_left is not None:
+            if uses_left <= 0:
+                state = "exhausted"
+            elif uses_left <= 1:
+                state = "warn"
+    elif days_left is not None:
+        if days_left <= 0:
+            state = "exhausted"
+        elif days_left <= 3:
+            state = "warn"
+
+    # 徽章短文案（≤8 字，不含 ✓）；用尽/到期不再打勾，改说人话
+    badge = kind
+    if state == "exhausted":
+        badge = "次卡 已用完" if t == "times" else "%s 已到期" % kind
+    elif t == "times" and uses_left is not None:
+        badge = "次卡 余%d/%d" % (uses_left, uses_total)
+    elif days_left is not None:
+        badge = "%s 剩%d天" % (kind, days_left)
+
+    return {"kind": kind, "desc": desc, "badge": badge, "type": t,
+            "state": state, "days_left": days_left,
+            "uses_left": uses_left, "uses_total": uses_total}
 
 
 def check_local_valid():

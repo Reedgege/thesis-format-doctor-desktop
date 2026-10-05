@@ -93,6 +93,7 @@ CINNABAR= "#9e4233"   # 朱砂（主按钮）
 CINNABAR_D = "#8a382b"
 OKC     = "#5f7d5c"   # 完成（墨绿）
 ERRC    = "#a0402f"   # 出错（朱红）
+WARNC   = "#9a6a1e"   # 预警（赭黄：临期 / 余量不足）
 RUN     = ACCENT      # 处理中（黛蓝）
 
 # 字体：标题 / 章节 / 状态用楷体（KaiTi，文艺调性），正文 / 按钮 / 页脚用微软雅黑（清晰）
@@ -106,6 +107,7 @@ _FONT_BASE = {
     "F_SMALL":      ("Microsoft YaHei", 10),    # 底部提示 / 次要
     "F_SMALL_B":    ("Microsoft YaHei", 10, "bold"),  # 提示框标题（加粗，随缩放联动）
     "F_BTN":        ("Microsoft YaHei", 12, "bold"),  # 按钮
+    "F_ACT_BTN":    ("Microsoft YaHei", 11),        # 激活窗按钮（比主按钮小一档、不加粗，不抢眼）
     "F_STAT":       ("KaiTi", 12),              # 状态文字（楷体）
     "F_SUBTITLE":   ("Microsoft YaHei", 11),    # 元信息
     "F_CARD_HDR":   ("KaiTi", 13, "bold"),      # 卡片标题（楷体）
@@ -114,7 +116,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.137"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.138"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -615,6 +617,28 @@ def _register_app_styles():
     style.map("Recommend.TButton",
               background=[("active", CINNABAR_D), ("disabled", "#c8a79f")],
               foreground=[("disabled", "#f5e9e6")])
+    # v1.3.138：激活窗专用按钮——字体小一档（F_ACT_BTN 11pt 不加粗），不抢主视觉。
+    # 「激活」走常规米色（Act.TButton），只有「先免费试用（推荐）」用朱砂红
+    # （ActRecommend.TButton）——首启客户多半先试，红色只留给推荐动作。
+    style.configure("Act.TButton", font=F_ACT_BTN, padding=(12, 8),
+                    background="#eae3d3", foreground=INK)
+    style.map("Act.TButton",
+              background=[("active", "#ded6c2"), ("disabled", "#f0ece1")])
+    style.configure("ActRecommend.TButton", font=F_ACT_BTN, padding=(12, 8),
+                    background=CINNABAR, foreground="white")
+    style.map("ActRecommend.TButton",
+              background=[("active", CINNABAR_D), ("disabled", "#c8a79f")],
+              foreground=[("disabled", "#f5e9e6")])
+    # 徽标按钮（右上角激活/试用标识）：按授权状态分色——正常黛蓝 / 临期赭黄 / 用尽朱红
+    style.configure("Badge.TButton", font=F_SMALL, padding=(8, 5),
+                    background=PANEL, foreground=ACCENT)
+    style.map("Badge.TButton", background=[("active", "#efe9db")])
+    style.configure("BadgeWarn.TButton", font=F_SMALL, padding=(8, 5),
+                    background=PANEL, foreground=WARNC)
+    style.map("BadgeWarn.TButton", background=[("active", "#efe9db")])
+    style.configure("BadgeBad.TButton", font=F_SMALL, padding=(8, 5),
+                    background=PANEL, foreground=ERRC)
+    style.map("BadgeBad.TButton", background=[("active", "#efe9db")])
 
 
 class App:
@@ -1119,6 +1143,12 @@ class App:
             self._fix_phase = "fixed"
             self._set_status("修正完成，请点击「保存修正后论文」", OKC)
             self._set_bar("done")
+            # v1.3.138：次卡扣次后（consume_use 已回写新的 uses_used）立即刷新徽标，
+            # 否则数字停在修正前的旧值，客户看到的剩余次数是假的。
+            try:
+                self._update_trial_badge()
+            except Exception:
+                pass
         else:
             self.step_index = idx + 1
             self._set_status("已完成", OKC)
@@ -2541,7 +2571,7 @@ class App:
                                     self.status_dot.config(fg=color)))
 
     def _update_trial_badge(self):
-        """刷新右下角激活/试用标识。"""
+        """刷新右下角激活/试用标识（分卡种展示 + 临期/余量预警 + 可点开详情）。"""
         try:
             self._licensed = trial.is_licensed()
         except Exception:
@@ -2552,20 +2582,77 @@ class App:
                 s = license.license_summary()
             except Exception:
                 s = None
-            # v1.3.100：badge 已收紧为 ≤ 8 字（license.py），无需担心撑爆
-            self._trial_btn.config(
-                text=("%s ✓" % s["badge"]) if s else "正式版 ✓", state="disabled")
+            if not s:
+                self._trial_btn.config(text="正式版 ✓", style="Badge.TButton",
+                                       state="normal")
+                self._badge_state = None
+                return
+            st = s.get("state") or "ok"
+            # v1.3.138：badge 本身不带 ✓（此前 license 与 UI 各拼一个 → 双 ✓），
+            # 只有正常态补 ✓；临期/用尽不打勾，免得"明明快没了还打勾"误导客户。
+            txt = ("%s ✓" % s["badge"]) if st == "ok" else s["badge"]
+            _sty = {"warn": "BadgeWarn.TButton",
+                    "exhausted": "BadgeBad.TButton"}.get(st, "Badge.TButton")
+            self._trial_btn.config(text=txt, style=_sty, state="normal")
+            self._badge_state = st
+            self._badge_warn(s)
         else:
+            self._badge_state = None
             left = trial.trials_left()
             if left > 0:
-                self._trial_btn.config(text="试用版（剩 %d 次）· 激活" % left, state="normal")
+                self._trial_btn.config(text="试用版（剩 %d 次）· 激活" % left,
+                                       style="Badge.TButton", state="normal")
             else:
-                self._trial_btn.config(text="试用已用完 · 激活", state="normal")
+                self._trial_btn.config(text="试用已用完 · 激活",
+                                       style="BadgeBad.TButton", state="normal")
+
+    def _badge_warn(self, s):
+        """临期/余量不足：状态栏软提示一次（不弹窗、不打断；同状态不重复刷屏）。"""
+        st = s.get("state")
+        if st not in ("warn", "exhausted"):
+            return
+        _key = (st, s.get("badge"))
+        if getattr(self, "_badge_warned", None) == _key:
+            return
+        self._badge_warned = _key
+        kind = s.get("kind") or "授权"
+        if st == "exhausted":
+            self._set_status("%s，需续费后才能继续修正（点右上角标识看续费方式）"
+                             % s["badge"], ERRC)
+        elif s.get("days_left") is not None:
+            self._set_status("%s还剩 %d 天到期，记得及时续费（点右上角标识查看）"
+                             % (kind, s["days_left"]), WARNC)
+        else:
+            self._set_status("%s只剩 %d 次，用完需续费（点右上角标识查看）"
+                             % (kind, s.get("uses_left") or 0), WARNC)
+
+    def _show_license_detail(self):
+        """已激活：点右上角标识弹「授权详情」（卡种 / 期限或余量 / 续费引导）。"""
+        try:
+            s = license.license_summary()
+        except Exception:
+            s = None
+        if not s:
+            messagebox.showinfo("授权信息", "未读取到本机授权信息。", parent=self.root)
+            return
+        lines = ["卡种：%s" % s["kind"], "状态：%s" % s["desc"]]
+        if s.get("uses_left") is not None and s.get("uses_total"):
+            lines.append("已用：%d 次 / 共 %d 次"
+                         % (s["uses_total"] - s["uses_left"], s["uses_total"]))
+        tail = ("续费方式：微信扫描上方小程序码，或搜索小程序【%s】，付款后自动发码。\n"
+                "也可关注公众号【%s】（ID：%s）或前往官网 %s 选购。\n"
+                "有任何问题，欢迎在公众号留言或邮件联系 %s。"
+                % (MINIAPP_NAME, WECHAT_NAME, WECHAT_ID, OFFICIAL_SITE, ABOUT_MAIL))
+        self._modal("授权详情", "\n".join(lines), [("ok", "知道了")],
+                    image_path=MINIAPP_QRCODE, text_after=tail)
 
     def _open_activation(self):
-        """主界面右上角激活入口：打开激活窗，成功后刷新状态。"""
+        """右上角标识入口：已激活→弹授权详情；未激活→打开激活窗。"""
         if self.running:
             messagebox.showinfo("正在处理", "上一步还在处理中，请稍候…", parent=self.root)
+            return
+        if trial.is_licensed():
+            self._show_license_detail()   # v1.3.138：已激活也能点开看详情与续费方式
             return
         r = show_activation(self.root, show_trial=False)
         if r == "ok":
@@ -2905,14 +2992,14 @@ def show_activation(root, show_trial=True):
 
         top.after(300, poll)
 
-    btn_activate = ttk.Button(top, text="激活", style="Primary.TButton",
+    btn_activate = ttk.Button(top, text="激活", style="Act.TButton",
                command=do_activate)
     btn_activate.pack(pady=(2, 4))
 
     # v1.3.58：试用入口放在显眼位置（激活按钮正下方，便于未购买客户先体验）
     # v1.3.66：仅启动时首次弹窗显示；从主界面激活入口打开时客户已在试用模式，无需再显示
     if show_trial:
-        ttk.Button(top, text="先免费试用（推荐）", style="Recommend.TButton",
+        ttk.Button(top, text="先免费试用（推荐）", style="ActRecommend.TButton",
                    command=lambda: (result.update(v="trial"), top.destroy())).pack(pady=(4, 2))
         tk.Label(top, text="免费体验一次完整修正（输出即正式版效果）；激活后永久/周/月卡期限内随心用，次卡按次扣减。",
                  bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=540).pack(pady=(0, 6))
