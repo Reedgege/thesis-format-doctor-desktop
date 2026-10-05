@@ -114,7 +114,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.136"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.137"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -575,6 +575,48 @@ def _profile_summary(profile):
     return lines
 
 
+def _register_app_styles():
+    """注册全局 ttk 样式（含激活窗用的 Recommend.TButton）。
+
+    必须在任何引用这些样式的窗口创建前调用——启动激活窗在 App 实例创建之前弹出，
+    若样式未注册，按钮会回退默认主题灰（v1.3.137 修复红按钮不红）。
+    """
+    style = ttk.Style()
+    try:
+        style.theme_use("clam")
+    except Exception:
+        pass
+    style.configure("TButton", font=F_BODY, padding=(12, 6),
+                    background="#eae3d3", foreground=INK)
+    style.map("TButton", background=[("active", "#ded6c2"), ("disabled", "#f0ece1")])
+    style.configure("Action.TButton", font=F_BTN, padding=(12, 10),
+                    background="#eae3d3", foreground=INK)
+    style.map("Action.TButton",
+              background=[("active", "#ded6c2"), ("disabled", "#f0ece1")])
+    style.configure("Primary.TButton", font=F_BTN, padding=(12, 10),
+                    background=CINNABAR, foreground="white")
+    style.map("Primary.TButton",
+              background=[("active", CINNABAR_D), ("disabled", "#c8a79f")],
+              foreground=[("disabled", "#f5e9e6")])
+    style.configure("Ghost.TButton", font=F_SMALL, padding=(8, 5),
+                    background=PANEL, foreground=ACCENT)
+    style.map("Ghost.TButton",
+              background=[("active", "#efe9db"), ("disabled", "#f4f0e6")])
+    # 滚动条：配色贴宣纸底 + 黛蓝箭头，细条更干净（对齐导师版）
+    style.configure("Vertical.TScrollbar",
+                    background="#d5ccb8", troughcolor=PAPER,
+                    bordercolor=PAPER, arrowcolor=ACCENT,
+                    arrowsize=10, gripcount=0, width=9)
+    style.map("Vertical.TScrollbar",
+              background=[("active", "#bfb39a"), ("pressed", ACCENT)])
+    # 激活窗「先试用」推荐按钮：朱砂红，首启时引导未购客户先体验
+    style.configure("Recommend.TButton", font=F_BTN, padding=(12, 10),
+                    background=CINNABAR, foreground="white")
+    style.map("Recommend.TButton",
+              background=[("active", CINNABAR_D), ("disabled", "#c8a79f")],
+              foreground=[("disabled", "#f5e9e6")])
+
+
 class App:
     def __init__(self, root):
         global _APP_REF
@@ -672,40 +714,9 @@ class App:
 
     # ------------------------------------------------------------- style
     def _build_style(self):
-        style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
-        style.configure("TButton", font=F_BODY, padding=(12, 6),
-                        background="#eae3d3", foreground=INK)
-        style.map("TButton", background=[("active", "#ded6c2"), ("disabled", "#f0ece1")])
-        style.configure("Action.TButton", font=F_BTN, padding=(12, 10),
-                        background="#eae3d3", foreground=INK)
-        style.map("Action.TButton",
-                  background=[("active", "#ded6c2"), ("disabled", "#f0ece1")])
-        style.configure("Primary.TButton", font=F_BTN, padding=(12, 10),
-                        background=CINNABAR, foreground="white")
-        style.map("Primary.TButton",
-                  background=[("active", CINNABAR_D), ("disabled", "#c8a79f")],
-                  foreground=[("disabled", "#f5e9e6")])
-        style.configure("Ghost.TButton", font=F_SMALL, padding=(8, 5),
-                        background=PANEL, foreground=ACCENT)
-        style.map("Ghost.TButton",
-                  background=[("active", "#efe9db"), ("disabled", "#f4f0e6")])
-        # 滚动条：配色贴宣纸底 + 黛蓝箭头，细条更干净（对齐导师版）
-        style.configure("Vertical.TScrollbar",
-                        background="#d5ccb8", troughcolor=PAPER,
-                        bordercolor=PAPER, arrowcolor=ACCENT,
-                        arrowsize=10, gripcount=0, width=9)
-        style.map("Vertical.TScrollbar",
-                  background=[("active", "#bfb39a"), ("pressed", ACCENT)])
-        # 激活窗「先试用」推荐按钮：朱砂红，首启时引导未购客户先体验
-        style.configure("Recommend.TButton", font=F_BTN, padding=(12, 10),
-                        background=CINNABAR, foreground="white")
-        style.map("Recommend.TButton",
-                  background=[("active", CINNABAR_D), ("disabled", "#c8a79f")],
-                  foreground=[("disabled", "#f5e9e6")])
+        # 样式注册已提成模块级 _register_app_styles()（启动激活窗早于 App 实例，
+        # 必须在 main() 创建任何窗口前调用，否则激活窗的 Recommend.TButton 回退默认灰）。
+        _register_app_styles()
 
     # ------------------------------------------------------------- layout
     def _build_widgets(self):
@@ -2156,8 +2167,10 @@ class App:
             ok = self._ask_trial_confirm(left)  # 主线程弹"修正前提示"
             if not ok:
                 return False
-            # v1.3.130：试用扣减需连中台核验/登记（堵白嫖）；先提示正在验证，避免误判卡死
-            self._set_status("正在验证试用额度，请稍后…", MUTED)
+            # v1.3.137：若启动已联网核对过试用额度，则信任该结果、跳过「正在验证」提示；
+            # 否则（离线启动等未确认情形）仍提示并让 consume_trial 联网裁定。
+            if not trial.is_launch_checked():
+                self._set_status("正在验证试用额度，请稍后…", MUTED)
             if not trial.consume_trial():
                 # v1.3.84：扣减失败（计数文件被篡改锁定/损坏/写入失败）→ 按已用完拦截。
                 # 此前返回值被忽略：篡改 trial.json 使其"损坏"后，每次都不扣次数仍放行，
@@ -2239,11 +2252,14 @@ class App:
             box["v"] = self._modal(
                 "试用次数已用完",
                 "本机试用已用完（共 %d 次）。\n\n"
-                "正式版按所选卡种使用：永久 / 周 / 月卡在期限内随心使用，次卡每次修正联网扣减一次额度。\n\n"
-                "购买方式：微信扫描上方小程序码，或搜索小程序【%s】，付款后自动发码。\n"
-                "也可关注公众号【芦苇不熬夜】（ID：reedskill）或前往官网 reedskill.com 选购。\n"
-                "激活码相关的问题，欢迎在公众号留言，我们会尽快回复。" % (trial.TRIAL_LIMIT, MINIAPP_NAME),
-                [("ok", "知道了")], image_path=MINIAPP_QRCODE, image_on_top=True)
+                "正式版按所选卡种使用：永久 / 周 / 月卡在期限内随心使用，次卡每次修正联网扣减一次额度。"
+                % trial.TRIAL_LIMIT,
+                [("ok", "知道了")],
+                image_path=MINIAPP_QRCODE,
+                text_after=(
+                    "购买方式：微信扫描上方小程序码，或搜索小程序【%s】，付款后自动发码。\n"
+                    "也可关注公众号【芦苇不熬夜】（ID：reedskill）或前往官网 reedskill.com 选购。\n"
+                    "激活码相关的问题，欢迎在公众号留言，我们会尽快回复。" % MINIAPP_NAME))
             ev.set()
 
         self.root.after(0, show)
@@ -2329,7 +2345,13 @@ class App:
         self._show_fix_done(dst, (base + "_检查报告.docx") if chk else None,
                            base + "_修改报告.docx")
 
-    def _modal(self, title, text, buttons, image_path=None, image_on_top=False):
+    def _modal(self, title, text, buttons, image_path=None, text_after=None):
+        """通用模态弹窗。
+
+        text：二维码（如有）上方的文案；text_after：二维码下方的文案（如「购买方式…」）。
+        两者皆有 → 二维码居中于两段文案之间；仅 text → 二维码置于文案下方。
+        （旧 image_on_top 置顶行为已弃用，统一改为中段布局。）
+        """
         result = {"v": None}
         top = tk.Toplevel(self.root)
         top.title(title)
@@ -2355,13 +2377,13 @@ class App:
                 except Exception:
                     pass
 
-        # image_on_top=True 时二维码置于文案上方（与「扫描上方小程序码」表述一致）
-        if image_on_top:
-            _place_qr()
         tk.Label(top, text=text, bg=PAPER, fg=BODY, font=F_BODY, justify="left",
                  wraplength=480).pack(padx=24, pady=(20, 14))
-        if not image_on_top:
+        if image_path:
             _place_qr()
+        if text_after:
+            tk.Label(top, text=text_after, bg=PAPER, fg=BODY, font=F_BODY,
+                     justify="left", wraplength=480).pack(padx=24, pady=(0, 14))
         fr = tk.Frame(top, bg=PAPER)
         fr.pack(pady=(0, 18))
         for key, label in buttons:
@@ -2722,6 +2744,12 @@ class App:
             return
         if res.get("network_unreachable"):
             self._set_status("未能联网核验授权（离线可继续使用）", MUTED)
+        # v1.3.137：启动核验后刷新右下角试用/激活徽标——未激活时反映中台试用额度
+        # （用完即显示「已用完」，不再谎报「剩 1 次」）；已激活则显示卡种余量。
+        try:
+            self._update_trial_badge()
+        except Exception:
+            pass
         if version.get("update_available"):
             self._offer_update(version.get("latest_version"),
                                version.get("download_url"))
@@ -2886,7 +2914,7 @@ def show_activation(root, show_trial=True):
     if show_trial:
         ttk.Button(top, text="先免费试用（推荐）", style="Recommend.TButton",
                    command=lambda: (result.update(v="trial"), top.destroy())).pack(pady=(4, 2))
-        tk.Label(top, text="试用版可完整体验一次格式修正，输出即正式版效果；激活后按所选卡种安心使用——永久 / 周 / 月卡在期限内随心使用，次卡按次扣减额度。",
+        tk.Label(top, text="免费体验一次完整修正（输出即正式版效果）；激活后永久/周/月卡期限内随心用，次卡按次扣减。",
                  bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=540).pack(pady=(0, 6))
 
     tk.Label(top, text="— 以下为特殊情形使用 —", bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(8, 4))
@@ -3251,6 +3279,10 @@ def main():
     _init_fonts(root)
     # 在任何窗口（激活窗/主窗）出现之前先设好图标，否则任务栏会先显示 Tk 默认图标
     _apply_app_icon(root, as_default=True)
+    # v1.3.137：在弹出启动激活窗之前注册全局 ttk 样式，否则激活窗的「先试用」红色按钮
+    # 因 Recommend.TButton 尚未注册而回退默认灰（样式原只在 App._build_style 内注册，
+    # 而激活窗早于 App 实例创建）。
+    _register_app_styles()
     if (not license.check_local_valid()) or license.is_revoked():
         # v1.3.58：未激活（或被后台撤销）时弹激活窗，但提供"先试用"入口（不进主界面则退出）
         r = show_activation(root)

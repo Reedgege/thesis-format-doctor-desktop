@@ -76,6 +76,38 @@ def _claim_server():
         pass
 
 
+# 启动一次性核对试用额度的可信标志：供修正门禁判断「启动是否已联网核对过试用额度」。
+# 仅置位 True 表示本次启动确实与中台确认过（离线启动置 False → 修正时仍需再核）。
+_launch_checked = False
+
+
+def refresh_trial_on_launch():
+    """启动时联网核对试用额度（后台线程调用，不阻塞 UI）。
+
+    返回 (network_ok, used)：
+      network_ok=True  → 已与中台确认（used 取值可信），之后修正可信任该结果、
+                        跳过「正在验证试用额度」提示；
+      network_ok=False → 离线/接口异常，未确认（修正时仍需联网再核）。
+
+    无论成功与否都预取中台记录写入缓存，使徽标能立即反映「已用完 / 剩余」。
+    """
+    global _launch_checked
+    try:
+        from . import license as _lic
+        ok = bool(_lic.server_trial_used(get_machine_code()))  # 联网（带超时）
+        _SERVER_USED.update(val=ok, ts=time.time())
+        _launch_checked = True
+        return True, ok
+    except Exception:
+        _launch_checked = False
+        return False, False
+
+
+def is_launch_checked():
+    """启动是否已成功核对过试用额度（供修正门禁判断可否跳过联网验证提示）。"""
+    return bool(_launch_checked)
+
+
 def _load():
     """读取计数文件。
 

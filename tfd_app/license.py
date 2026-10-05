@@ -725,10 +725,17 @@ def refresh_license_on_launch(current_version=""):
                                  current_version=current_version)
 
     if not lic or not check_local_valid():
+        # 未激活（试用）：启动即联网核对试用额度（堵「删文件重置」白嫖），并刷新徽标。
+        _trial_used = False
+        try:
+            from . import trial as _trial
+            _ok, _trial_used = _trial.refresh_trial_on_launch()
+        except Exception:
+            _ok, _trial_used = False, False
         return {"checked": False, "activated": False,
                 "revoked": bool(is_revoked()), "locked": False,
-                "offline": False, "network_unreachable": False,
-                "version": version}
+                "offline": False, "network_unreachable": (not _ok),
+                "trial_used": _trial_used, "version": version}
 
     if lic.get("offline"):
         # 离线授权（Ed25519 本地验签）：永不触网，本地可信不锁。
