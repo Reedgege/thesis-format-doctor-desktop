@@ -104,9 +104,14 @@ from tfd_app import buildinfo                             # noqa: E402
 ver_file = open(os.path.join(ROOT, "VERSION"), encoding="utf-8").read().strip()
 check(ver_file.lstrip("vV") == buildinfo.APP_VERSION,
       "VERSION 文件(%s) 与 buildinfo.APP_VERSION(%s) 一致" % (ver_file, buildinfo.APP_VERSION))
-_screen = open(os.path.join(ROOT, "tfd_app", "ui2", "screen.py"), encoding="utf-8").read()
-_lit = _re.findall(r"v1\.[0-9]+\.[0-9]+", _screen)
-check(not _lit, "ui2/screen.py 里没有写死的版本号（找到：%s）" % (_lit or "无"))
+# 国风新版 ui2/ 已移除（旧界面 gui.py 为默认）→ 该路径可能已不存在，存在才查
+_ui2_screen = os.path.join(ROOT, "tfd_app", "ui2", "screen.py")
+if os.path.isfile(_ui2_screen):
+    _screen = open(_ui2_screen, encoding="utf-8").read()
+    _lit = _re.findall(r"v1\.[0-9]+\.[0-9]+", _screen)
+    check(not _lit, "ui2/screen.py 里没有写死的版本号（找到：%s）" % (_lit or "无"))
+else:
+    print("  skip ui2/ 已不在本仓库，跳过「写死版本号」检查")
 try:
     from tfd_app import gui as _gui_v                       # noqa: E402
 except ImportError:                                          # pragma: no cover
