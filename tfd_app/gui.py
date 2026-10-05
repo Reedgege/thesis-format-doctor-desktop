@@ -114,11 +114,34 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.135"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.136"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
 SHORTCUT_FLAG_TAG = "ThesisFormatDoctor"  # %APPDATA% 下询问标记目录（区分学生/导师版）
+
+
+# ---------------------------------------------------------------------------
+# 滚轮与滚动条（对齐导师版 v1.1.31：统一手感 + 视觉）
+# ---------------------------------------------------------------------------
+WHEEL_INCREMENT = 20   # Canvas yscrollincrement（像素/unit）
+WHEEL_UNITS = 2        # 每格滚轮滚几个 unit → 一格 40px，接近三行文字
+
+
+def _wheel_steps(delta):
+    """滚轮 delta → yview_scroll 的 units 数（向下为正，与 Tk 一致）。
+
+    修两个老问题：① 老写法 int(delta/120) 在精密触控板 ±40/±100 等非 120 倍率
+    时被截断成 0 → 完全滚不动；② 步长为 0 时不做无意义滚动。
+    """
+    d = int(delta or 0)
+    if not d:
+        return 0
+    notches = abs(d) / 120.0
+    if notches < 1:
+        notches = 1                      # 小数倍率至少算一格，保证滚得动
+    n = int(round(notches))
+    return WHEEL_UNITS * n if d < 0 else -WHEEL_UNITS * n
 
 
 def _is_frozen_exe():
@@ -670,6 +693,19 @@ class App:
                         background=PANEL, foreground=ACCENT)
         style.map("Ghost.TButton",
                   background=[("active", "#efe9db"), ("disabled", "#f4f0e6")])
+        # 滚动条：配色贴宣纸底 + 黛蓝箭头，细条更干净（对齐导师版）
+        style.configure("Vertical.TScrollbar",
+                        background="#d5ccb8", troughcolor=PAPER,
+                        bordercolor=PAPER, arrowcolor=ACCENT,
+                        arrowsize=10, gripcount=0, width=9)
+        style.map("Vertical.TScrollbar",
+                  background=[("active", "#bfb39a"), ("pressed", ACCENT)])
+        # 激活窗「先试用」推荐按钮：朱砂红，首启时引导未购客户先体验
+        style.configure("Recommend.TButton", font=F_BTN, padding=(12, 10),
+                        background=CINNABAR, foreground="white")
+        style.map("Recommend.TButton",
+                  background=[("active", CINNABAR_D), ("disabled", "#c8a79f")],
+                  foreground=[("disabled", "#f5e9e6")])
 
     # ------------------------------------------------------------- layout
     def _build_widgets(self):
@@ -2184,9 +2220,9 @@ class App:
         def show():
             box["ok"] = messagebox.askyesno(
                 "试用版提示",
-                "当前为试用版（本机剩余 %d 次），可完整体验一次一键修正，输出即正式版格式"
-                "（无水印、可编辑）。\n\n"
-                "正式版不限次数修正、可一键交稿。\n\n是否继续？" % left,
+                "当前为试用版（本机剩余 %d 次），可完整体验一次格式修正，输出即正式版效果。\n\n"
+                "正式版按所选卡种使用：永久 / 周 / 月卡在期限内随心使用，次卡每次修正联网扣减一次额度。\n\n"
+                "是否继续？" % left,
                 parent=self.root)
             ev.set()
 
@@ -2202,12 +2238,12 @@ class App:
         def show():
             box["v"] = self._modal(
                 "试用次数已用完",
-                "本机试用已满 %d 次。\n\n"
-                "正式版激活后：不限次数修正、输出无水印文档、一键交稿。\n\n"
-                "推荐购买：微信扫上方小程序码，或搜索小程序【%s】，付款后自动发码。\n"
-                "也可关注公众号【芦苇不熬夜】（ID：reedskill）或前往官网 reedskill.com 购买。\n"
-                "激活码购买与激活问题，公众号留言即可。" % (trial.TRIAL_LIMIT, MINIAPP_NAME),
-                [("ok", "知道了")], image_path=MINIAPP_QRCODE)
+                "本机试用已用完（共 %d 次）。\n\n"
+                "正式版按所选卡种使用：永久 / 周 / 月卡在期限内随心使用，次卡每次修正联网扣减一次额度。\n\n"
+                "购买方式：微信扫描上方小程序码，或搜索小程序【%s】，付款后自动发码。\n"
+                "也可关注公众号【芦苇不熬夜】（ID：reedskill）或前往官网 reedskill.com 选购。\n"
+                "激活码相关的问题，欢迎在公众号留言，我们会尽快回复。" % (trial.TRIAL_LIMIT, MINIAPP_NAME),
+                [("ok", "知道了")], image_path=MINIAPP_QRCODE, image_on_top=True)
             ev.set()
 
         self.root.after(0, show)
@@ -2293,7 +2329,7 @@ class App:
         self._show_fix_done(dst, (base + "_检查报告.docx") if chk else None,
                            base + "_修改报告.docx")
 
-    def _modal(self, title, text, buttons, image_path=None):
+    def _modal(self, title, text, buttons, image_path=None, image_on_top=False):
         result = {"v": None}
         top = tk.Toplevel(self.root)
         top.title(title)
@@ -2302,22 +2338,30 @@ class App:
         top.grab_set()
         top.geometry("+%d+%d" % (self.root.winfo_rootx() + 140,
                                  self.root.winfo_rooty() + 120))
+
+        def _place_qr():
+            # 试用用完窗口放小程序购买码；资源缺失自动跳过，不影响其余内容
+            if image_path and os.path.isfile(image_path):
+                try:
+                    _img = tk.PhotoImage(file=image_path)
+                    _img = _img.subsample(max(1, round(_img.width() / 130)))
+                    _qr = tk.Frame(top, bg=PAPER)
+                    _qr.pack(pady=(0, 6))
+                    _qrlbl = tk.Label(_qr, image=_img, bg=PAPER)
+                    _qrlbl.image = _img   # 保留引用，防被 GC 后图片消失
+                    _qrlbl.pack()
+                    tk.Label(_qr, text="微信扫描上方小程序码，即可获取激活码",
+                             bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(6, 0))
+                except Exception:
+                    pass
+
+        # image_on_top=True 时二维码置于文案上方（与「扫描上方小程序码」表述一致）
+        if image_on_top:
+            _place_qr()
         tk.Label(top, text=text, bg=PAPER, fg=BODY, font=F_BODY, justify="left",
                  wraplength=480).pack(padx=24, pady=(20, 14))
-        # v1.3.130：可选二维码（如试用用完窗口放小程序购买码）；资源缺失自动跳过，不影响其余内容
-        if image_path and os.path.isfile(image_path):
-            try:
-                _img = tk.PhotoImage(file=image_path)
-                _img = _img.subsample(max(1, round(_img.width() / 130)))
-                _qr = tk.Frame(top, bg=PAPER)
-                _qr.pack(pady=(0, 6))
-                _qrlbl = tk.Label(_qr, image=_img, bg=PAPER)
-                _qrlbl.image = _img   # 保留引用，防被 GC 后图片消失
-                _qrlbl.pack()
-                tk.Label(_qr, text="微信扫一扫，直接购买激活码",
-                         bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(6, 0))
-            except Exception:
-                pass
+        if not image_on_top:
+            _place_qr()
         fr = tk.Frame(top, bg=PAPER)
         fr.pack(pady=(0, 18))
         for key, label in buttons:
@@ -2840,9 +2884,9 @@ def show_activation(root, show_trial=True):
     # v1.3.58：试用入口放在显眼位置（激活按钮正下方，便于未购买客户先体验）
     # v1.3.66：仅启动时首次弹窗显示；从主界面激活入口打开时客户已在试用模式，无需再显示
     if show_trial:
-        ttk.Button(top, text="还没有激活码？先试用（免费 2 次）", style="Ghost.TButton",
+        ttk.Button(top, text="先免费试用（推荐）", style="Recommend.TButton",
                    command=lambda: (result.update(v="trial"), top.destroy())).pack(pady=(4, 2))
-        tk.Label(top, text="试用版可完整体验一次一键修正，输出即正式版格式（无水印、可编辑）；激活后不限次数一键交稿。",
+        tk.Label(top, text="试用版可完整体验一次格式修正，输出即正式版效果；激活后按所选卡种安心使用——永久 / 周 / 月卡在期限内随心使用，次卡按次扣减额度。",
                  bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=540).pack(pady=(0, 6))
 
     tk.Label(top, text="— 以下为特殊情形使用 —", bg=PAPER, fg=MUTED, font=F_SMALL).pack(pady=(8, 4))
@@ -2924,8 +2968,10 @@ def _site_label(parent, text=OFFICIAL_SITE_TEXT, bg=PAPER):
 # ---------------------------------------------------------------------------
 def _scroll_frame(parent, bg=PAPER):
     """可滚动容器：Canvas + 常驻滚动条，滚轮/拖拽/箭头均可用，内部宽度跟随画布。"""
-    cv = tk.Canvas(parent, bg=bg, highlightthickness=0)
-    sb = ttk.Scrollbar(parent, orient="vertical", command=cv.yview)
+    cv = tk.Canvas(parent, bg=bg, highlightthickness=0,
+                   yscrollincrement=WHEEL_INCREMENT)
+    sb = ttk.Scrollbar(parent, orient="vertical", command=cv.yview,
+                       style="Vertical.TScrollbar")
     inner = tk.Frame(cv, bg=bg)
     win = cv.create_window((0, 0), window=inner, anchor="nw")
 
@@ -2943,16 +2989,22 @@ def _scroll_frame(parent, bg=PAPER):
         _sync()
 
     def _wheel(event):
+        # 滚动前先按当前内容刷新滚动范围，避免内容变化后 bbox 滞后导致"滚不动/滚不回去"
+        try:
+            cv.configure(scrollregion=cv.bbox("all"))
+        except Exception:
+            pass
+        # Button-4=向上、Button-5=向下（老写法两个方向都滚成向下，方向是反的）
         if getattr(event, "num", None) == 4:
-            cv.yview_scroll(-3, "units")
+            cv.yview_scroll(-WHEEL_UNITS, "units")
         elif getattr(event, "num", None) == 5:
-            cv.yview_scroll(3, "units")
+            cv.yview_scroll(WHEEL_UNITS, "units")
         else:
-            d = getattr(event, "delta", 0) or 0
-            step = -3 if d > 0 else 3
-            if abs(d) >= 120:
-                step = -int(d / 120) * 3
-            cv.yview_scroll(step, "units")
+            steps = _wheel_steps(getattr(event, "delta", 0))
+            if steps:
+                cv.yview_scroll(steps, "units")
+        # 阻断根窗全局 bind_all 抢滚主窗：本弹窗滚动为权威动作，且避免一次滚轮触发多次滚动
+        return "break"
 
     inner.bind("<Configure>", _sync)
     cv.bind("<Configure>", _on_cv)
@@ -2964,7 +3016,11 @@ def _scroll_frame(parent, bg=PAPER):
     # 兜底：窗口显示、内容布局稳定后多次刷新滚动范围（滑块大小/上下界限由此决定）
     parent.after(150, _sync)
     parent.after(500, _sync)
-    for w in (cv, inner):
+    # 关键：把滚轮绑到弹窗顶层 parent（Toplevel）。非 modal 弹窗下，根窗的全局
+    # bind_all("<MouseWheel>") 也会对弹窗内的滚轮生效并去滚背后的主窗；把绑定放到
+    # bindtag 链里先于 "all" 的顶层位置，配合 _wheel 返回 "break"，可彻底拦截全局抢滚，
+    # 保证本弹窗滚动优先且唯一。cv/inner 的绑定兜底各种悬停位置。
+    for w in (parent, cv, inner):
         w.bind("<MouseWheel>", _wheel)
         w.bind("<Button-4>", _wheel)
         w.bind("<Button-5>", _wheel)
@@ -3123,8 +3179,8 @@ def show_help(parent):
          "非必带，但带批注的学校官方模板效果最佳。软件定格式时，批注说明优先于样式定义："
          "批注有明确要求则遵批注，无批注则读样式定义，样式亦无则以通用规范兜底。"),
         ("Q3 · 试用版与正式版有何区别？卡片有哪些种类？",
-         "试用版：免费试用 1 次，输出即正式版格式（无水印、可编辑）。\n"
-         "正式版：无水印、可编辑、可保存。卡片共 4 种：\n"
+         "试用版：免费试用 1 次，输出即正式版格式，文档可直接编辑。\n"
+         "正式版：文档均可正常编辑保存，按所选卡种使用。卡片共 4 种：\n"
          "· 永久卡 — 一次付费终身可用，激活后完全离线；\n"
          "· 周卡 / 月卡 — 期限内不限次数使用，到期后续费即可继续；\n"
          "· 次卡 — 按次计费，每修正一次扣一次次数（需联网扣次）。"),
