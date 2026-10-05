@@ -116,7 +116,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.140"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.141"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -2269,17 +2269,27 @@ class App:
                 parent=self.root)
             ev.set()
 
+        if threading.current_thread() is threading.main_thread():
+            show()                           # 已在主线程：直接弹，不能 ev.wait（会自锁）
+            return bool(box.get("ok", False))
         self.root.after(0, show)
         ev.wait(30)
         return bool(box.get("ok", False))
 
     def _show_trial_exhausted(self):
-        """试用次数用完：主线程弹升级引导（公众号引导）。"""
-        ev = threading.Event()
-        box = {}
+        """试用次数用完：弹升级引导（小程序码 + 购买方式）。
 
-        def show():
-            box["v"] = self._modal(
+        **任意线程调用都安全**：
+          - worker 线程（正常路径，本版即如此）：弹窗排给主线程，本线程等 Event；
+          - 主线程：直接弹，绝不自锁。
+
+        v1.3.141：与导师版 v1.1.37 同步加固 —— 导师版曾把本函数写成
+        after(0, self._show_trial_exhausted) 误用，导致「主线程自己等自己」、
+        界面硬卡 30 秒。这里补齐主线程判断，从函数层面彻底免疫。
+        """
+
+        def _dialog():
+            return self._modal(
                 "试用次数已用完",
                 "本机试用已用完（共 %d 次）。\n\n"
                 "正式版按所选卡种使用：永久 / 周 / 月卡在期限内随心使用，次卡每次修正联网扣减一次额度。"
@@ -2290,6 +2300,15 @@ class App:
                     "购买方式：微信扫描上方小程序码，或搜索小程序【%s】，付款后自动发码。\n"
                     "也可关注公众号【芦苇不熬夜】（ID：reedskill）或前往官网 reedskill.com 选购。\n"
                     "激活码相关的问题，欢迎在公众号留言，我们会尽快回复。" % MINIAPP_NAME))
+
+        if threading.current_thread() is threading.main_thread():
+            _dialog()                        # 已在主线程：直接弹，不能 ev.wait（会自锁）
+            return
+        ev = threading.Event()
+        box = {}
+
+        def show():
+            box["v"] = _dialog()
             ev.set()
 
         self.root.after(0, show)
