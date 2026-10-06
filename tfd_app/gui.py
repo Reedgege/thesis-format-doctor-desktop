@@ -116,7 +116,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.146"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.147"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -2819,7 +2819,11 @@ class App:
             self._set_status("已进入试用模式", MUTED)
 
     def _handle_revoked(self):
-        """授权失效（撤销退款/到期/次卡用尽）：锁定软件，禁止继续修正。"""
+        """授权失效（撤销退款/到期/次卡用尽）：锁定软件，禁止继续修正。
+
+        v1.3.147：弹窗加小程序购买码 + 续费/客服引导，与 _show_license_unusable、
+        _show_trial_exhausted 保持同一套排版，避免锁定弹窗成为死胡同。
+        """
         self._licensed = False
         self._update_trial_badge()
         reason = license.get_lock_reason()
@@ -2831,7 +2835,14 @@ class App:
         else:
             status = "授权已失效（可能已退款），软件已锁定"
         self._set_status(status, ERRC)
-        self._modal(title, body, [("ok", "知道了")])
+        if reason == "revoked":
+            tail = ("如需继续使用，请微信扫描上方小程序码购买新授权；"
+                    "如有疑问请联系客服：hi@reedskill.com。")
+        else:
+            tail = ("如需继续使用，请微信扫描上方小程序码购买或续费；"
+                    "也可联系客服：hi@reedskill.com。")
+        self._modal(title, body, [("ok", "知道了")],
+                    image_path=MINIAPP_QRCODE, text_after=tail)
 
     # ------------------------------------------------------------ 意见反馈
     # 提交到中台 /api/feedback → 邮件（正文会标「学生版」来源）；断网/失败回落 mailto:。
