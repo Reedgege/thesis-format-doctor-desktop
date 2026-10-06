@@ -116,7 +116,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.145"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.146"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
@@ -2422,7 +2422,14 @@ class App:
                 else:
                     reason = "expired"
             title, body = _revoked_message(reason)
-            self._modal(title, body, [("ok", "知道了")])
+            if reason == "revoked":
+                tail = ("如需继续使用，请微信扫描上方小程序码购买新授权；"
+                        "如有疑问请联系客服：hi@reedskill.com。")
+            else:
+                tail = ("如需继续使用，请微信扫描上方小程序码购买或续费；"
+                        "也可联系客服：hi@reedskill.com。")
+            self._modal(title, body, [("ok", "知道了")],
+                        image_path=MINIAPP_QRCODE, text_after=tail)
 
         if threading.current_thread() is threading.main_thread():
             _dialog()                        # 已在主线程：直接弹，不能排 after 等自己
@@ -3014,18 +3021,21 @@ def _on_license_revoked():
 
 
 def _revoked_message(reason=None):
-    """按失效原因返回 (标题, 正文)。"""
+    """按失效原因返回 (标题, 正文)。
+
+    v1.3.146：正文只保留「原因 + 软件已锁定」，购买 / 续费 / 客服引导
+    移到调用方 ``_show_license_unusable`` 的 ``text_after``（居中小程序码下方），
+    与 ``_show_trial_exhausted`` 同一套排版，避免正文与引导下文重复。
+    """
     if reason == "uses_exhausted":
         return ("次数已用完",
-                "您的次卡次数已用完，软件已锁定。\n\n"
-                "如需继续使用，请续费或联系客服：hi@reedskill.com。")
+                "您的次卡次数已用完，软件已锁定。")
     if reason == "expired":
         return ("授权已到期",
-                "您的授权已到期，软件已锁定。\n\n"
-                "如需继续使用，请续费或联系客服：hi@reedskill.com。")
+                "您的授权已到期，软件已锁定。")
     return ("授权已失效",
             "您的授权已被后台撤销（可能因退款）。\n\n"
-            "软件已锁定，无法继续修正论文。\n如需继续使用，请联系客服：hi@reedskill.com。")
+            "软件已锁定，无法继续修正论文。")
 
 
 def show_activation(root, show_trial=True):
