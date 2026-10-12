@@ -116,7 +116,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.150"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.151"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "文档格式先生"       # 桌面快捷方式显示名
@@ -777,7 +777,7 @@ class App:
         header.pack(fill="x", padx=20, pady=(16, 8))
         tk.Label(header, text="文 档 格 式 先 生", bg=PAPER, fg=INK,
                  font=F_TITLE).pack(anchor="center")
-        tk.Label(header, text="THESIS FORMAT DOCTOR · 高校论文格式规范引擎",
+        tk.Label(header, text="MR. DOCUMENT FORMATTER · 高校论文格式规范引擎",
                  bg=PAPER, fg="#8b8378", font=F_SUBTITLE).pack(anchor="center", pady=(5, 0))
         tk.Frame(self.root, bg=CINNABAR, height=2).pack(fill="x", padx=20)
 

@@ -137,12 +137,12 @@ def write_change_report(path, title, summary, columns, rows):
             'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" '
             'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
             '<dc:title>论文格式修改明细</dc:title>'
-            '<dc:creator>thesis-format-doctor</dc:creator>'
+            '<dc:creator>Mr. Document Formatter</dc:creator>'
             '</cp:coreProperties>')
 
     app = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
            '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">'
-           '<Application>thesis-format-doctor v1.3.5<Company>芦苇（山东大学 MBA）</Company><Author>芦苇</Author><Comments>原创作品 build:202608191649</Comments></Properties>')
+           '<Application>Mr. Document Formatter v1.3.5<Company>芦苇（山东大学 MBA）</Company><Author>芦苇</Author><Comments>原创作品 build:202608191649</Comments></Properties>')
 
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:

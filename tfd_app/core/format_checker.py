@@ -862,7 +862,7 @@ def main():
     L.append('> 📌 结构页（封面/摘要/声明/目录）各校差异大，建议对照学校模板手动确认，技能暂不自动修正。')
     L.append('')
     L.append('---')
-    L.append('> 报告由 thesis-format-doctor · 格式校验脚本生成（仅诊断不修改文档）。')
+    L.append('> 报告由 Mr. Document Formatter · 格式校验脚本生成（仅诊断不修改文档）。')
     if not all_issues:
         L.append('> ✨ 格式已达标，无需修正。')
     else:

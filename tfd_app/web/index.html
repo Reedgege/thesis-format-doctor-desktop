@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文档格式先生 - 新国风 UI 界面</title>
+    <style>
+        :root {
+            /* 默认学生版色彩（青蓝） */
+            --theme-color: #1e5aa8;
+            --theme-gradient: linear-gradient(135deg, #2b6cb0 0%, #1a4980 100%);
+            --theme-bg-light: #f0f5fa;
+            --theme-border: #c3d7e8;
+            --theme-card-bg: rgba(255, 255, 255, 0.85);
+            --theme-tag-bg: #e2eeff;
+            --theme-tag-color: #1e5aa8;
+        }
+
+        /* 导师版主题配色（朱红） */
+        body.advisor-theme {
+            --theme-color: #8c2d19;
+            --theme-gradient: linear-gradient(135deg, #9b3622 0%, #6e1f10 100%);
+            --theme-bg-light: #faf0ed;
+            --theme-border: #e8c9c3;
+            --theme-card-bg: rgba(255, 255, 255, 0.88);
+            --theme-tag-bg: #ffebe6;
+            --theme-tag-color: #8c2d19;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        }
+
+        body {
+            background-color: #e5ebf0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+            transition: background-color 0.3s ease;
+        }
+
+        body.advisor-theme {
+            background-color: #ebe3e0;
+        }
+
+        /* 顶部切换控制区 */
+        .version-switcher {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 12px;
+            background: #fff;
+            padding: 6px 12px;
+            border-radius: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+
+        .version-btn {
+            padding: 8px 20px;
+            border: none;
+            background: transparent;
+            color: #666;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .version-btn.active-blue {
+            background: #1e5aa8;
+            color: #fff;
+        }
+
+        .version-btn.active-red {
+            background: #8c2d19;
+            color: #fff;
+        }
+
+        /* ---------------- 主窗口 ---------------- */
+        .app-window {
+            width: 1020px;
+            height: 640px;
+            background: #f7fafc;
+            /* 浅淡国风水墨艺术纹理背景 */
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(30, 90, 168, 0.03) 0%, transparent 50%),
+                radial-gradient(circle at 90% 80%, rgba(30, 90, 168, 0.04) 0%, transparent 50%),
+                url("assets/bg-student.png");
+            background-size: cover;
+            border-radius: 12px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.12);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        body.advisor-theme .app-window {
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(140, 45, 25, 0.03) 0%, transparent 50%),
+                radial-gradient(circle at 90% 80%, rgba(140, 45, 25, 0.04) 0%, transparent 50%),
+                url("assets/bg-advisor.png");
+        }
+
+        /* Window Titlebar */
+        .title-bar {
+            height: 38px;
+            padding: 0 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: #718096;
+            background: rgba(255, 255, 255, 0.4);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0,0,0,0.04);
+        }
+
+        .title-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 500;
+        }
+
+        .app-icon-mini {
+            width: 16px;
+            height: 16px;
+            background: var(--theme-color);
+            color: #fff;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+        }
+
+        .window-actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .window-actions span { cursor: pointer; }
+        .window-actions span:hover { color: #333; }
+
+        /* Window Header Logo区 */
+        .app-header {
+            padding: 18px 28px 10px 28px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .logo-area h1 {
+            font-size: 26px;
+            color: #2d3748;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        .stamp-badge {
+            background: var(--theme-color);
+            color: #fff;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: normal;
+        }
+
+        .logo-sub {
+            font-size: 11px;
+            color: #a0aec0;
+            margin-top: 3px;
+            letter-spacing: 1px;
+        }
+
+        .header-trial-badge {
+            background: #fff;
+            border: 1px solid var(--theme-border);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: #4a5568;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-upgrade {
+            background: var(--theme-gradient);
+            color: #fff;
+            border: none;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        /* 主工作区 Grid Layout */
+        .workspace {
+            display: grid;
+            grid-template-columns: 1.15fr 0.85fr;
+            gap: 20px;
+            padding: 10px 28px 16px 28px;
+            flex: 1;
+        }
+
+        /* 统一卡片样式 */
+        .card {
+            background: var(--theme-card-bg);
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 18px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.02);
+            backdrop-filter: blur(8px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #2d3748;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .card-title-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .icon-box {
+            width: 24px;
+            height: 24px;
+            background: var(--theme-tag-bg);
+            color: var(--theme-tag-color);
+            border-radius: 6px;
+            display: font;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        .tag-offline {
+            font-size: 11px;
+            color: var(--theme-tag-color);
+            background: var(--theme-tag-bg);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+
+        /* 拖拽上传框 (最符合审美的地方) */
+        .drop-zone {
+            border: 2px dashed var(--theme-border);
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 10px;
+            padding: 20px 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 12px;
+        }
+
+        .drop-zone:hover {
+            border-color: var(--theme-color);
+            background: #fff;
+        }
+
+        .drop-icon {
+            font-size: 28px;
+            color: var(--theme-color);
+            margin-bottom: 6px;
+        }
+
+        .drop-text {
+            font-size: 13px;
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        .drop-sub {
+            font-size: 11px;
+            color: #a0aec0;
+            margin-top: 4px;
+        }
+
+        /* 按钮条（导师版支持选择文件夹） */
+        .file-action-btns {
+            display: flex;
+            gap: 8px;
+            margin-top: 6px;
+            justify-content: center;
+        }
+
+        .btn-light-action {
+            background: #fff;
+            border: 1px solid var(--theme-border);
+            color: var(--theme-color);
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-light-action:hover {
+            background: var(--theme-tag-bg);
+        }
+
+        /* 学校模板 Row */
+        .template-row {
+            background: #fff;
+            border: 1px solid #edf2f7;
+            border-radius: 8px;
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .tpl-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .tpl-icon {
+            font-size: 20px;
+        }
+
+        .tpl-text div:first-child {
+            font-size: 13px;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .tpl-text div:last-child {
+            font-size: 11px;
+            color: #a0aec0;
+        }
+
+        .tpl-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* 导师版专有：记住模板 & 批注署名 */
+        .advisor-inputs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .btn-remember {
+            background: #fff;
+            border: 1px dashed var(--theme-color);
+            color: var(--theme-color);
+            font-size: 11px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .signer-input {
+            flex: 1;
+            border: 1px solid var(--theme-border);
+            border-radius: 6px;
+            padding: 4px 10px;
+            font-size: 11px;
+            outline: none;
+            background: rgba(255,255,255,0.9);
+        }
+
+        /* 黄色提示框 */
+        .notice-card {
+            background: #fffbeb;
+            border: 1px solid #fef3c7;
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 11px;
+            color: #b45309;
+            line-height: 1.5;
+
+        }
+
+        /* 处理步骤 Step List */
+        .step-container {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            margin-top: 5px;
+        }
+
+        .step-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .step-num {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 1.5px solid var(--theme-border);
+            color: #718096;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            background: #fff;
+        }
+
+        .step-row.active .step-num {
+            background: var(--theme-color);
+            color: #fff;
+            border-color: var(--theme-color);
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .step-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .step-sub {
+            font-size: 11px;
+            color: #a0aec0;
+            margin-top: 2px;
+        }
+
+        /* 导师版交付模式 3选1 卡片 */
+        .delivery-selector {
+            margin-top: 10px;
+            background: rgba(255,255,255,0.5);
+            border-radius: 8px;
+            padding: 8px;
+        }
+
+        .delivery-label {
+            font-size: 11px;
+            font-weight: bold;
+            color: var(--theme-color);
+            margin-bottom: 6px;
+        }
+
+        .delivery-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 6px;
+        }
+
+        .delivery-card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 6px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .delivery-card.selected {
+            border-color: var(--theme-color);
+            background: var(--theme-tag-bg);
+        }
+
+        .delivery-card div:first-child {
+            font-size: 11px;
+            font-weight: bold;
+            color: #2d3748;
+        }
+
+        .delivery-card div:last-child {
+            font-size: 9px;
+            color: #a0aec0;
+            margin-top: 2px;
+        }
+
+        /* 底部下一步主按钮 */
+        .btn-main-next {
+            width: 100%;
+            background: var(--theme-gradient);
+            color: #fff;
+            border: none;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: auto;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transition: transform 0.1s;
+        }
+
+        .btn-main-next:active {
+            transform: scale(0.99);
+        }
+
+        /* 底部 Status Footbar */
+        .status-footbar {
+            height: 32px;
+            background: rgba(255, 255, 255, 0.6);
+            border-top: 1px solid rgba(0,0,0,0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 28px;
+            font-size: 11px;
+            color: #a0aec0;
+        }
+
+        .status-footbar span a {
+            color: #a0aec0;
+            text-decoration: none;
+        }
+    
+/* ---- 软件形态（app-mode）：由启动参数 ?edition= 触发 ----
+   无参数打开 = 演示模式（灰底居中+顶部切换条）；带参数 = 正式软件形态 */
+body.app-mode{
+    padding: 0;
+    background: var(--theme-bg-light);
+}
+body.app-mode .version-switcher{ display: none; }
+body.app-mode .app-window{
+    width: 100%;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+}
+    </style>
+</head>
+<body>
+
+    <!-- 顶部分页控制 (方便实时对比切换) -->
+    <div class="version-switcher">
+        <button class="version-btn active-blue" onclick="switchTheme('student')">学生版 UI 界面</button>
+        <button class="version-btn" onclick="switchTheme('advisor')">导师版 UI 界面</button>
+    </div>
+
+    <!-- 桌面客户端外框 -->
+    <div class="app-window">
+        <!-- 软件标题栏 -->
+        <div class="title-bar">
+            <div class="title-left">
+                <div class="app-icon-mini">论</div>
+                <span id="winTitle">文档格式先生 · 学生版</span>
+            </div>
+            <div class="window-actions">
+                <span>💬 客服微信</span>
+                <span>📢 官方公众号</span>
+                <span>关于</span>
+                <span>帮助</span>
+                <span>— ▢ ✕</span>
+            </div>
+        </div>
+
+        <!-- Header区 -->
+        <div class="app-header">
+            <div class="logo-area">
+                <h1>文档格式先生 <span class="stamp-badge" id="badgeTag">学生版</span></h1>
+                <div class="logo-sub">MR. DOCUMENT FORMATTER · 高校论文格式规范引擎</div>
+            </div>
+            <div class="header-trial-badge">
+                <span>👑 试用版 · 剩余 <b>2</b> 次</span>
+                <button class="btn-upgrade">升至正式版 →</button>
+            </div>
+        </div>
+
+        <!-- 主工作区 -->
+        <main class="workspace">
+            <!-- 左卡片：文件选择区 -->
+            <section class="card">
+                <div class="card-title">
+                    <div class="card-title-left">
+                        <div class="icon-box">📁</div>
+                        <span>文件选择</span>
+                    </div>
+                    <span class="tag-offline">🔒 本机离线</span>
+                </div>
+
+                <!-- 拖拽上传框 -->
+                <div class="drop-zone">
+                    <div class="drop-icon">☁️</div>
+                    <div class="drop-text">点击上传或拖拽文件到此处</div>
+                    <div class="drop-sub" id="uploadTip">支持 Word 文档 (.docx, .doc)、WPS 格式 (.wps)</div>
+                    
+                    <!-- 导师版增加批量/文件夹操作按钮 -->
+                    <div class="file-action-btns" id="advisorFileBtns" style="display:none;">
+                        <button class="btn-light-action">选择单文件...</button>
+                        <button class="btn-light-action">批量导入文件夹...</button>
+                    </div>
+                </div>
+
+                <!-- 学校模板选择 -->
+                <div class="template-row">
+                    <div class="tpl-info">
+                        <div class="tpl-icon">🎓</div>
+                        <div class="tpl-text">
+                            <div>学校模板 <span style="font-size: 10px; color: #a0aec0; font-weight: normal;">可选</span></div>
+                            <div>用于按学校要求检查/修正，更贴合要求</div>
+                        </div>
+                    </div>
+                    <div class="tpl-actions">
+                        <button class="btn-light-action">选择模板</button>
+                    </div>
+                </div>
+
+                <!-- 导师版专有扩展：记住模板 & 批注署名 -->
+                <div class="advisor-inputs" id="advisorInputs" style="display:none;">
+                    <button class="btn-remember">⭐ 设为常用模板</button>
+                    <input type="text" class="signer-input" value="批注署名：文档格式先生·导师版">
+                </div>
+
+                <!-- 黄色模板提示文案 -->
+                <div class="notice-card">
+                    💡 <b>模板说明：</b>请优先使用学校官方模板（通常批注中写明了格式要求）；若模板无批注，将按模板样式定义 / 通用规范处理，可能与学校要求有出入。
+                </div>
+
+                <div style="font-size: 11px; color: #a0aec0; margin-top: 10px;">
+                    ◦ 未选择论文 &nbsp;&nbsp;&nbsp;&nbsp; ◦ 模板未选 (可选)
+                </div>
+            </section>
+
+            <!-- 右卡片：处理步骤与操作区 -->
+            <section class="card">
+                <div class="card-title">
+                    <div class="card-title-left">
+                        <div class="icon-box">✏️</div>
+                        <span>处理步骤</span>
+                    </div>
+                    <span style="font-size: 12px; color: #a0aec0;">1 / 3</span>
+                </div>
+
+                <div class="step-container">
+                    <div class="step-row active">
+                        <div class="step-num">1</div>
+                        <div class="step-content">
+                            <div class="step-title">提取学校模板要求</div>
+                            <div class="step-sub">识别字号、页边距与格式规范</div>
+                        </div>
+                    </div>
+                    <div class="step-row">
+                        <div class="step-num">2</div>
+                        <div class="step-content">
+                            <div class="step-title">论文格式检查</div>
+                            <div class="step-sub" id="step2Sub">快速定位格式问题与待修正项</div>
+                        </div>
+                    </div>
+                    <div class="step-row">
+                        <div class="step-num">3</div>
+                        <div class="step-content">
+                            <div class="step-title" id="step3Title">一键格式修正</div>
+                            <div class="step-sub" id="step3Sub">确认后生成符合规范的论文文件</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 导师版专有：交付方式 (三选一) -->
+                <div class="delivery-selector" id="advisorDelivery" style="display:none;">
+                    <div class="delivery-label">交付方式 (三选一)</div>
+                    <div class="delivery-grid">
+                        <div class="delivery-card selected">
+                            <div>① 只批注</div>
+                            <div>保留原稿，仅标注</div>
+                        </div>
+                        <div class="delivery-card">
+                            <div>② 一键修正</div>
+                            <div>生成符合规范文件</div>
+                        </div>
+                        <div class="delivery-card">
+                            <div>③ ①+② 都要</div>
+                            <div>批注并生成修正版</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 底部主操作按钮 -->
+                <button class="btn-main-next">🔍 下一步：开始检查 →</button>
+            </section>
+        </main>
+
+        <!-- 状态栏 -->
+        <div class="status-footbar">
+            <span>📧 hi@reedskill.com</span>
+            <span>专注学术 · 让格式更专业</span>
+            <span>🌐 reedskill.com</span>
+        </div>
+    </div>
+
+    <script>
+        function switchTheme(type) {
+            const btns = document.querySelectorAll('.version-btn');
+            btns.forEach(b => b.className = 'version-btn');
+
+            if(type === 'student') {
+                document.body.className = '';
+                btns[0].classList.add('active-blue');
+                
+                document.getElementById('winTitle').innerText = "文档格式先生 · 学生版";
+                document.getElementById('badgeTag').innerText = "学生版";
+                document.getElementById('uploadTip').innerText = "支持 Word 文档 (.docx, .doc)、WPS 格式 (.wps)";
+                
+                document.getElementById('advisorFileBtns').style.display = "none";
+                document.getElementById('advisorInputs').style.display = "none";
+                document.getElementById('advisorDelivery').style.display = "none";
+                
+                document.getElementById('step2Sub').innerText = "快速定位格式问题与待修正项";
+                document.getElementById('step3Title').innerText = "一键格式修正";
+                document.getElementById('step3Sub').innerText = "确认后生成符合规范的论文文件";
+            } else {
+                document.body.className = 'advisor-theme';
+                btns[1].classList.add('active-red');
+                
+                document.getElementById('winTitle').innerText = "文档格式先生 · 导师版";
+                document.getElementById('badgeTag').innerText = "导师版";
+                document.getElementById('uploadTip').innerText = "可多选，或整文件夹批量导入 (.docx / .doc / .wps)";
+                
+                document.getElementById('advisorFileBtns').style.display = "flex";
+                document.getElementById('advisorInputs').style.display = "flex";
+                document.getElementById('advisorDelivery').style.display = "block";
+                
+                document.getElementById('step2Sub').innerText = "生成格式检查报告，不动文件";
+                document.getElementById('step3Title').innerText = "交付方式 (只批注 / 只修正 / ①+② 都要)";
+                document.getElementById('step3Sub').innerText = "可三选一：只批注不改原稿、一键修正、或 ①+② 都要";
+            }
+        }
+
+        /* ---- 对接层（本段为接入新增，未改动任何样式与结构）----
+           版本由启动参数决定：?edition=student | ?edition=advisor
+           后端 /api/health 就绪后，改为读取其 data.edition 即可全自适应。
+           注意：顶部切换按钮保留，方便演示时实时对比两版。 */
+        (function () {
+            var q = new URLSearchParams(location.search).get('edition');
+            switchTheme(q === 'advisor' ? 'advisor' : 'student');
+            if (q) {
+                // 正式软件形态：隐藏演示切换条、界面充满窗口、窗口标题跟版本走
+                document.body.classList.add('app-mode');
+                document.title = '文档格式先生 · ' + (q === 'advisor' ? '导师版' : '学生版');
+            }
+        })();
+    </script>
+</body>
+</html>
