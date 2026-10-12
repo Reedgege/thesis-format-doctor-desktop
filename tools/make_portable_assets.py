@@ -17,7 +17,7 @@ belt-and-braces.
 
 Usage:
   python tools/make_portable_assets.py --dist dist/<appname> --exe <appname>.exe \
-      --product "论文格式医生"
+      --product "文档格式先生"
 """
 import argparse
 import os
@@ -64,9 +64,9 @@ def main():
     ap.add_argument("--dist", required=True,
                     help="Path to the Nuitka standalone folder (dist/<appname>)")
     ap.add_argument("--exe", required=True,
-                    help="Main executable file name, e.g. 1.论文格式医生.exe")
+                    help="Main executable file name, e.g. 1.文档格式先生.exe")
     ap.add_argument("--product", required=True,
-                    help="Display name (Chinese), e.g. 论文格式医生")
+                    help="Display name (Chinese), e.g. 文档格式先生")
     # kept for backward CLI compatibility (old CI command lines pass it)
     ap.add_argument("--install-sub", default="",
                     help="Deprecated, ignored.")

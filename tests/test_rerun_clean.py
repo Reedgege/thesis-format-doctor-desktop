@@ -26,7 +26,7 @@ def _build_docx(comments_xml, document_xml):
 def test_strip_our_comments_only():
     comments_xml = (
         '<w:comments xmlns:w="%s">'
-        '<w:comment w:id="1" w:author="论文格式医生"><w:p><w:r><w:t>本工具批注</w:t></w:r></w:p></w:comment>'
+        '<w:comment w:id="1" w:author="文档格式先生"><w:p><w:r><w:t>本工具批注</w:t></w:r></w:p></w:comment>'
         '<w:comment w:id="2" w:author="张老师"><w:p><w:r><w:t>用户批注</w:t></w:r></w:p></w:comment>'
         '</w:comments>' % NS
     )
@@ -41,7 +41,7 @@ def test_strip_our_comments_only():
     z = _build_docx(comments_xml, document_xml)
     root = ET.fromstring(z.read("word/document.xml"))
     replacements = {}
-    n = hf._strip_our_comments(z, root, replacements, "论文格式医生")
+    n = hf._strip_our_comments(z, root, replacements, "文档格式先生")
     assert n == 1, "应只清掉本工具的1条，实际 %d" % n
     # 用户批注(id=2)保留
     croot = ET.fromstring(replacements["word/comments.xml"])

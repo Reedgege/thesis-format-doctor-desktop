@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-论文格式医生 · 原生 Tkinter 界面（客户安心版 v2）
+文档格式先生 · 原生 Tkinter 界面（客户安心版 v2）
 ==============================================
 面向客户的简洁流程，不展示任何执行细节；一屏放得下，无需滚动：
 
@@ -70,7 +70,7 @@ def _apply_app_icon(win, as_default=False):
 
 QRCODE = os.path.join(HERE, "assets", "qrcode.png")
 MINIAPP_QRCODE = os.path.join(HERE, "assets", "miniapp_qrcode.png")
-MINIAPP_NAME = "芦苇论文格式"
+MINIAPP_NAME = "文档格式先生"
 # 品牌 / 客服（文案统一来源，避免散落硬编码）
 WECHAT_NAME = "芦苇不熬夜"
 WECHAT_ID = "reedskill"
@@ -119,7 +119,7 @@ _FONT_BASE = {
 APP_VERSION = "1.3.148"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
-APP_SHORTCUT_NAME = "论文格式医生"       # 桌面快捷方式显示名
+APP_SHORTCUT_NAME = "文档格式先生"       # 桌面快捷方式显示名
 SHORTCUT_FLAG_TAG = "ThesisFormatDoctor"  # %APPDATA% 下询问标记目录（区分学生/导师版）
 
 
@@ -646,7 +646,7 @@ class App:
         global _APP_REF
         self.root = root
         _APP_REF = self
-        self.root.title("论文格式医生 · 桌面版")
+        self.root.title("文档格式先生 · 桌面版")
         # v1.3.97：窗口策略与导师版 v1.0.10~v1.0.12 同款——根治两栏 50:50 布局下
         # 右栏「保存修正后论文」等按钮被裁的问题。根因：两栏各 minsize=470（合计约 980），
         # 旧窗口默认 900 / 可缩到 800，宽度不足时右栏被挤出可视区，按钮显示不全。
@@ -801,12 +801,12 @@ class App:
         # 页脚（两行版权，贴底）
         footer = tk.Frame(self.root, bg=PAPER)
         footer.pack(side="bottom", fill="x", pady=(0, 18))
-        tk.Label(footer, text="论文格式医生 · 桌面版 — 本机处理，文件不会上传任何服务器",
+        tk.Label(footer, text="文档格式先生 · 桌面版 — 本机处理，文件不会上传任何服务器",
                  bg=PAPER, fg=MUTED, font=F_FOOT).pack()
         f2 = tk.Frame(footer, bg=PAPER)
         f2.pack(pady=(3, 0))
         tk.Label(f2,
-                 text="© 2026 论文格式医生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：hi@reedskill.com",
+                 text="© 2026 文档格式先生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：hi@reedskill.com",
                  bg=PAPER, fg=MUTED, font=F_FOOT).pack(side="left")
         _site_label(f2).pack(side="left", padx=(6, 0))
 
@@ -816,7 +816,7 @@ class App:
         statusbar.pack(side="bottom", fill="x", padx=20, pady=(6, 6))
         self.bar_dot = tk.Label(statusbar, text="●", bg=PANEL, fg=OKC, font=F_FOOT)
         self.bar_dot.pack(side="left", padx=(0, 6))
-        self.bar_left = tk.Label(statusbar, text="论文格式医生 · 桌面版",
+        self.bar_left = tk.Label(statusbar, text="文档格式先生 · 桌面版",
                                  bg=PANEL, fg=MUTED, font=F_FOOT)
         self.bar_left.pack(side="left")
         self.bar_right = tk.Label(statusbar, text="请按步骤操作",
@@ -1121,7 +1121,7 @@ class App:
         """底部状态栏：idle / running / done / error。"""
         cmap = {"idle": OKC, "running": RUN, "done": OKC, "error": ERRC}
         tmap = {
-            "idle": ("就绪 · 论文格式医生 v%s · 本机处理" % APP_VERSION, "请按步骤操作"),
+            "idle": ("就绪 · 文档格式先生 v%s · 本机处理" % APP_VERSION, "请按步骤操作"),
             "running": ("处理中…", hint or "正在处理"),
             "done": ("已完成", "可再处理一篇"),
             "error": ("出错", "请重试或联系客服"),
@@ -2885,7 +2885,7 @@ class App:
         try:
             webbrowser.open("mailto:%s?subject=%s&body=%s" % (
                 ABOUT_MAIL,
-                urllib.parse.quote("论文格式医生 用户反馈"),
+                urllib.parse.quote("文档格式先生 用户反馈"),
                 urllib.parse.quote(body)))
         except Exception:
             pass
@@ -2914,7 +2914,7 @@ class App:
     def _feedback_dialog(self):
         """意见反馈：邮箱（选填）+ 反馈内容（必填）+ 隐私说明 + 行内状态。"""
         top = tk.Toplevel(self.root)
-        top.title("意见反馈 · 论文格式医生")
+        top.title("意见反馈 · 文档格式先生")
         top.configure(bg=PAPER)
         top.transient(self.root)
         try:
@@ -3063,7 +3063,7 @@ def show_activation(root, show_trial=True):
     result = {"v": "quit"}
     top = tk.Toplevel(root)
     _apply_app_icon(top)
-    top.title("激活 · 论文格式医生")
+    top.title("激活 · 文档格式先生")
     top.configure(bg=PAPER)
     top.resizable(False, False)
     # v1.3.65：窗口尺寸自适应屏幕（笔记本 768 高屏幕时 720 高的窗口底部会被截在屏外）
@@ -3215,7 +3215,7 @@ def show_activation(root, show_trial=True):
 
     tk.Label(top, text="未签名程序提示：Windows 可能弹出 SmartScreen 拦截，点击「详细信息」→「仍要运行」即可打开（官网激活教程有图文演示）。",
              bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(2, 6))
-    tk.Label(top, text="© 2026 论文格式医生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：hi@reedskill.com",
+    tk.Label(top, text="© 2026 文档格式先生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：hi@reedskill.com",
              bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(8, 10))
 
     # v1.3.67：按内容实际所需高度自动伸缩窗口（Tk 自动测量，保证底部版权完整显示不截断），
@@ -3320,7 +3320,7 @@ def _auto_wrap(lbl, container, padx, extra=0):
 def show_about(parent):
     """关于页：名片式居中排版，细线分隔，文字随窗口自适应。"""
     top = tk.Toplevel(parent)
-    top.title("关于 · 论文格式医生")
+    top.title("关于 · 文档格式先生")
     top.configure(bg=PAPER)
     top.geometry("565x680")
     top.resizable(True, True)
@@ -3390,7 +3390,7 @@ def show_about(parent):
 def show_help(parent):
     """使用帮助：文档式左对齐排版，分区细线，文字随窗口自适应。"""
     top = tk.Toplevel(parent)
-    top.title("使用帮助 · 论文格式医生")
+    top.title("使用帮助 · 文档格式先生")
     top.configure(bg=PAPER)
     top.geometry("805x680")
     top.resizable(True, True)

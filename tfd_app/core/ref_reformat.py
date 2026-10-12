@@ -16,7 +16,7 @@ ref-reformat.py — 参考文献按 GB/T 7714 范式重排（逐条挂 Word 批�
   - 可解析条目按 GB/T 7714 范式排布（标点/空格/作者污染归一），缺项不编造；
     低置信条目仅做安全标点归一，无法确认的内容绝不擅动
   - **凡被引擎修改过的条目，一律在该条目上挂 Word 批注说明**（作者
-    "论文格式医生·提示"，Word 中可见、可删）：干净条目挂"已按 GB/T 7714
+    "文档格式先生·提示"，Word 中可见、可删）：干净条目挂"已按 GB/T 7714
     规范化标点与空格"告知改动；需人工核对的条目（缺年份 / 解析不确定）
     挂具体提示。**条目正文本身干净、不带任何 ⚠ 等工具文字** —— 符合
     "只改格式、绝不动内容、可加批注"
@@ -218,7 +218,7 @@ def _replace_in_docx(src, dst, results):
 
     - 编号保留原文（不重排），按文档顺序一一对应消费，不会错位
     - 正文写入**干净文本**，绝不含 ⚠/提示文字（符合"只改格式、绝不动内容"）
-    - 批注策略（每条至多一条，作者"论文格式医生·提示"，Word 可见可删）：
+    - 批注策略（每条至多一条，作者"文档格式先生·提示"，Word 可见可删）：
         * 带 warn 的条目（缺年份/解析不确定）→ 挂对应人工核对提示（无条件挂，
           即使文本恰好没变也提示，因为该条需要人去处理）
         * 无 warn 但条目文本被引擎改写（`原段落 != 新正文`）→ 挂"已按 GB/T 7714
@@ -257,7 +257,7 @@ def _replace_in_docx(src, dst, results):
             next_id = docxutils.max_comment_id(z) + 1
             for p, warn in pend:
                 docxutils.add_comment_marker(p, next_id, warn, comments_root,
-                                             author="论文格式医生·提示", initials="TS")
+                                             author="文档格式先生·提示", initials="TS")
                 next_id += 1
             replacements["word/comments.xml"] = to_doc_xml(comments_root)
         replacements["word/document.xml"] = to_doc_xml(root)

@@ -2,10 +2,10 @@
 """
 跨平台构建脚本（Nuitka 版）
 ==========================
-把论文格式医生编译为原生二进制「文件夹版」，再用 NSIS 打安装包（Windows）。
+把文档格式先生编译为原生二进制「文件夹版」，再用 NSIS 打安装包（Windows）。
 彻底规避 PyInstaller 单文件（onefile）运行时自解压导致的杀软误报。
 
-  Windows -> dist/论文格式医生（免安装版）/  + installer.nsi -> thesis-format-doctor-desktop-setup.exe
+  Windows -> dist/文档格式先生（免安装版）/  + installer.nsi -> thesis-format-doctor-desktop-setup.exe
   macOS   -> dist/thesis-format-doctor-desktop.app  (--macos-create-app-bundle)
   Linux   -> dist/thesis-format-doctor-desktop/
 
@@ -37,16 +37,16 @@ DARWIN = sys.platform == "darwin"
 
 APP_NAME = "thesis-format-doctor-desktop"
 # v1.3.109：Windows 分发名中文化——exe 带数字前缀排文件列表最前、dist 目录（即 zip
-# 顶层文件夹）用中文产品名，客户解压后第一眼看到「1.论文格式医生.exe」。macOS/Linux
+# 顶层文件夹）用中文产品名，客户解压后第一眼看到「1.文档格式先生.exe」。macOS/Linux
 # 保持英文 APP_NAME（.app 包内/文件夹无"找 exe"问题，避免引入非 ASCII 路径的 CI 风险）。
-WIN_EXE_NAME = "1.论文格式医生"
-WIN_DIR_NAME = "论文格式医生（免安装版）"
+WIN_EXE_NAME = "1.文档格式先生"
+WIN_DIR_NAME = "文档格式先生（免安装版）"
 ENTRY = os.path.join(HERE, "main.py")
 
 # Windows 可执行文件的"正当性"版本资源（文件属性里的产品名/公司名/版本）。
 # 未签名新 exe 被 Defender ML 误报的常见诱因之一是"来路不明、无版本信息"；
 # 补全后特征更像正规软件，可压低 Wacatac/Sabsik 类启发式分数。
-PRODUCT_NAME = "论文格式医生"
+PRODUCT_NAME = "文档格式先生"
 COMPANY_NAME = "芦苇不熬夜"
 
 ICON_ICO = os.path.join(HERE, "tfd_app", "assets", "icon.ico")
@@ -119,7 +119,7 @@ def _nuitka_options():
             opt += ["--macos-app-icon=" + ICON_ICNS]
         opt += ["--macos-create-app-bundle",
                 "--macos-app-mode=gui",
-                "--macos-app-name=论文格式医生"]
+                "--macos-app-name=文档格式先生"]
     # Windows 专用：进程内调用本机 Word/WPS 转换 .doc/.wps（pywin32 COM）。
     # win32com 在函数内局部 import，Nuitka 不会自动收录，且仅 Windows 构建才装 pywin32。
     if WIN:

@@ -1,4 +1,4 @@
-﻿; 论文格式医生 · Windows 安装包 (NSIS)
+﻿; 文档格式先生 · Windows 安装包 (NSIS)
 ; 把 Nuitka standalone 文件夹打包成单个 exe 安装器。
 ; 在仓库根目录运行：`makensis installer.nsi`（dist/thesis-format-doctor-desktop/ 须已存在）
 ; 版本号可用 `makensis /DVERSION=1.3.105 installer.nsi` 覆盖。
@@ -10,10 +10,10 @@ Unicode true
   !define VERSION "dev"
 !endif
 
-!define APPNAME "论文格式医生"
+!define APPNAME "文档格式先生"
 !define APPDIR  "ThesisFormatDoctor"
-!define EXE     "1.论文格式医生.exe"
-!define DIST    "dist\论文格式医生（免安装版）"
+!define EXE     "1.文档格式先生.exe"
+!define DIST    "dist\文档格式先生（免安装版）"
 
 Name "${APPNAME}"
 OutFile "thesis-format-doctor-desktop-setup.exe"

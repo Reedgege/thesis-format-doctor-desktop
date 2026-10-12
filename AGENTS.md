@@ -1,11 +1,11 @@
-# AGENTS.md — tfd-desktop（论文格式医生 · 桌面版 / 学生版）
+# AGENTS.md — tfd-desktop（文档格式先生 · 桌面版 / 学生版）
 
 > 这是给 Codex / AI 编码助手的**上下文文件**。
 > 老板（芦苇）不懂代码 —— 你改完必须交 **diff + 大白话说明**，经「技术专家团」代码把关（fan-zhengma）后才算完成，最终由老板真机验收。
 
 ## 一、项目是什么
 
-论文格式医生桌面端（学生版），源自扣子(Coze) skill `thesis-format-doctor`，改造成**本机离线运行的原生桌面程序**。
+文档格式先生桌面端（学生版），源自扣子(Coze) skill `thesis-format-doctor`，改造成**本机离线运行的原生桌面程序**。
 
 - **当前版本**：`VERSION` 文件 = `1.3.110`（已 Nuitka 编译，VirusTotal 0 报毒）
 - 国际版名：**DocxFmt**；官网 reedskill.com

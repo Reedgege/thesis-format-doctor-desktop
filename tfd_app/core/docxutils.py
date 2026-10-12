@@ -1178,7 +1178,7 @@ def ensure_comments_part(z, replacements):
 
 
 def add_comment_marker(para_elem, comment_id, comment_text, comments_root,
-                       author="论文格式医生", initials="LGFD"):
+                       author="文档格式先生", initials="LGFD"):
     """在一个段落上插入批注标记，并在 comments_root 中添加批注内容。
 
     在段落开头插入 <w:commentRangeStart w:id="N"/>，

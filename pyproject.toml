@@ -1,20 +1,20 @@
-[project]
-name = "thesis-format-doctor-desktop"
-version = "1.3.111"
-description = "论文格式医生 · 桌面版 —— 源自扣子(Coze) skill thesis-format-doctor 的纯本地离线桌面程序"
-readme = "README.md"
-requires-python = ">=3.10"
-license = { text = "MIT" }
-authors = [{ name = "thesis-format-doctor contributors" }]
-keywords = ["docx", "论文格式", "格式检查", "GB/T 7714", "thesis", "format-checker"]
-
-[project.urls]
-Homepage = "https://reedskill.com"
-Repository = "https://github.com/Reedgege/thesis-format-doctor-desktop"
-
-# 零第三方依赖：引擎仅用 Python 标准库
-[project.dependencies]
-
-[build-system]
-requires = ["nuitka>=2.5"]
-build-backend = "nuitka"  # 占位；实际通过 build.py / GitHub Actions 构建
+[project]
+name = "thesis-format-doctor-desktop"
+version = "1.3.111"
+description = "文档格式先生 · 桌面版 —— 源自扣子(Coze) skill thesis-format-doctor 的纯本地离线桌面程序"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "thesis-format-doctor contributors" }]
+keywords = ["docx", "论文格式", "格式检查", "GB/T 7714", "thesis", "format-checker"]
+
+[project.urls]
+Homepage = "https://reedskill.com"
+Repository = "https://github.com/Reedgege/thesis-format-doctor-desktop"
+
+# 零第三方依赖：引擎仅用 Python 标准库
+[project.dependencies]
+
+[build-system]
+requires = ["nuitka>=2.5"]
+build-backend = "nuitka"  # 占位；实际通过 build.py / GitHub Actions 构建

@@ -1,4 +1,4 @@
-# 论文格式医生 · 桌面版 (Thesis Format Doctor — Desktop)
+# 文档格式先生 · 桌面版 (Thesis Format Doctor — Desktop)
 
 把你用**扣子(Coze)** 做的论文格式处理 skill（`thesis-format-doctor`）变成一个**真正能在本机跑的桌面程序**：
 

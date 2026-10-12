@@ -1330,7 +1330,7 @@ def _apply_comments(z, root, changes, replacements, author=None):
             continue
         text = _comment_text_for_change(c)
         # v1.3.83：提示类批注（只说明不修改：附录/关键词/疑似题注）用独立作者名，
-        # Word 会按作者分配不同的气泡颜色，与"已修改"批注（论文格式医生）区分开。
+        # Word 会按作者分配不同的气泡颜色，与"已修改"批注（文档格式先生）区分开。
         _kind = c.get("kind", "")
         if _kind.endswith("_note") or _kind == "suspected_caption":
             # v1.3.121：幂等去重——若段落已存在相同文本的提示批注（同一文档二次修正），
@@ -1338,7 +1338,7 @@ def _apply_comments(z, root, changes, replacements, author=None):
             if text in _existing_comment_texts(z, p):
                 continue
             add_comment_marker(p, next_id, text, comments_root,
-                               author="论文格式医生·提示", initials="TS")
+                               author="文档格式先生·提示", initials="TS")
         else:
             add_comment_marker(p, next_id, text, comments_root)
         next_id += 1
@@ -1362,7 +1362,7 @@ def _strip_our_comments(z, root, replacements, author):
     已修正的段落不再残留旧批注气泡。仅按作者名识别本工具批注
     （author 或 author+'·提示'），保留用户/学校模板原有批注。
     返回被清理的批注条数。"""
-    base = author or "论文格式医生"
+    base = author or "文档格式先生"
     try:
         croot = ET.fromstring(z.read("word/comments.xml"))
     except Exception:

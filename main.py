@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-论文格式医生 · 桌面版入口
+文档格式先生 · 桌面版入口
 ========================
 启动原生 Tkinter 窗口。若运行环境缺少 tkinter（极少数情况），
 用 Windows API 弹窗告知用户，而非静默退出。
@@ -18,7 +18,7 @@ def _show_error_win(msg):
     """tkinter 缺失时，用 ctypes 弹一个系统对话框。"""
     try:
         import ctypes
-        ctypes.windll.user32.MessageBoxW(0, msg, "论文格式医生", 0x10)
+        ctypes.windll.user32.MessageBoxW(0, msg, "文档格式先生", 0x10)
     except Exception:
         print(msg, file=sys.stderr)
 
