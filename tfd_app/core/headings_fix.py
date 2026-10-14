@@ -275,32 +275,69 @@ def _eff_en(spec):
     return DEFAULT_EN_FONT
 
 
+# CT_RPr 子元素合法顺序（仅列常用的；其余归到末尾，不影响渲染）。
+# 用于把"保留的非托管子元素"按 CT_RPr 顺序插回重建后的 rPr，保证 XML 合法。
+_RPR_SEQ = ['rStyle', 'rFonts', 'b', 'bCs', 'i', 'iCs', 'caps', 'smallCaps',
+            'strike', 'dstrike', 'outline', 'shadow', 'emboss', 'imprint',
+            'noProof', 'snapToGrid', 'vanish', 'webHidden', 'color', 'spacing',
+            'w', 'kern', 'position', 'sz', 'szCs', 'highlight', 'u', 'shd',
+            'vertAlign', 'em', 'lang', 'rtl', 'rPrChange']
+
+
+# 工具"托管"的 run 维度：仅这些按 spec 重建（spec 有该字段才写、无则清空→交还样式管辖）；
+# 其余（w:color/w:i/w:u/w:shd/w:spacing/w:rStyle…）一律原样保留，绝不被抹掉。
+_MANAGED_RPR = {'rFonts', 'b', 'bCs', 'sz', 'szCs'}
+
+
+def _rpr_order(tag_local):
+    try:
+        return _RPR_SEQ.index(tag_local)
+    except ValueError:
+        return len(_RPR_SEQ)
+
+
+def _insert_rpr_child(rpr, child):
+    """按 CT_RPr 顺序把 child 插入到正确位置（保持 XML 合法顺序）。"""
+    ci = _rpr_order(child.tag.split('}')[-1])
+    for idx, existing in enumerate(rpr):
+        if _rpr_order(existing.tag.split('}')[-1]) > ci:
+            rpr.insert(idx, child)
+            return
+    rpr.append(child)
+
+
 def _set_run_rpr(run, spec):
     """按批注 spec 重写 run 的 rPr：字体(中/西)、字号、加粗。直接格式化优先于样式继承。
+    商业版修复（"修改论文后标题颜色被改回"，一/二/三级均中招）：只重建工具托管的维度
+    （rFonts/b/sz），其余 run 属性（w:color/w:i/w:u/w:shd/w:spacing/w:rStyle…）一律原样
+    保留——旧实现整体删除 rPr 会把用户显式设置的标题字体颜色一并抹掉。
+    托管维度语义与旧实现完全一致：spec 含该字段才写、不含则不写（交还样式管辖），
+    不引入"保留原加粗/原字号"这类新行为偏差（避免模板模式下盖不掉用户的显式加粗/字号）。
     含图片(w:drawing/w:pict)的 run 不触碰——避免向图片注入字体/字号导致渲染异常。"""
     if _run_has_image(run):
         return
-    # v1.3.121：spec 只含段落级字段（align/缩进/段距/行距）而无 run 级字段
-    # （zh_font/en_font/bold/sz）时，不改写 run 的 rPr，避免清空原显式字体/字号
-    # （标题 hspec 仅含 align 时若照旧重写会抹掉原字体/字号，造成二次修正损坏）。
-    # 注：en_font 缺失时仍用 DEFAULT_EN_FONT 兜底（英文统一 Times New Roman），
-    # 故此处不再以 en_font 显式存在作为改写前提。
+    # spec 只含段落级字段（align/缩进/段距/行距）而无 run 级字段时，不改写 run 的 rPr。
     if not (spec.get('zh_font') or spec.get('en_font') or spec.get('bold') or spec.get('sz')):
         return
     old = run.find(WR + 'rPr')
+    # 摘出"非托管"子元素（工具从不管理 → 必须保留，尤其 w:color）；先摘下避免多父引用
+    keep = []
     if old is not None:
-        run.remove(old)
+        for child in list(old):
+            if child.tag.split('}')[-1] not in _MANAGED_RPR:
+                keep.append(child)
+        for child in keep:
+            old.remove(child)
+    # 重建托管维度（与旧实现等价：spec 有才写、无则不写→交还样式管辖）
     rpr = ET.Element(WR + 'rPr')
-    fonts = {}
-    if spec.get('zh_font'):
-        fonts['eastAsia'] = spec['zh_font']
-    # 英文槽统一用有效英文字体（默认 Times New Roman，绝不填中文字体，根绝"英文变宋体"）
-    _en = _eff_en(spec)
-    fonts.update({'ascii': _en, 'hAnsi': _en, 'cs': _en})
-    if fonts:
+    if spec.get('zh_font') or spec.get('en_font'):
         rf = ET.SubElement(rpr, WR + 'rFonts')
-        for k, v in fonts.items():
-            rf.set(WR + k, v)
+        if spec.get('zh_font'):
+            rf.set(WR + 'eastAsia', spec['zh_font'])
+        # 英文槽统一用有效英文字体（默认 Times New Roman，绝不填中文字体，根绝"英文变宋体"）
+        _en = _eff_en(spec)
+        for k in ('ascii', 'hAnsi', 'cs'):
+            rf.set(WR + k, _en)
     if spec.get('bold'):
         ET.SubElement(rpr, WR + 'b')
     if spec.get('sz'):
@@ -309,6 +346,11 @@ def _set_run_rpr(run, spec):
             for tag in ('sz', 'szCs'):
                 s = ET.SubElement(rpr, WR + tag)
                 s.set(WR + 'val', str(_szv))
+    # 把保留的非托管子元素按 CT_RPr schema 顺序插回（保证 XML 合法）
+    for child in keep:
+        _insert_rpr_child(rpr, child)
+    if old is not None:
+        run.remove(old)
     run.insert(0, rpr)
 
 
