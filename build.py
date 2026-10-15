@@ -6,8 +6,8 @@
 彻底规避 PyInstaller 单文件（onefile）运行时自解压导致的杀软误报。
 
   Windows -> dist/文档格式先生（免安装版）/  + installer.nsi -> MDF-Stu-setup.exe
-  macOS   -> dist/thesis-format-doctor-desktop.app  (--macos-create-app-bundle)
-  Linux   -> dist/thesis-format-doctor-desktop/
+  macOS   -> dist/MDF-Stu.app  (--macos-create-app-bundle)
+  Linux   -> dist/MDF-Stu/
 
 原理：Nuita 把 Python 编译成 C -> 原生机器码。产物在 Windows Defender 眼里等同
 普通 C++ 程序，报毒率极低（实测 2/71），且源码被编译保护、无法被 pyinstxtractor
@@ -35,7 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 WIN = sys.platform.startswith("win")
 DARWIN = sys.platform == "darwin"
 
-APP_NAME = "document-format-doctor"
+APP_NAME = "MDF-Stu"
 # v1.3.109：Windows 分发名中文化——exe 带数字前缀排文件列表最前、dist 目录（即 zip
 # 顶层文件夹）用中文产品名，客户解压后第一眼看到「1.文档格式先生.exe」。macOS/Linux
 # 保持英文 APP_NAME（.app 包内/文件夹无"找 exe"问题，避免引入非 ASCII 路径的 CI 风险）。

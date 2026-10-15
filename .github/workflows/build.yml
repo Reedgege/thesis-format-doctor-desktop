@@ -127,7 +127,7 @@ jobs:
           $MAKENSIS = "C:\Program Files (x86)\NSIS\makensis.exe"
           if (-not (Test-Path $MAKENSIS)) { $MAKENSIS = "makensis" }
           & $MAKENSIS /DVERSION=$VER /DVERNUM=$VERNUM installer.nsi
-          ls thesis-format-doctor-desktop-setup.exe
+          ls MDF-Stu-setup.exe
 
       # Windows 双轨分发：除了 setup.exe 安装包，再打一个"文件夹 zip"作为主推分发
       # （解压后的主程序 exe 已实测 VirusTotal 0 报；安装包外壳偶被 Defender ML 误报）。
@@ -137,7 +137,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          Compress-Archive -Path "dist\文档格式先生（免安装版）\*" -DestinationPath "release\thesis-format-doctor-desktop-windows.zip" -Force
+          Compress-Archive -Path "dist\文档格式先生（免安装版）\*" -DestinationPath "release\MDF-Stu-windows.zip" -Force
           ls release
 
       # macOS：把 .app 压缩成 zip 作为发布物。
@@ -146,7 +146,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p release
-          ditto -c -k -v "dist/thesis-format-doctor-desktop.app" "release/thesis-format-doctor-desktop-macos.zip"
+          ditto -c -k -v "dist/MDF-Stu.app" "release/MDF-Stu-macos.zip"
 
       # Linux：把 standalone 文件夹压缩成 zip。
       - name: Package (Linux)
@@ -154,17 +154,17 @@ jobs:
         shell: bash
         run: |
           mkdir -p release
-          cd dist && zip -r "../release/thesis-format-doctor-desktop-linux.zip" "thesis-format-doctor-desktop"
+          cd dist && zip -r "../release/MDF-Stu-linux.zip" "MDF-Stu"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: thesis-format-doctor-desktop-${{ matrix.os }}
+          name: MDF-Stu-${{ matrix.os }}
           path: |
-            thesis-format-doctor-desktop-setup.exe
-            release/thesis-format-doctor-desktop-windows.zip
-            release/thesis-format-doctor-desktop-macos.zip
-            release/thesis-format-doctor-desktop-linux.zip
+            MDF-Stu-setup.exe
+            release/MDF-Stu-windows.zip
+            release/MDF-Stu-macos.zip
+            release/MDF-Stu-linux.zip
           if-no-files-found: ignore
           retention-days: 1
 
@@ -189,7 +189,7 @@ jobs:
         run: |
           mkdir -p release
           for plat in windows macos linux; do
-            find "artifacts/thesis-format-doctor-desktop-$plat" -type f | while read f; do
+            find "artifacts/MDF-Stu-$plat" -type f | while read f; do
               cp "$f" "release/$(basename "$f")"
             done
           done
