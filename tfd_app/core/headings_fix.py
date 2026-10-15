@@ -275,6 +275,20 @@ def _eff_en(spec):
     return DEFAULT_EN_FONT
 
 
+# 中文上下文判定：表意文字（含扩展A区）+ CJK 符号标点（。、《》…）+ 全角形式。
+# 命中即视为"含中文的 run"——其歧宽字符（弯引号 “ ”、省略号 …）必须靠
+# w:hint="eastAsia" 保持中文字体渲染，否则会被西文 hAnsi 字体抢走。
+_CJK_TEXT_RE = re.compile(r'[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]')
+
+
+def _run_has_cjk_text(run):
+    """run 的可见文字是否含中文（表意文字 / CJK 标点 / 全角字符）。"""
+    for t in run.iter(WR + 't'):
+        if t.text and _CJK_TEXT_RE.search(t.text):
+            return True
+    return False
+
+
 # CT_RPr 子元素合法顺序（仅列常用的；其余归到末尾，不影响渲染）。
 # 用于把"保留的非托管子元素"按 CT_RPr 顺序插回重建后的 rPr，保证 XML 合法。
 _RPR_SEQ = ['rStyle', 'rFonts', 'b', 'bCs', 'i', 'iCs', 'caps', 'smallCaps',
@@ -313,13 +327,30 @@ def _set_run_rpr(run, spec):
     保留——旧实现整体删除 rPr 会把用户显式设置的标题字体颜色一并抹掉。
     托管维度语义与旧实现完全一致：spec 含该字段才写、不含则不写（交还样式管辖），
     不引入"保留原加粗/原字号"这类新行为偏差（避免模板模式下盖不掉用户的显式加粗/字号）。
-    含图片(w:drawing/w:pict)的 run 不触碰——避免向图片注入字体/字号导致渲染异常。"""
+    含图片(w:drawing/w:pict)的 run 不触碰——避免向图片注入字体/字号导致渲染异常。
+
+    商业版修复（v1.3.153："正文中文引号修正后整批变西文字体渲染"，老板实锤）：
+    w:hint 是 w:rFonts 的**属性**（不是子元素）——"保留非托管子元素"的逻辑抓不住它，
+    重建 rFonts 会把它静默丢掉。Word/WPS 正是靠 w:hint="eastAsia" 决定歧宽字符
+    （中文弯引号 “ ”、省略号 …）用中文字体还是西文字体渲染；hint 一丢，引号整批
+    落到西文 hAnsi 槽（Times New Roman），中文排版全乱。
+    规则：① 原有 hint 原样带走（尊重 Word/WPS 的既有决定，含 hint="default"）；
+    ② 原无 hint 但 run 含中文 → 补 eastAsia（Word 对含中文的 run 本就写 hint；
+    不补，则我们新写入的 ascii/hAnsi 西文字体会把 “ ”… 抢到西文字体渲染）；
+    ③ 纯西文 run 不补（英文引号本就该用西文字体，补了反而错）。"""
     if _run_has_image(run):
         return
     # spec 只含段落级字段（align/缩进/段距/行距）而无 run 级字段时，不改写 run 的 rPr。
     if not (spec.get('zh_font') or spec.get('en_font') or spec.get('bold') or spec.get('sz')):
         return
     old = run.find(WR + 'rPr')
+    # 原 rFonts 上的 w:hint 属性必须显式带走——它是属性不是子元素，
+    # 下面"保留非托管子元素"的逻辑保不住它（丢了=中文引号变西文字体渲染）。
+    old_hint = None
+    if old is not None:
+        _old_rf = old.find(WR + 'rFonts')
+        if _old_rf is not None:
+            old_hint = _old_rf.get(WR + 'hint')
     # 摘出"非托管"子元素（工具从不管理 → 必须保留，尤其 w:color）；先摘下避免多父引用
     keep = []
     if old is not None:
@@ -338,6 +369,13 @@ def _set_run_rpr(run, spec):
         _en = _eff_en(spec)
         for k in ('ascii', 'hAnsi', 'cs'):
             rf.set(WR + k, _en)
+        # w:hint：① 原有值原样带走；② 原无但 run 含中文 → 补 eastAsia
+        # （保证 “ ”… 歧宽字符继续用中文字体渲染）；③ 纯西文 run 不补。
+        _hint = old_hint
+        if _hint is None and _run_has_cjk_text(run):
+            _hint = 'eastAsia'
+        if _hint:
+            rf.set(WR + 'hint', _hint)
     if spec.get('bold'):
         ET.SubElement(rpr, WR + 'b')
     if spec.get('sz'):
