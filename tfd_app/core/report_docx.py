@@ -6,7 +6,7 @@
 """
 report_docx.py — 生成「客户可读的 Word 修改明细报告」（零第三方依赖）。
 
-thesis-format-doctor 的修正规脚本（headings-fix / ref-reformat 等）在真正动刀后，
+document-format-doctor 的修正规脚本（headings-fix / ref-reformat 等）在真正动刀后，
 用本模块把"改了哪些地方"以 Word 表格形式输出，方便客户逐条验收。
 
 只依赖 Python 标准库：zipfile / os。

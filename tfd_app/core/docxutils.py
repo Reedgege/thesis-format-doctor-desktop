@@ -4,7 +4,7 @@
 # build: 202608191649 | version: 1.3.5 | file_sha256: efa753e999913cb9
 # -*- coding: utf-8 -*-
 """
-docxutils.py — thesis-format-doctor 格式工具的共享底层库（零第三方依赖）。
+docxutils.py — document-format-doctor 格式工具的共享底层库（零第三方依赖）。
 
 只依赖 Python 标准库：zipfile / re / json / xml.etree.ElementTree。
 .docx 本质是 ZIP 包，正文与样式分别在 word/document.xml、word/styles.xml。

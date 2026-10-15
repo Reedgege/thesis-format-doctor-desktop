@@ -1,1 +1,1 @@
-"""文档格式先生 · 桌面版 (Thesis Format Doctor — Desktop)"""
+"""文档格式先生 · 桌面版 (Mr. Document Formatter — Desktop)"""

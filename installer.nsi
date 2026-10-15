@@ -1,6 +1,6 @@
 ﻿; 文档格式先生 · Windows 安装包 (NSIS)
 ; 把 Nuitka standalone 文件夹打包成单个 exe 安装器。
-; 在仓库根目录运行：`makensis installer.nsi`（dist/thesis-format-doctor-desktop/ 须已存在）
+; 在仓库根目录运行：`makensis installer.nsi`（dist/MDF-Stu/ 须已存在）
 ; 版本号可用 `makensis /DVERSION=1.3.105 installer.nsi` 覆盖。
 ; 🔴 编码铁律：本文件必须保存为 UTF-8 带 BOM！NSIS 3 只有读到 BOM 才按 UTF-8
 ; 解析脚本；否则按系统 ANSI 码页读（CI 英文 runner ACP=1252），中文全变乱码
@@ -11,12 +11,12 @@ Unicode true
 !endif
 
 !define APPNAME "文档格式先生"
-!define APPDIR  "ThesisFormatDoctor"
+!define APPDIR  "MDF"
 !define EXE     "1.文档格式先生.exe"
 !define DIST    "dist\文档格式先生（免安装版）"
 
 Name "${APPNAME}"
-OutFile "thesis-format-doctor-desktop-setup.exe"
+OutFile "MDF-Stu-setup.exe"
 InstallDir "$LOCALAPPDATA\Programs\${APPDIR}"
 RequestExecutionLevel user          ; 每用户安装，无需 UAC 提权弹窗
 

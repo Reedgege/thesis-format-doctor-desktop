@@ -51,7 +51,7 @@ def health_payload():
     return {
         "ok": True,
         "data": {
-            "app": "thesis-format-doctor",
+            "app": "MDF-Stu",
             "version": read_version(),
             "edition": EDITION,
             "edition_label": EDITION_LABEL,

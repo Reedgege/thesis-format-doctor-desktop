@@ -5,7 +5,7 @@
 
 ## 一、项目是什么
 
-文档格式先生桌面端（学生版），源自扣子(Coze) skill `thesis-format-doctor`，改造成**本机离线运行的原生桌面程序**。
+文档格式先生桌面端（学生版），源自扣子(Coze) skill `document-format-doctor`，改造成**本机离线运行的原生桌面程序**。
 
 - **当前版本**：`VERSION` 文件 = `1.3.110`（已 Nuitka 编译，VirusTotal 0 报毒）
 - 国际版名：**DocxFmt**；官网 reedskill.com
