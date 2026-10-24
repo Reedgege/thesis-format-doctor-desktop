@@ -177,6 +177,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
 
@@ -214,3 +215,22 @@ jobs:
           name: ${{ steps.ver.outputs.version }}
           files: release/*
           generate_release_notes: true
+
+      # Release 资产已挂好，本次 run 的构件当场回收。
+      # 为什么必须回收：构件只是「跨 job 传包」的中转（Release 资产不占 Actions 的
+      # 500MB artifact 配额），但默认仍会留到过期。同一天连打多个 tag 时，多个 run
+      # 的构件同时在场会把配额撑爆 → 下次 upload-artifact 直接报
+      # "Artifact storage quota has been hit"，整个 Release 发不出来。
+      - name: Recycle artifacts (Release 已有资产)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          ids=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[].id' 2>/dev/null || true)
+          for id in $ids; do
+            gh api -X DELETE "repos/$REPO/actions/artifacts/$id" && echo "recycled artifact $id"
+          done
+          left=$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" --jq '.total_count' 2>/dev/null || echo '?')
+          echo "artifacts left in this run: $left"
