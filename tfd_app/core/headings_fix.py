@@ -1355,6 +1355,12 @@ def _comment_text_for_change(c):
         return "脚注格式：按模板修正"
     if kind == "margin":
         return "页边距：按模板修正为 %s" % (c.get("new") or "")
+    if kind == "table":
+        # 三线表：把"栏目线落在第几行下方"写进气泡，客户可当场核对有无画错
+        hrs = c.get("header_rows") or []
+        loc = "、".join("第%s行" % x for x in hrs) if hrs else "第1行"
+        return ("表格三线化：已改为学术三线表（顶线/底线 1.5 磅、表头栏目线 0.75 磅，"
+                "取消竖线与内部横线）。栏目线加在%s下方；如与学校模板不符请核对此处。" % loc)
     if kind == "suspected_caption":
         return c.get("note") or "此段紧邻表格/图片且字号较小，可能是题注或来源说明，已保留原格式，请确认"
     if kind == "appendix_note":
@@ -2316,6 +2322,45 @@ def fix(src, dst, profile=None, add_comments=True, author=None, three_line=None)
         root, first_chap, ref_start, tbl_ps, cap_targets, styles_map, heading_sids)
     changes.extend(numbering_changes)
 
+    # ---- 学术三线表自动转换（独立 pass，在写盘前对 root 原地修改）----
+    # 触发策略（模板驱动 + 用户可显式覆盖，与海外版对齐）：
+    #   three_line=True  → 强制转；three_line=False → 强制不转；
+    #   three_line=None  → 跟随模板画像 profile["tables"]["threeLine"]（True 才转）。
+    # 国内版默认不开「用户未指定」的盲改：只有模板明确三线表、或用户在 GUI 勾选才动，
+    # 避免把想用框线的学校表格误改成三线表。
+    # 🔴 位置很讲究：必须排在下面「批注 pass」**之前**。
+    #    批注只处理带 _para 的 change，排在批注之后就没气泡了 ——
+    #    客户拿到的文档里表格被改了、却找不到任何说明。
+    tl_count = 0
+    tl_changes = []
+    _tpl_three = bool((profile or {}).get("tables", {}).get("threeLine"))
+    _do_tl = (three_line is True) or (three_line is None and _tpl_three)
+    if three_line is False:
+        _do_tl = False
+    if _do_tl:
+        try:
+            _sroot = three_line_table._load_styles_root(src)
+            _cnt, _changed = three_line_table.apply_three_line_tables(root, _sroot)
+            tl_count = _cnt
+            for _c in _changed:
+                _hrs = _c.get("header_rows") or [1]
+                # 报告与批注都写清"栏目线落在第几行下方"，客户能逐表核对改得对不对
+                _hdr_txt = "、".join(str(x) for x in _hrs)
+                tl_changes.append({
+                    "kind": "table", "conf": 1.0, "level": 0,
+                    "_para": _c.get("anchor"),
+                    "old": "含框线/竖线（非标准三线表）",
+                    "new": "三线表（顶/底线+表头栏目线）",
+                    "new_name": "三线表（顶/底线+表头栏目线）",
+                    "header_rows": _hrs,
+                    "text": "表%d（%d行×%d列），栏目线加在第%s行下方"
+                            % (_c["index"], _c["rows"], _c["cols"], _hdr_txt),
+                })
+            changes.extend(tl_changes)
+        except Exception as _e:
+            import traceback as _tb
+            sys.stderr.write("[三线表转换跳过] " + repr(_e) + "\n" + _tb.format_exc() + "\n")
+
     # 报告分级：置信度 ≥0.8 视为确定套用（applied），低于则归 low_conf 供人工复核。
     # 中文序号标题（一、/（一）/第X章等）置信度 0.85，属确定套用，须与文档实际落盘一致。
     applied = [c for c in changes if c["conf"] >= 0.8]
@@ -2329,39 +2374,6 @@ def fix(src, dst, profile=None, add_comments=True, author=None, three_line=None)
     comment_count = 0
     if add_comments:
         comment_count = _apply_comments(z, root, changes, replacements, author=author)
-
-    # ---- 学术三线表自动转换（独立 pass，在写盘前对 root 原地修改）----
-    # 触发策略（模板驱动 + 用户可显式覆盖，与海外版对齐）：
-    #   three_line=True  → 强制转；three_line=False → 强制不转；
-    #   three_line=None  → 跟随模板画像 profile["tables"]["threeLine"]（True 才转）。
-    # 国内版默认不开「用户未指定」的盲改：只有模板明确三线表、或用户在 GUI 勾选才动，
-    # 避免把想用框线的学校表格误改成三线表。
-    tl_count = 0
-    tl_changes = []
-    _tpl_three = bool((profile or {}).get("tables", {}).get("threeLine"))
-    _do_tl = (three_line is True) or (three_line is None and _tpl_three)
-    if three_line is False:
-        _do_tl = False
-    if _do_tl:
-        try:
-            _sroot = three_line_table._load_styles_root(src)
-            _cnt, _changed = three_line_table.apply_three_line_tables(root, _sroot)
-            tl_count = _cnt
-            for _c in _changed:
-                tl_changes.append({
-                    "kind": "table", "conf": 1.0, "level": 0,
-                    "old": "含框线/竖线（非标准三线表）",
-                    "new": "三线表（顶/底线+表头栏目线）", "new_name": "三线表（顶/底线+表头栏目线）",
-                    "text": "表%d（%d行×%d列）" % (_c["index"], _c["rows"], _c["cols"]),
-                })
-            changes.extend(tl_changes)
-        except Exception as _e:
-            import traceback as _tb
-            sys.stderr.write("[三线表转换跳过] " + repr(_e) + "\n" + _tb.format_exc() + "\n")
-    if tl_count:
-        # 把三线表改动并入修改清单分级（conf=1.0 → applied），使报告逐表可见、可逐条验收
-        applied = [c for c in changes if c["conf"] >= 0.8]
-        low_conf = [c for c in changes if c["conf"] < 0.8]
 
     replacements["word/document.xml"] = to_doc_xml(root)
     # 题注/脚注 pass 可能已往 replacements 写入 footnotes.xml，这里以 document 为基准并集
