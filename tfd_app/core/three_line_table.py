@@ -32,6 +32,16 @@ _TBLPR_AFTER_BORDERS = ("shd", "tblLayout", "tblCellMar", "tblLook",
 _TCPR_AFTER_BORDERS = ("shd", "noWrap", "tcMar", "textDirection",
                        "tcFitText", "vAlign", "hideMark")
 
+# CT_TcBorders / CT_TblBorders 内部子元素的 schema 规定顺序
+_TBL_BORDER_ORDER = ("top", "start", "left", "bottom", "end", "right",
+                     "insideH", "insideV")
+_TCPR_BORDER_ORDER = _TBL_BORDER_ORDER + ("tl2br", "tr2bl")
+
+# 🔴 斜线表头的对角线：这是**表头语义**（"内部/外部环境 × 优势/劣势"），
+# 不是表格框线。三线表只该去掉竖线与内部横线，绝不能把对角线一起删掉 ——
+# 否则同一批文档里「画成形状的斜线留着、设成对角边框的斜线没了」，客户看到的就是"有的在有的不在"。
+_DIAGONAL_SIDES = ("tl2br", "tr2bl")
+
 
 def _q(name):
     return WR + name
@@ -66,6 +76,22 @@ def _ordered_child(parent, tag, after_tags):
     return el
 
 
+def _sort_border_box(box):
+    """按 schema 顺序重排边框容器子元素。
+
+    保留对角线（tl2br/tr2bl）后，新写进去的 bottom 会被追加到它们后面，
+    而 CT_TcBorders 规定 tl2br/tr2bl 必须排在最后 —— 顺序一错 Word 就报「文件已损坏」。
+    """
+    order = _TCPR_BORDER_ORDER if box.tag == _q("tcBorders") else _TBL_BORDER_ORDER
+    rank = {_q(t): i for i, t in enumerate(order)}
+    children = list(box)
+    children.sort(key=lambda e: rank.get(e.tag, 999))
+    for ch in children:
+        box.remove(ch)
+    for ch in children:
+        box.append(ch)
+
+
 def _write_border(box, side, val, sz):
     """在 tblBorders / tcBorders 容器写某一边（先删后建，保证属性干净）。"""
     old = box.find(_q(side))
@@ -77,6 +103,7 @@ def _write_border(box, side, val, sz):
         el.set(_q("sz"), str(sz))
         el.set(_q("space"), "0")
         el.set(_q("color"), "auto")
+    _sort_border_box(box)
 
 
 def _read_border(box, side):
@@ -269,14 +296,25 @@ def apply_three_line_tables(root, styles_root=None):
                 ex.remove(exb)
             if len(ex) == 0:
                 row.remove(ex)   # tblPrEx 只剩空壳就没必要留着
-        # ②b 逐格：先清掉单元格级残留（优先级高于表格级，不清就是白改）
+        # ②b 逐格：清掉单元格级框线残留（优先级高于表格级，不清就是白改）；
+        #     但**对角线 tl2br/tr2bl 必须原样留着** —— 那是斜线表头的表头语义，
+        #     不是框线。整块 remove 会把客户的斜线表头删掉，而且删得"看运气"
+        #     （形状式斜线删不到、边框式斜线全没），客户就会问"为什么有的在有的不在"。
         for row in rows:
             for tc in row.findall(_q("tc")):
                 tcPr = tc.find(_q("tcPr"))
                 if tcPr is None:
                     continue
                 old = tcPr.find(_q("tcBorders"))
-                if old is not None:
+                if old is None:
+                    continue
+                diag_tags = {_q(s) for s in _DIAGONAL_SIDES}
+                if any(e.tag in diag_tags for e in old):
+                    for e in list(old):
+                        if e.tag not in diag_tags:
+                            old.remove(e)
+                    _sort_border_box(old)
+                else:
                     tcPr.remove(old)
         # ③ 表头栏目线：第一行各格的下边框 0.75 磅（≥2 行才画，单行表谈不上表头）
         if len(rows) >= 2:
