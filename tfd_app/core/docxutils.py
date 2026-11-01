@@ -257,8 +257,9 @@ def tables(root):
                     e = bt.find(WR + edge)
                     if e is not None:
                         val = e.get(WR + "val")
-                        # 过滤 val="none"（无边框），否则会被误判为"有该边线"
-                        if val and val != "none":
+                        # 过滤 val="none" / "nil"（两者都表示"无边框"），否则会被误判为"有该边线"。
+                        # 三线表修正写入的正是 val="nil"，若这里不认 nil，修完复检会立刻误报"仍有竖线"。
+                        if val and val.lower() not in ("none", "nil"):
                             borders[edge] = val
         out.append(borders)
     return out

@@ -27,7 +27,7 @@ import re
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from docxutils import load, paragraphs, margins, tables, detect_heading, WR
+from docxutils import load, paragraphs, margins, detect_heading, WR
 
 __author__ = "芦苇"
 __copyright__ = "Copyright (c) 2026 芦苇（山东大学 MBA）"
@@ -101,11 +101,16 @@ def check(client_path, profile):
     # ---- 5. 三线表 ----
     tpl_tbl = profile.get("tables", {})
     if tpl_tbl.get("threeLine") is True:
-        for ti, b in enumerate(tables(root), 1):
-            has_v = b.get("insideV") not in (None, "none") or b.get("left") not in (None, "none") or b.get("right") not in (None, "none")
-            if has_v:
+        # 三层边框解析（单元格 > 表格 > 表格样式），与修正器/画像同一口径
+        try:
+            from three_line_table import sample_table_lines, _load_styles_root
+            _samples = sample_table_lines(root, _load_styles_root(client_path))
+        except Exception:
+            _samples = []
+        for s in _samples:
+            if s["has_vertical"]:
                 issues.append({"sev": "中", "cat": "表格",
-                               "msg": f"表 {ti} 含竖线/左右边线，非标准三线表",
+                               "msg": f"表 {s['index']} 含竖线/左右边线，非标准三线表",
                                "fix": "按三线表规范（仅顶/底/栏目线，无竖线）重设边框"})
 
     # ---- 6. 参考文献 ----

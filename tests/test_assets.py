@@ -91,12 +91,19 @@ else:
     check(os.path.isfile(wm_mod._IMG_SRC), "watermark 水印图 -> %s" % wm_mod._IMG_SRC)
     check(os.path.isfile(wm_mod._BG_IMG_SRC),
           "watermark 背景水印图 -> %s" % wm_mod._BG_IMG_SRC)
-    from tfd_app.ui import backdrop as bd_mod
-    check(bd_mod.BACKDROP_ASSET == "student_background.png",
-          "backdrop.BACKDROP_ASSET = student_background.png（不当视觉稿/水印当背景）")
-    bd_src = open(bd_mod.__file__, encoding="utf-8").read()
-    check("STUDENT_UI_REFERENCE" not in bd_src and "watermark_bg" not in bd_src,
-          "backdrop 不引用整屏视觉稿 / 输出水印图作背景")
+    # backdrop（旧界面背景模块）已随新界面下线一并删除；
+    # 这里改成「缺了只 skip」，否则 module 级 ImportError 会让整份测试收不起来，
+    # 连带把后面的版本号一致性断言一起废掉（2026-11-01 发版时发现）。
+    try:
+        from tfd_app.ui import backdrop as bd_mod
+    except ImportError:
+        print("  skip backdrop 模块已下线，跳过背景图接线检查")
+    else:
+        check(bd_mod.BACKDROP_ASSET == "student_background.png",
+              "backdrop.BACKDROP_ASSET = student_background.png（不当视觉稿/水印当背景）")
+        bd_src = open(bd_mod.__file__, encoding="utf-8").read()
+        check("STUDENT_UI_REFERENCE" not in bd_src and "watermark_bg" not in bd_src,
+              "backdrop 不引用整屏视觉稿 / 输出水印图作背景")
 
 print("=== 5. 版本号一致性（VERSION 文件 / buildinfo / gui.APP_VERSION）===")
 import re as _re                                          # noqa: E402

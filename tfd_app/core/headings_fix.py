@@ -41,6 +41,7 @@ from docxutils import (load, detect_heading, write_docx_files, to_doc_xml, WR,
                        DEFAULT_EN_FONT, normalize_en_font, is_cjk_font)
 from report_docx import write_change_report
 import format_checker  # 复用检查报告的"需手动"项，确保修改明细与检查报告同源、逐条对齐
+import three_line_table  # 学术三线表自动转换（纯标准库，零三方依赖）
 
 __author__ = "芦苇"
 __copyright__ = "Copyright (c) 2026 芦苇（山东大学 MBA）"
@@ -1701,7 +1702,7 @@ def _remove_numbering_pass(root, first_chap, ref_start, tbl_ps, cap_targets,
     return changes
 
 
-def fix(src, dst, profile=None, add_comments=True, author=None):
+def fix(src, dst, profile=None, add_comments=True, author=None, three_line=None):
     # 数据入口防御：兼容 {lvl:"StyleId"} 旧式写法与规范式，避免消费端 .get 崩溃
     profile = normalize_heading_styles(profile)
     z, root = load(src)
@@ -2329,6 +2330,39 @@ def fix(src, dst, profile=None, add_comments=True, author=None):
     if add_comments:
         comment_count = _apply_comments(z, root, changes, replacements, author=author)
 
+    # ---- 学术三线表自动转换（独立 pass，在写盘前对 root 原地修改）----
+    # 触发策略（模板驱动 + 用户可显式覆盖，与海外版对齐）：
+    #   three_line=True  → 强制转；three_line=False → 强制不转；
+    #   three_line=None  → 跟随模板画像 profile["tables"]["threeLine"]（True 才转）。
+    # 国内版默认不开「用户未指定」的盲改：只有模板明确三线表、或用户在 GUI 勾选才动，
+    # 避免把想用框线的学校表格误改成三线表。
+    tl_count = 0
+    tl_changes = []
+    _tpl_three = bool((profile or {}).get("tables", {}).get("threeLine"))
+    _do_tl = (three_line is True) or (three_line is None and _tpl_three)
+    if three_line is False:
+        _do_tl = False
+    if _do_tl:
+        try:
+            _sroot = three_line_table._load_styles_root(src)
+            _cnt, _changed = three_line_table.apply_three_line_tables(root, _sroot)
+            tl_count = _cnt
+            for _c in _changed:
+                tl_changes.append({
+                    "kind": "table", "conf": 1.0, "level": 0,
+                    "old": "含框线/竖线（非标准三线表）",
+                    "new": "三线表（顶/底线+表头栏目线）", "new_name": "三线表（顶/底线+表头栏目线）",
+                    "text": "表%d（%d行×%d列）" % (_c["index"], _c["rows"], _c["cols"]),
+                })
+            changes.extend(tl_changes)
+        except Exception as _e:
+            import traceback as _tb
+            sys.stderr.write("[三线表转换跳过] " + repr(_e) + "\n" + _tb.format_exc() + "\n")
+    if tl_count:
+        # 把三线表改动并入修改清单分级（conf=1.0 → applied），使报告逐表可见、可逐条验收
+        applied = [c for c in changes if c["conf"] >= 0.8]
+        low_conf = [c for c in changes if c["conf"] < 0.8]
+
     replacements["word/document.xml"] = to_doc_xml(root)
     # 题注/脚注 pass 可能已往 replacements 写入 footnotes.xml，这里以 document 为基准并集
     if need_defs:
@@ -2348,7 +2382,7 @@ def fix(src, dst, profile=None, add_comments=True, author=None):
                     print(f"[警告] 批注({comment_count}条)未写入输出文件！", file=sys.stderr)
         except Exception:
             pass
-    return applied, low_conf, skipped_residue, (sorted(need_defs), template_exact, has_outline, tmpl_name, already_ok, comment_count)
+    return applied, low_conf, skipped_residue, (sorted(need_defs), template_exact, has_outline, tmpl_name, already_ok, comment_count), tl_count
 
 
 def _render(applied, low_conf, skipped_residue, style_info, dst, manual_items=None):
@@ -2375,6 +2409,7 @@ def _render(applied, low_conf, skipped_residue, style_info, dst, manual_items=No
     _nrefh = sum(1 for c in all_c if c.get("kind") == "reference_heading")
     _nn = sum(1 for c in all_c if c.get("kind") == "numbering")
     _ncap = sum(1 for c in all_c if c.get("kind") in ("table_caption", "figure_caption", "table_note", "figure_note"))
+    _nt = sum(1 for c in all_c if c.get("kind") == "table")
     _parts = [f"标题 {_nh}", f"正文 {_nb}"]
     if _ni:
         _parts.append(f"图片 {_ni}")
@@ -2388,6 +2423,8 @@ def _render(applied, low_conf, skipped_residue, style_info, dst, manual_items=No
         _parts.append(f"自动编号转正文 {_nn}")
     if _np:
         _parts.append(f"标点修正 {_np}")
+    if _nt:
+        _parts.append(f"三线表 {_nt}")
     _parts.append(f"页边距 {_nm}")
     lines.append(f"## 逐条修改清单（共 {len(all_c)} 条记录、{sum(1 for c in all_c)} 处：{' / '.join(_parts)}）")
     lines.append(f"> 另有 {already_ok} 处标题经核对已符合学校样式，无需改动。")
@@ -2437,6 +2474,7 @@ def _build_change_docx(applied, low_conf, skipped_residue, style_info, dst_docx,
     nrefh = sum(1 for c in all_c if c.get("kind") == "reference_heading")
     nnum = sum(1 for c in all_c if c.get("kind") == "numbering")
     ncap = sum(1 for c in all_c if c.get("kind") in ("table_caption", "figure_caption", "table_note", "figure_note"))
+    nt = sum(1 for c in all_c if c.get("kind") == "table")
     npunct = sum(c.get("count", 0) for c in all_c if c.get("kind") == "punctuation")
     total_records = len(all_c)
     total_changes = sum(c.get("count", 1) for c in all_c)
@@ -2459,6 +2497,8 @@ def _build_change_docx(applied, low_conf, skipped_residue, style_info, dst_docx,
         _detail_parts.append(f"自动编号转正文 {nnum} 处")
     if npunct:
         _detail_parts.append(f"标点修正 {npunct} 处")
+    if nt:
+        _detail_parts.append(f"三线表 {nt} 处")
     _detail_parts.append(f"页边距 {nm} 处")
     summary.append(f"共修改 {total_changes} 处（{total_records} 条记录：{' / '.join(_detail_parts)}）："
                    f"按「{tmpl_name}」批注与样式统一字体、字号、首行缩进、行距与页边距"
@@ -2475,7 +2515,7 @@ def _build_change_docx(applied, low_conf, skipped_residue, style_info, dst_docx,
         summary.append("⚠ 提示：所套用的学校标题样式未含 Word 大纲级别，Word 可能无法据此自动生成目录；"
                        "如需一键出目录请告知，我可改用「套样式+补大纲级别」方案。")
     if manual_items:
-        summary.append(f"另有 {len(manual_items)} 项本工具暂不自动修正（表格三线化、结构页等），"
+        summary.append(f"另有 {len(manual_items)} 项本工具暂不自动修正（结构页等），"
                        "已列于表格末尾「待手动处理」行，需对照学校模板手动调整。")
 
     columns = [("序号", 700), ("类型", 1000), ("修改前", 2100),
@@ -2530,31 +2570,49 @@ def _type_label(r):
         return "结构页标题"
     if kind == "structural":
         return "结构页正文"
+    if kind == "table":
+        return "表格三线化"
     return _lvl(r.get("level", 0))
 
 
 def main():
     if len(sys.argv) < 3:
-        print("用法: python headings-fix.py 输入.docx 输出.docx [--profile 模板画像.json] [--report 修改明细.docx] [--no-comments]")
+        print("用法: python headings-fix.py 输入.docx 输出.docx [--profile 模板画像.json] [--report 修改明细.docx] [--no-comments] [--three-line | --no-three-line]")
         sys.exit(1)
     src, dst = sys.argv[1], sys.argv[2]
     profile = None
     report_path = None
     add_comments = "--no-comments" not in sys.argv
+    # 三线表触发：默认跟随模板画像；显式 --three-line 强制转、--no-three-line 强制不转
+    three_line = None
+    if "--three-line" in sys.argv:
+        three_line = True
+    elif "--no-three-line" in sys.argv:
+        three_line = False
     if "--profile" in sys.argv:
         pf = sys.argv[sys.argv.index("--profile") + 1]
         with open(pf, encoding="utf-8") as f:
             profile = json.load(f)
     if "--report" in sys.argv:
         report_path = sys.argv[sys.argv.index("--report") + 1]
-    applied, low_conf, skipped, sinfo = fix(src, dst, profile, add_comments=add_comments)
-    # 复用检查报告的"需手动"项（表格三线化/结构页等），确保修改明细与检查报告同源对齐
+    applied, low_conf, skipped, sinfo, tl_count = fix(
+        src, dst, profile, add_comments=add_comments, three_line=three_line)
+    # 复用检查报告的"需手动"项（结构页等；表格三线化现已自动修正，不再列入手动项），
+    # 确保修改明细与检查报告同源对齐
     _manual_items = []
     try:
         _manual_items = format_checker.collect_manual_items(dst, profile)
     except Exception:
         _manual_items = []
     report = _render(applied, low_conf, skipped, sinfo, dst, manual_items=_manual_items)
+    # 三线表自动修正小结（与修改清单同源）
+    if tl_count:
+        report += (
+            "\n\n## 表格三线化（已自动修正，共 %d 张）\n" % tl_count
+            + "> 已将含框线 / 竖线的数据表转为学术三线表：仅保留顶线、底线与表头栏目线，"
+            + "去除全部竖线与内部横线。\n"
+            + "> 单行 / 1×1 布局表（如摘要框）不视为数据表，未改动；已是三线表的表跳过（幂等）。\n"
+        )
     # 模板驱动：报告开头展示"从学校模板提取到了什么"，画像为空时明确警告
     if profile:
         try:

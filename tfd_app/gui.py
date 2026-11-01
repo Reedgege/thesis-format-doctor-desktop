@@ -116,7 +116,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.154"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.155"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "文档格式先生"       # 桌面快捷方式显示名
@@ -685,6 +685,9 @@ class App:
         self.thesis_path = tk.StringVar()
         self.template_path = tk.StringVar()
         self.profile_path = tk.StringVar()
+        # 表格三线化开关：未触碰=跟随模板画像（None）；客户手动勾选/取消=显式覆盖（True/False）
+        self.three_line_var = tk.BooleanVar(value=False)
+        self._three_line_touched = False
         self.status_var = tk.StringVar(value="请按步骤操作")
         self.running = False
         self._dialog_open = False   # 保存对话框打开期间防重复弹窗
@@ -929,6 +932,14 @@ class App:
         ttk.Button(self.profile_box, text="清除", width=6, style="Ghost.TButton",
                    command=self._clear_profile).pack(side="right", padx=8, pady=3)
         self._update_profile_box()
+
+        # 表格三线化开关（学术三线表）：默认跟随模板画像；客户可手动勾选/取消覆盖
+        self._three_line_chk = tk.Checkbutton(
+            card, text="表格转为学术三线表（顶/底线+表头线，去竖线）",
+            variable=self.three_line_var, command=self._on_three_line_toggle,
+            bg=PANEL, fg=INK, font=F_FOOT, activebackground=PANEL,
+            selectcolor=PANEL, anchor="w", justify="left")
+        self._three_line_chk.pack(fill="x", padx=14, pady=(8, 0))
 
         # 卡片底部章节小字（文艺学术点缀）
         tk.Label(card, text="壹 · 选择", bg=PANEL, fg="#b8b0a0",
@@ -2243,10 +2254,12 @@ class App:
             rep = base_dst + "_修改报告.docx"
             chk = base_dst + "_检查报告.docx"
         profile = self._ensure_profile_ready()
+        # 表格三线化：客户手动勾选/取消 → 显式覆盖（True/False）；未触碰 → 跟随模板画像（None）
+        _three_line = self.three_line_var.get() if self._three_line_touched else None
         # 主交付物：修正后的论文 + 修改明细报告（run_fix_headings 内部已写盘）
         report = engine.run_fix_headings(
             docx_path, dst, profile_path=profile,
-            report_docx=rep, add_comments=True)
+            report_docx=rep, add_comments=True, three_line=_three_line)
         # 参考文献 GB/T 7714 重排（用户选定的优化项）：标题/正文修正之后独立 pass 执行；
         # 失败不影响主交付物（已修正论文）。
         try:
@@ -2631,7 +2644,29 @@ class App:
         except Exception:
             pass
 
+    def _on_three_line_toggle(self):
+        """客户手动勾选/取消三线表开关 → 记为用户显式选择（覆盖模板画像判定）。"""
+        self._three_line_touched = True
+
+    def _sync_three_line_default(self):
+        """按当前画像 tables.threeLine 同步「表格三线化」勾选默认值（客户已手动选过则不覆盖）。
+
+        画像未判定（无数据表样例）时 threeLine 为 None → 不勾选，交由客户决定。
+        """
+        if self._three_line_touched:
+            return
+        try:
+            p = self.profile_path.get().strip()
+            three = None
+            if p and os.path.isfile(p):
+                with open(p, encoding="utf-8") as f:
+                    three = (json.load(f) or {}).get("tables", {}).get("threeLine")
+            self.three_line_var.set(bool(three))
+        except Exception:
+            pass
+
     def _update_profile_box(self):
+        self._sync_three_line_default()
         p = self.profile_path.get().strip()
         if p and os.path.isfile(p):
             # v1.3.116：手动模式下显示为"已填写手动格式"，与模板来源区分
@@ -2668,6 +2703,8 @@ class App:
         self.profile_path.set("")
         self._manual_filled = False
         self.manual_profile_path = ""
+        self._three_line_touched = False
+        self.three_line_var.set(False)
         self._set_input_mode()
         self._thesis_name.config(text="Word 文档 .docx / .doc / .wps", fg=MUTED)
         self._template_name.config(text="用于按学校要求检查 / 修正，更贴合要求", fg=MUTED)

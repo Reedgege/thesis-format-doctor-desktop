@@ -53,7 +53,7 @@ import re
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from docxutils import (load_styles, load, margins, tables, WR, detect_heading,
+from docxutils import (load_styles, load, margins, WR, detect_heading,
                        is_toc_residue, style_xml, comments, extract_comment_specs,
                        is_body_style_name, is_reference_heading, is_structural_title,
                        classify_structural_title, normalize_en_font, DEFAULT_EN_FONT)
@@ -415,15 +415,29 @@ def extract(path):
     # 页边距
     _, root = load(path)
     pg = margins(root)
-    # 三线表规范：取模板中第一个表格的边框判定
-    tbls = tables(root)
+    # 三线表规范：三层边框解析（单元格 > 表格 > 表格样式），与修正器/检查器同一口径。
+    # 取模板里所有数据表（rows≥2）的边框现状：
+    #   · 任一张已是三线表 → threeLine=True（模板用三线表）；
+    #   · 任一张含竖线/内部横线（框线表）→ threeLine=False（模板用框线表）；
+    #   · 没有任何数据表样例 → None（保守：不假定，交由用户在 GUI 勾选）。
+    _sroot = None
+    try:
+        from three_line_table import sample_table_lines, _load_styles_root
+        _sroot = _load_styles_root(path)
+        _tbl_samples = sample_table_lines(root, _sroot)
+    except Exception:
+        _tbl_samples = []
     three_line = None
-    note = "模板未检测到表格样例"
-    if tbls:
-        b = tbls[0]
-        has_v = b.get("insideV") not in (None, "none") or b.get("left") not in (None, "none") or b.get("right") not in (None, "none")
-        three_line = (not has_v) and b.get("top") not in (None, "none") and b.get("bottom") not in (None, "none")
-        note = "模板首表判定为三线表" if three_line else "模板首表含竖线/左右边线（非标准三线表）"
+    note = "模板未检测到数据表样例（无法判定三线表规范）"
+    if _tbl_samples:
+        _any_three = any(s["three_line"] for s in _tbl_samples)
+        _any_boxed = any(s["has_vertical"] or s["has_inside_h"] for s in _tbl_samples)
+        if _any_three:
+            three_line = True
+            note = "模板含三线表样例（判定为三线表规范）"
+        elif _any_boxed:
+            three_line = False
+            note = "模板含框线/竖线表格样例（非标准三线表）"
     # 参考文献范式样本（跨校：用 is_reference_heading 定位，不写死中文"参考文献"）
     ref_example = []
     paras = []
