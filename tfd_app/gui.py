@@ -116,7 +116,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.155"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.156"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "文档格式先生"       # 桌面快捷方式显示名
@@ -685,8 +685,9 @@ class App:
         self.thesis_path = tk.StringVar()
         self.template_path = tk.StringVar()
         self.profile_path = tk.StringVar()
-        # 表格三线化开关：未触碰=跟随模板画像（None）；客户手动勾选/取消=显式覆盖（True/False）
-        self.three_line_var = tk.BooleanVar(value=False)
+        # 表格三线化开关：默认勾上（客户买的就是"一键改到位"）；
+        # 客户手动取消才是显式 False，且勾选框状态即实际行为，所见即所得。
+        self.three_line_var = tk.BooleanVar(value=True)
         self._three_line_touched = False
         self.status_var = tk.StringVar(value="请按步骤操作")
         self.running = False
@@ -2254,8 +2255,10 @@ class App:
             rep = base_dst + "_修改报告.docx"
             chk = base_dst + "_检查报告.docx"
         profile = self._ensure_profile_ready()
-        # 表格三线化：客户手动勾选/取消 → 显式覆盖（True/False）；未触碰 → 跟随模板画像（None）
-        _three_line = self.three_line_var.get() if self._three_line_touched else None
+        # 表格三线化：勾选框状态即实际行为（所见即所得）。
+        # 🔴 2026-11-01 修正：此前"未触碰"传 None 让引擎跟随画像，而画像判不出时引擎同样不转，
+        # 于是客户即使勾上了也照样不转换。现在一律显式传勾选框的值。
+        _three_line = self.three_line_var.get()
         # 主交付物：修正后的论文 + 修改明细报告（run_fix_headings 内部已写盘）
         report = engine.run_fix_headings(
             docx_path, dst, profile_path=profile,
@@ -2651,7 +2654,9 @@ class App:
     def _sync_three_line_default(self):
         """按当前画像 tables.threeLine 同步「表格三线化」勾选默认值（客户已手动选过则不覆盖）。
 
-        画像未判定（无数据表样例）时 threeLine 为 None → 不勾选，交由客户决定。
+        🔴 2026-11-01 修正：画像判不出（None，例如"手动填写格式"模式、或模板里没有数据表样例）
+        时必须视为「要转换」，而不是 False。此前写的是 bool(None)=False，
+        导致客户只要不是"选模板"走手动填写，这个开关永远是空的、一键修正永远不转三线表。
         """
         if self._three_line_touched:
             return
@@ -2661,9 +2666,10 @@ class App:
             if p and os.path.isfile(p):
                 with open(p, encoding="utf-8") as f:
                     three = (json.load(f) or {}).get("tables", {}).get("threeLine")
-            self.three_line_var.set(bool(three))
+            # 模板明确判定为框线表（False）才不勾；判不出（None）默认勾上。
+            self.three_line_var.set(True if three is None else bool(three))
         except Exception:
-            pass
+            self.three_line_var.set(True)
 
     def _update_profile_box(self):
         self._sync_three_line_default()
@@ -2704,7 +2710,7 @@ class App:
         self._manual_filled = False
         self.manual_profile_path = ""
         self._three_line_touched = False
-        self.three_line_var.set(False)
+        self.three_line_var.set(True)   # 复位成默认勾上，与新开一篇一致
         self._set_input_mode()
         self._thesis_name.config(text="Word 文档 .docx / .doc / .wps", fg=MUTED)
         self._template_name.config(text="用于按学校要求检查 / 修正，更贴合要求", fg=MUTED)

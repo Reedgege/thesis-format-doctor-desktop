@@ -116,9 +116,27 @@ def _table_style_borders(styles_root, tblPr):
     return None
 
 
-def _effective_border(tblPr, style_box, tcPr, side):
-    """有效边框：单元格 → 表格 → 表格样式，第一个有定义的就赢。"""
+def _row_ex_box(row_el):
+    """行级 w:tblPrEx 里的 tblBorders（Table Property Exceptions）。
+
+    🔴 2026-11-01 血泪坑：Word 的三层优先级其实是
+        单元格 tcPr/tcBorders  >  行 tblPrEx/tblBorders  >  表格 tblPr/tblBorders  >  样式
+    从 Word 转存/老模板来的文档，每一行 w:tr 里都带一个 tblPrEx 把整张表的框线又写了一遍
+    全边框（single sz=4）。只改表格级 tblBorders=nil，会被行级这份直接盖掉 ——
+    XML 看着是三线表，Word 里打开还是满格框线（客户原话："表格并没有改成三线表"）。
+    """
+    ex = row_el.find(_q("tblPrEx"))
+    if ex is None:
+        return None
+    return ex.find(_q("tblBorders"))
+
+
+def _effective_border(tblPr, style_box, tcPr, side, row_box=None):
+    """有效边框：单元格 → 行级 tblPrEx → 表格 → 表格样式，第一个有定义的就赢。"""
     b = _read_border(tcPr.find(_q("tcBorders")) if tcPr is not None else None, side)
+    if b is not None:
+        return b
+    b = _read_border(row_box, side)
     if b is not None:
         return b
     b = _read_border(tblPr.find(_q("tblBorders")) if tblPr is not None else None, side)
@@ -138,34 +156,58 @@ def _row_tc_prs(row_el):
     return out
 
 
-def _table_is_three_line(tbl, styles_root):
-    """单表是否已是学术三线表（与 sample_table_lines 同一口径）。用于幂等跳过。"""
+def _analyze_table(tbl, styles_root):
+    """采样单表边框现状。rows<2（单行/1×1 布局表）返回 None。
+
+    ⚠️ 检查器的 sample_table_lines 与修正器的幂等判定 _table_is_three_line
+    必须走**同一份**实现：此前是两段复制粘贴的逻辑，改一处忘一处就会出现
+    「检查说已经不是问题、Word 里却还是满格框线」这种自伤。
+    """
     tblPr = tbl.find(_q("tblPr"))
     rows = tbl.findall(_q("tr"))
     if len(rows) < 2:
-        return False
+        return None
     style_box = _table_style_borders(styles_root, tblPr)
     first = _row_tc_prs(rows[0])
     last = _row_tc_prs(rows[-1])
-    has_top = any(_border_visible(_effective_border(tblPr, style_box, p, "top"))
+    ex_first = _row_ex_box(rows[0])
+    ex_last = _row_ex_box(rows[-1])
+    has_top = any(_border_visible(_effective_border(tblPr, style_box, p, "top", ex_first))
                   for p in first)
-    has_bottom = any(_border_visible(_effective_border(tblPr, style_box, p, "bottom"))
+    has_bottom = any(_border_visible(_effective_border(tblPr, style_box, p, "bottom", ex_last))
                      for p in last)
     has_vertical = False
     has_inside_h = False
     for row in rows:
+        exb = _row_ex_box(row)
         for p in _row_tc_prs(row):
-            if (_border_visible(_effective_border(tblPr, style_box, p, "left"))
-                    or _border_visible(_effective_border(tblPr, style_box, p, "right"))
-                    or _border_visible(_effective_border(tblPr, style_box, p, "insideV"))):
+            if (_border_visible(_effective_border(tblPr, style_box, p, "left", exb))
+                    or _border_visible(_effective_border(tblPr, style_box, p, "right", exb))
+                    or _border_visible(_effective_border(tblPr, style_box, p, "insideV", exb))):
                 has_vertical = True
-            if _border_visible(_effective_border(tblPr, style_box, p, "insideH")):
+            if _border_visible(_effective_border(tblPr, style_box, p, "insideH", exb)):
                 has_inside_h = True
+    # 表头行**任一**单元格有 bottom 即算有表头线（合并单元格常只给部分格写）。
     has_header_line = bool(first) and any(
-        _border_visible(_effective_border(tblPr, style_box, p, "bottom"))
+        _border_visible(_effective_border(tblPr, style_box, p, "bottom", ex_first))
         for p in first)
-    return bool(has_top and has_bottom and not has_vertical
-                and not has_inside_h and has_header_line)
+    return {
+        "rows": len(rows),
+        "cols": len(first),
+        "has_top": has_top,
+        "has_bottom": has_bottom,
+        "has_header_line": has_header_line,
+        "has_vertical": has_vertical,
+        "has_inside_h": has_inside_h,
+        "three_line": bool(has_top and has_bottom and not has_vertical
+                           and not has_inside_h and has_header_line),
+    }
+
+
+def _table_is_three_line(tbl, styles_root):
+    """单表是否已是学术三线表（与 sample_table_lines 同一口径）。用于幂等跳过。"""
+    s = _analyze_table(tbl, styles_root)
+    return bool(s and s["three_line"])
 
 
 def sample_table_lines(root, styles_root=None):
@@ -178,47 +220,12 @@ def sample_table_lines(root, styles_root=None):
     reg_ns()
     out = []
     for idx, tbl in enumerate(root.iter(_q("tbl")), 1):
-        tblPr = tbl.find(_q("tblPr"))
-        rows = tbl.findall(_q("tr"))
-        if len(rows) < 2:
+        s = _analyze_table(tbl, styles_root)
+        if s is None:
             # 单行（含 1×1 布局 / 摘要框）无法形成「表头线」，不属于数据表。
-            # 参与三线表判定会永远 warn 且修正器永远修不动 → 非幂等。跳过（N/A）。
             continue
-        style_box = _table_style_borders(styles_root, tblPr)
-        first = _row_tc_prs(rows[0])
-        last = _row_tc_prs(rows[-1])
-        has_top = any(_border_visible(_effective_border(tblPr, style_box, p, "top"))
-                      for p in first)
-        has_bottom = any(_border_visible(_effective_border(tblPr, style_box, p, "bottom"))
-                         for p in last)
-        has_vertical = False
-        has_inside_h = False
-        for row in rows:
-            for p in _row_tc_prs(row):
-                if (_border_visible(_effective_border(tblPr, style_box, p, "left"))
-                        or _border_visible(_effective_border(tblPr, style_box, p, "right"))
-                        or _border_visible(_effective_border(tblPr, style_box, p, "insideV"))):
-                    has_vertical = True
-                if _border_visible(_effective_border(tblPr, style_box, p, "insideH")):
-                    has_inside_h = True
-        # v2.3.100（B-6 / 裁定 C-3）：表头行**任一**单元格有 bottom 即算有表头线。
-        # 旧写法用 all —— 官方 APA 样例把表头线写在单元格级 tcBorders 上且常只给部分
-        # 单元格写（合并单元格、首列不写），all 于是判「没有表头线」→ 误报。
-        has_header_line = bool(first) and any(
-            _border_visible(_effective_border(tblPr, style_box, p, "bottom"))
-            for p in first)
-        out.append({
-            "index": idx,
-            "rows": len(rows),
-            "cols": len(first),
-            "has_top": has_top,
-            "has_bottom": has_bottom,
-            "has_header_line": has_header_line,
-            "has_vertical": has_vertical,
-            "has_inside_h": has_inside_h,
-            "three_line": bool(has_top and has_bottom and not has_vertical
-                               and not has_inside_h and has_header_line),
-        })
+        s["index"] = idx
+        out.append(s)
     return out
 
 
@@ -250,7 +257,19 @@ def apply_three_line_tables(root, styles_root=None):
         _write_border(box, "bottom", "single", _THICK_SZ)
         for _side in ("left", "right", "insideH", "insideV"):
             _write_border(box, _side, "nil", 0)
-        # ② 逐格：先清掉单元格级残留（优先级高于表格级，不清就是白改）
+        # ② 行级 tblPrEx：清掉每一行里重复定义的全边框
+        #    🔴 优先级高于表格级！Word 转存的文档每行都带 tblPrEx/tblBorders=全框线，
+        #    不清它，上面表格级写了 nil 也是白改（Word 里照样满格框线）。
+        for row in rows:
+            ex = row.find(_q("tblPrEx"))
+            if ex is None:
+                continue
+            exb = ex.find(_q("tblBorders"))
+            if exb is not None:
+                ex.remove(exb)
+            if len(ex) == 0:
+                row.remove(ex)   # tblPrEx 只剩空壳就没必要留着
+        # ②b 逐格：先清掉单元格级残留（优先级高于表格级，不清就是白改）
         for row in rows:
             for tc in row.findall(_q("tc")):
                 tcPr = tc.find(_q("tcPr"))
