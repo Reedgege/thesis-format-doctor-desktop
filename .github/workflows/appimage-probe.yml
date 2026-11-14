@@ -1,0 +1,123 @@
+name: AppImage probe
+
+# 临时探针：只跑 Linux，验证 manylinux_2_28 容器里能否产出可用的 .AppImage。
+# 全部结论写进 $GITHUB_STEP_SUMMARY —— job 日志要鉴权，check-run 的 output.summary
+# 匿名可读，这是唯一能把「里面到底发生了什么」拿出来的通道。
+# 验证完即删除本文件。
+
+on:
+  push:
+    branches: [appimage-probe]
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: Linux AppImage (manylinux_2_28)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build AppImage in manylinux_2_28
+        id: build
+        shell: bash
+        run: |
+          set +e
+          docker run --rm \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            -v "$PWD:/src" -w /src \
+            quay.io/pypa/manylinux_2_28_x86_64 \
+            bash /src/tools/build_linux_manylinux.sh 2>&1 | tee /tmp/build.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          echo "container_rc=$rc"
+          if [ "$rc" -ne 0 ]; then
+            {
+              echo "## ❌ 容器构建失败 rc=$rc"
+              echo '```'
+              tail -70 /tmp/build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "## ✅ 容器构建通过" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '### 关键日志'
+            echo '```'
+            grep -E 'AppImage|appimagetool|主程序|应用 ID|显示名|版本|magic|icon|移除|install ' /tmp/build.log | tail -40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Inspect AppImage
+        if: steps.build.outputs.rc == '0'
+        shell: bash
+        run: |
+          set -x
+          ls -la dist/
+          AI="$(find dist -maxdepth 1 -name '*.AppImage' -print -quit)"
+          echo "AI=$AI"
+          ls -la "$AI"
+          stat -c '%s bytes' "$AI"
+          sha256sum "$AI"
+          echo "magic(offset 8,3B)=$(od -An -tx1 -j8 -N3 "$AI" | tr -d ' \n')"
+          # glibc 闸门（查解包后的 payload）
+          python3 tools/check_glibc_linux.py dist/MDF-Stu --max 2.28 || echo "GLIBC_CHECK_FAILED"
+          set +x
+          {
+            echo '### 产物'
+            echo '```'
+            ls -la dist/
+            echo ''
+            stat -c 'size=%s' "$AI"
+            sha256sum "$AI"
+            echo "magic=$(od -An -tx1 -j8 -N3 "$AI" | tr -d ' \n')  (期望 414902 = AI\\x02)"
+            echo '```'
+            echo '### glibc 闸门'
+            echo '```'
+            python3 tools/check_glibc_linux.py dist/MDF-Stu --max 2.28 2>&1 | tail -8
+            echo "exit=$?"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Extract & smoke (no FUSE, APPIMAGE_EXTRACT_AND_RUN)
+        if: steps.build.outputs.rc == '0'
+        shell: bash
+        run: |
+          set -e
+          AI="$(find dist -maxdepth 1 -name '*.AppImage' -print -quit)"
+          rm -rf /tmp/x && mkdir -p /tmp/x
+          # --appimage-extract 由 runtime 内部解 squashfs，不需要 FUSE —— 这一步同时
+          # 证明了「runtime 本身能在干净环境里工作」。
+          "$AI" --appimage-extract > /tmp/extract.log 2>&1 || true
+          # --appimage-extract 会解到当前目录的 squashfs-root
+          ls -la squashfs-root 2>/dev/null || true
+          {
+            echo '### 解包结果（不用 FUSE，走 APPIMAGE_EXTRACT_AND_RUN 兜底）'
+            echo '```'
+            tail -5 /tmp/extract.log
+            ls -la squashfs-root 2>/dev/null || echo "!! squashfs-root 不存在"
+            echo '--- 顶层布局 ---'
+            ls -la squashfs-root/usr/bin 2>/dev/null || true
+            echo '--- desktop ---'
+            cat squashfs-root/*.desktop 2>/dev/null || true
+            echo '--- 主程序是否在 ---'
+            ls -la squashfs-root/usr/bin/*/ 2>/dev/null | sed -n '1,25p'
+            echo '--- 残留的 Windows/macOS 图标（应为空）---'
+            find squashfs-root \( -name 'icon.icns' -o -name 'icon.ico' \) -print || true
+            echo '--- 主程序缺哪些动态库（空=不缺）---'
+            BIN=$(find squashfs-root/usr/bin -maxdepth 2 -type f -perm -u+x ! -name '*.so*' | sed -n '1p')
+            echo "BIN=$BIN"
+            LD_LIBRARY_PATH="$(dirname "$BIN")" ldd "$BIN" 2>&1 | grep -i 'not found' || echo "无缺失"
+            echo '--- 用 AppRun 试跑（xvfb 无头，20 秒超时应为 124）---'
+            command -v xvfb-run >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y xvfb >/dev/null 2>&1) || true
+            if command -v xvfb-run >/dev/null; then
+              set +e
+              timeout 20 xvfb-run -a ./squashfs-root/AppRun > /tmp/run.log 2>&1
+              echo "run_exit=$?  (124=活着被超时杀掉，说明能启动)"
+              set -e
+              tail -15 /tmp/run.log
+            else
+              echo "无 xvfb，跳过启动测试"
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

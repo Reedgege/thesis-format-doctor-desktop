@@ -270,16 +270,28 @@ jobs:
           test -f "/tmp/dmgchk/首次打开必读.txt" && echo "OK dmg 内含使用说明"
           hdiutil detach /tmp/dmgchk -force
 
-      # Linux：把 standalone 文件夹压缩成 zip。
+      # Linux 只交付一个 .AppImage：单文件，客户 chmod +x 之后双击/直接运行即可 ——
+      # 不用解压、不用进目录找主程序、不用额外装 libfuse2（官方 type2 runtime 静态
+      # 链接了 FUSE）。真正的打包在 manylinux 容器里完成（见上一步脚本末段），
+      # 这里只做体检 + 改成发布名。
       - name: Package (Linux)
         if: matrix.os == 'linux'
         shell: bash
         run: |
           mkdir -p release
-          cd dist && zip -r "../release/MDF-Stu-linux.zip" "MDF-Stu"
-          cd ..
-          # 把「客户机器能不能跑」变成 CI 断言：产物 glibc 需求超过 2.28 直接红灯
-          python3 tools/check_glibc_linux.py release/MDF-Stu-linux.zip --max 2.28
+          APPIMAGE="$(find dist -maxdepth 1 -name '*.AppImage' -print -quit)"
+          if [ -z "$APPIMAGE" ]; then
+            echo "::error::dist/ 里没有 .AppImage —— 容器里的打包步骤没成功"
+            ls -la dist/ || true
+            exit 1
+          fi
+          echo "AppImage: $APPIMAGE"
+          # 把「客户机器能不能跑」变成 CI 断言：glibc 需求超过 2.28 直接红灯。
+          # 查的是解包后的 payload 目录（squashfs 里的 ELF 与 dist/MDF-Stu 同一批文件）。
+          python3 tools/check_glibc_linux.py dist/MDF-Stu --max 2.28
+          cp "$APPIMAGE" release/MDF-Stu-linux.AppImage
+          chmod +x release/MDF-Stu-linux.AppImage
+          ls -la release/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -290,7 +302,7 @@ jobs:
             release/MDF-Stu-windows.zip
             release/MDF-Stu-macos.zip
             release/MDF-Stu-macos.dmg
-            release/MDF-Stu-linux.zip
+            release/MDF-Stu-linux.AppImage
           if-no-files-found: ignore
           retention-days: 1
 
