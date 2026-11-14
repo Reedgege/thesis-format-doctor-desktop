@@ -140,13 +140,104 @@ jobs:
           Compress-Archive -Path "dist\文档格式先生（免安装版）\*" -DestinationPath "release\MDF-Stu-windows.zip" -Force
           ls release
 
-      # macOS：把 .app 压缩成 zip 作为发布物。
+      # macOS 分发：修正 .app 元数据 → 重新 ad-hoc 签名 → zip（必须带 .app 这一层）+ dmg。
+      #
+      # 🔴 2026-11-14 修的两个致命问题（v1.3.158 及以前所有 macOS 包都中招）：
+      #   ① `ditto -c -k` 不带 --keepParent 时只打包**目录里的内容**，zip 顶层变成
+      #      `Contents/`，客户解压得到的是一个叫 Contents 的普通文件夹，双击毫无反应，
+      #      macOS 根本不认成应用 —— 等于 macOS 版一直不可用。
+      #   ② Nuitka 默认把 CFBundleIdentifier 填成中文（"文档格式先生"）、
+      #      CFBundleShortVersionString 写死 1.0，Finder 里版本不对，也不合 Apple 规范。
+      #
+      # 改 Info.plist 会让 Nuitka 原先的 ad-hoc 签名失效；而 Apple Silicon 强制要求
+      # 所有可执行文件至少有 ad-hoc 签名，否则直接拒绝启动 —— 所以改完必须重签。
       - name: Package (macOS)
         if: matrix.os == 'macos'
         shell: bash
         run: |
+          set -euo pipefail
+          APP="dist/MDF-Stu.app"
+          PLIST="$APP/Contents/Info.plist"
+          VER="$(cat VERSION | tr -d '[:space:]' | sed 's/^v//')"
+          echo "打包版本：$VER"
+
+          plist_set() {  # 存在则 Set，不存在则 Add
+            /usr/libexec/PlistBuddy -c "Set :$1 $2" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :$1 string $2" "$PLIST"
+          }
+          plist_set CFBundleIdentifier      "com.reedskill.mdfstu"
+          plist_set CFBundleShortVersionString "$VER"
+          plist_set CFBundleVersion         "$VER"
+          plist_set LSMinimumSystemVersion  "11.0"
+          plist_set CFBundleDisplayName     "文档格式先生"
+          /usr/libexec/PlistBuddy -c "Print" "$PLIST"
+
+          # 改过 plist → 原 ad-hoc 签名失效（签名覆盖 Info.plist 的哈希）。
+          # 先删旧签名目录再重签，避免残留的 _CodeSignature 与 CodeResources 打架。
+          # 不重签的话 Apple Silicon 会直接拒绝启动（它强制要求至少 ad-hoc 签名）。
+          rm -rf "$APP/Contents/_CodeSignature"
+          codesign --force --deep --sign - "$APP" || codesign --force --sign - "$APP"
+          codesign --verify --verbose=2 "$APP" 2>&1 | head -10 || true
+
           mkdir -p release
-          ditto -c -k -v "dist/MDF-Stu.app" "release/MDF-Stu-macos.zip"
+          # zip：--keepParent 保住 MDF-Stu.app 这一层
+          ditto -c -k --keepParent -v "$APP" "release/MDF-Stu-macos.zip"
+          # 自检：zip 顶层必须恰好是 MDF-Stu.app，否则客户解压出来还是废的
+          python3 - <<'PY'
+          import sys, zipfile
+          z = zipfile.ZipFile("release/MDF-Stu-macos.zip")
+          tops = sorted({n.split("/")[0] for n in z.namelist()})
+          print("zip 顶层条目:", tops)
+          if tops != ["MDF-Stu.app"]:
+              print("!! zip 顶层不是 MDF-Stu.app，客户解压后双击无效")
+              sys.exit(1)
+          print("OK 顶层正确")
+          PY
+
+          # dmg：拖拽式安装盘（.app + 指向 /Applications 的软链 + 首次打开说明）
+          STAGE="dmg-stage"
+          rm -rf "$STAGE"; mkdir -p "$STAGE"
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          cat > "$STAGE/首次打开必读.txt" <<'TXT'
+          文档格式先生 · macOS 版
+          ================================
+
+          【安装】
+            1. 把左边的「文档格式先生.app」拖到右边的 Applications 文件夹
+            2. 打开「应用程序」文件夹，双击「文档格式先生」
+
+          【第一次打开被系统拦住？】
+
+            苹果对未经公证的软件默认拦截，提示"无法验证开发者"或"已损坏"。
+            这不是文件坏了，按下面操作一次，以后就正常了：
+
+            macOS 15 (Sequoia) 及以上：
+              打开「系统设置」→「隐私与安全性」，往下拉到「安全性」一栏，
+              会看到「已阻止使用"文档格式先生"」，点右边的「仍要打开」，
+              输入开机密码即可。
+
+            macOS 14 (Sonoma) 及以下：
+              在应用图标上右键 →「打开」→ 弹窗里再点一次「打开」。
+
+          【支持的系统】
+            macOS 11.0 (Big Sur) 及以上
+            仅支持 Apple Silicon 芯片（M1 / M2 / M3 / M4）
+            Intel 芯片的 Mac 暂不支持，需要请联系 hi@reedskill.com
+
+          【遇到问题】
+            邮箱：hi@reedskill.com
+            官网：https://reedskill.com
+          TXT
+
+          hdiutil create -volname "文档格式先生" -srcfolder "$STAGE" \
+            -ov -format UDZO "release/MDF-Stu-macos.dmg"
+          ls -la release/
+          # 自检：dmg 能挂载且里面有 .app
+          hdiutil attach "release/MDF-Stu-macos.dmg" -nobrowse -readonly -mountpoint /tmp/dmgchk
+          test -d "/tmp/dmgchk/MDF-Stu.app" && echo "OK dmg 内含 MDF-Stu.app"
+          test -f "/tmp/dmgchk/首次打开必读.txt" && echo "OK dmg 内含使用说明"
+          hdiutil detach /tmp/dmgchk -force
 
       # Linux：把 standalone 文件夹压缩成 zip。
       - name: Package (Linux)
@@ -164,6 +255,7 @@ jobs:
             MDF-Stu-setup.exe
             release/MDF-Stu-windows.zip
             release/MDF-Stu-macos.zip
+            release/MDF-Stu-macos.dmg
             release/MDF-Stu-linux.zip
           if-no-files-found: ignore
           retention-days: 1
