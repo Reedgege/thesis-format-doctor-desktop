@@ -63,8 +63,39 @@ jobs:
 
       # Nuitka 编译为 standalone 文件夹（运行时不自解压，规避 dropper 指纹）。
       - name: Build (${{ matrix.os }})
+        if: matrix.os != 'linux'
         shell: bash
         run: python build.py
+
+      # Linux 必须在 manylinux_2_28（AlmaLinux 8 / glibc 2.28）容器里构建。
+      # 为什么：GitHub 的 ubuntu-latest 已迁到 Ubuntu 26（glibc 2.42），在那儿编出来的
+      # 包会硬要求 GLIBC_2.42 —— Ubuntu 24.04 LTS（2.39）都装不上，客户只会看到
+      # "GLIBC_2.42 not found"。glibc 只能向下兼容，所以只能在老环境里编。
+      - name: Build (Linux, manylinux_2_28)
+        if: matrix.os == 'linux'
+        shell: bash
+        run: |
+          # 不能用纯 `docker run ... | tee`：Actions 的 bash 带 -e，管道一失败脚本立刻
+          # 退出，下面把日志转注解的代码就不会执行 —— 结果 CI 只说挂了、不说是为什么。
+          set +e
+          docker run --rm \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            -v "$PWD:/src" -w /src \
+            quay.io/pypa/manylinux_2_28_x86_64 \
+            bash /src/tools/build_linux_manylinux.sh 2>&1 | tee /tmp/build.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "容器退出码 = $rc"
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::manylinux 容器内构建失败 rc=$rc，下面是日志最后 8 行"
+            tail -8 /tmp/build.log | while IFS= read -r line; do
+              line="${line//$'\r'/}"
+              [ -z "$line" ] && continue
+              echo "::error::${line:0:250}"
+            done
+            exit 1
+          fi
+
 
       # Windows zip 主推分发（纯绿色版）：只生成「使用说明.txt」。
       # 桌面快捷方式由软件自身创建（win32com 已内置 exe，客户零依赖、零黑框；
@@ -246,6 +277,9 @@ jobs:
         run: |
           mkdir -p release
           cd dist && zip -r "../release/MDF-Stu-linux.zip" "MDF-Stu"
+          cd ..
+          # 把「客户机器能不能跑」变成 CI 断言：产物 glibc 需求超过 2.28 直接红灯
+          python3 tools/check_glibc_linux.py release/MDF-Stu-linux.zip --max 2.28
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
