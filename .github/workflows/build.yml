@@ -291,7 +291,39 @@ jobs:
           python3 tools/check_glibc_linux.py dist/MDF-Stu --max 2.28
           cp "$APPIMAGE" release/MDF-Stu-linux.AppImage
           chmod +x release/MDF-Stu-linux.AppImage
+
+          # 同时出一个 .deb：客户双击安装、菜单里点图标，不碰终端、不依赖 FUSE。
+          # 为什么必须有它：AppImage 在客户侧要 chmod、部分发行版还缺 fusermount，
+          # 这两件事都会表现成「双击一点反应都没有」。
+          bash tools/make_deb.sh
+          DEB="$(find dist -maxdepth 1 -name '*.deb' -print -quit)"
+          [ -n "$DEB" ] || { echo "::error::dist/ 里没有生成 .deb"; exit 1; }
+          cp "$DEB" release/MDF-Stu-linux.deb
           ls -la release/
+
+      # 客户视角全链路：把 .deb 真装到系统里 → 确认菜单项和主程序就位 → 真启动一次。
+      # 「构建成功」不等于「客户能用」，这一步才是验收。
+      - name: Smoke test (install .deb and launch)
+        if: matrix.os == 'linux'
+        shell: bash
+        run: |
+          command -v xvfb-run >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq xvfb >/dev/null 2>&1) || true
+          sudo dpkg -i release/MDF-Stu-linux.deb
+          test -f /usr/share/applications/mdf-stu.desktop && echo "OK 菜单项已就位"
+          test -x /opt/mdf-stu/MDF-Stu && echo "OK 主程序已就位（755）"
+          set +e
+          timeout 25 xvfb-run -a /opt/mdf-stu/MDF-Stu > /tmp/smoke.log 2>&1
+          rc=$?
+          set -e
+          echo "启动退出码 = $rc（124 = 活着被超时杀掉 = 启动成功）"
+          if [ "$rc" -ne 124 ]; then
+            echo "::error::deb 安装后启动失败 rc=$rc"
+            tail -20 /tmp/smoke.log || true
+            exit 1
+          fi
+          echo "OK deb 安装后能正常启动，卸载测试"
+          sudo dpkg -r mdf-stu
+          test ! -e /opt/mdf-stu && echo "OK 卸载干净"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -303,6 +335,7 @@ jobs:
             release/MDF-Stu-macos.zip
             release/MDF-Stu-macos.dmg
             release/MDF-Stu-linux.AppImage
+            release/MDF-Stu-linux.deb
           if-no-files-found: ignore
           retention-days: 1
 

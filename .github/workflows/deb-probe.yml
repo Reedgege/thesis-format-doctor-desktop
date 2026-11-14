@@ -1,0 +1,79 @@
+name: deb probe
+
+# 临时探针：验证 .deb 这条链路（manylinux 构建 → dpkg-deb 打包 → 真装上系统 → 真启动）。
+# 只跑 Linux，结论走 ::notice:: 注解（job 日志要鉴权）。验证完即删。
+
+on:
+  push:
+    branches: [deb-probe]
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: Linux deb end-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build in manylinux_2_28
+        id: build
+        shell: bash
+        run: |
+          set +e
+          docker run --rm \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            -v "$PWD:/src" -w /src \
+            quay.io/pypa/manylinux_2_28_x86_64 \
+            bash /src/tools/build_linux_manylinux.sh 2>&1 | tee /tmp/build.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          echo "container_rc=$rc"
+          if [ "$rc" -ne 0 ]; then
+            n=0
+            tail -50 /tmp/build.log | while IFS= read -r line; do
+              line="${line//$'\r'/}"; [ -z "$line" ] && continue
+              n=$((n+1)); [ "$n" -gt 10 ] && break
+              echo "::notice title=BUILD-FAIL::$line"
+            done
+            exit 1
+          fi
+          echo "::notice title=BUILD::容器构建成功"
+
+      - name: Package (AppImage + deb)
+        if: steps.build.outputs.rc == '0'
+        shell: bash
+        run: |
+          mkdir -p release
+          APPIMAGE="$(find dist -maxdepth 1 -name '*.AppImage' -print -quit)"
+          python3 tools/check_glibc_linux.py dist/MDF-Stu --max 2.28
+          cp "$APPIMAGE" release/MDF-Stu-linux.AppImage
+          chmod +x release/MDF-Stu-linux.AppImage
+          bash tools/make_deb.sh
+          DEB="$(find dist -maxdepth 1 -name '*.deb' -print -quit)"
+          echo "DEB=$DEB"
+          cp "$DEB" release/MDF-Stu-linux.deb
+          ls -la release/
+          echo "::notice title=PKG-1::AppImage=$(stat -c %s release/MDF-Stu-linux.AppImage)  deb=$(stat -c %s release/MDF-Stu-linux.deb)"
+          echo "::notice title=PKG-2::$(dpkg-deb --info release/MDF-Stu-linux.deb | tr '\n' '|' | cut -c1-400)"
+          echo "::notice title=PKG-3::contents: $(dpkg-deb --contents release/MDF-Stu-linux.deb | awk '{print $1" "$6}' | grep -E 'opt/mdf-stu/MDF-Stu$|applications/|usr/bin/' | tr '\n' '|')"
+
+      - name: Smoke test (install .deb and launch)
+        if: steps.build.outputs.rc == '0'
+        shell: bash
+        run: |
+          command -v xvfb-run >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq xvfb >/dev/null 2>&1) || true
+          sudo dpkg -i release/MDF-Stu-linux.deb
+          DESK="$(test -f /usr/share/applications/mdf-stu.desktop && echo yes || echo no)"
+          BINOK="$(test -x /opt/mdf-stu/MDF-Stu && echo yes || echo no)"
+          echo "::notice title=SM-1::desktop=$DESK  主程序可执行=$BINOK  链接=$(ls -l /usr/bin/MDF-Stu 2>&1 | head -1)"
+          set +e
+          timeout 25 xvfb-run -a /opt/mdf-stu/MDF-Stu > /tmp/smoke.log 2>&1
+          rc=$?
+          set -e
+          echo "启动退出码 = $rc"
+          LOG="$(tail -6 /tmp/smoke.log | tr '\n' '|' | cut -c1-240)"
+          echo "::notice title=SM-2::安装后启动 rc=$rc （124=活着被超时杀掉=成功）  log=$LOG"
+          echo "::notice title=SM-3::desktop 内容: $(cat /usr/share/applications/mdf-stu.desktop 2>/dev/null | tr '\n' '|')"
+          sudo dpkg -r mdf-stu
+          echo "::notice title=SM-4::卸载后 /opt/mdf-stu 是否残留=$(test -e /opt/mdf-stu && echo 是 || echo 否)"
