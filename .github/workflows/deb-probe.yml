@@ -49,9 +49,20 @@ jobs:
           python3 tools/check_glibc_linux.py dist/MDF-Stu --max 2.28
           cp "$APPIMAGE" release/MDF-Stu-linux.AppImage
           chmod +x release/MDF-Stu-linux.AppImage
-          bash tools/make_deb.sh
+          bash tools/make_deb.sh > /tmp/deb.log 2>&1 || true
+          n=0
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            n=$((n+1)); [ "$n" -gt 9 ] && break
+            echo "::notice title=DEB::$line"
+          done < <(tail -30 /tmp/deb.log)
           DEB="$(find dist -maxdepth 1 -name '*.deb' -print -quit)"
           echo "DEB=$DEB"
+          if [ -z "$DEB" ]; then
+            echo "::error::make_deb.sh 没产出 .deb"
+            exit 1
+          fi
+          echo "::notice title=RAW::$(dpkg-deb --contents "$DEB" | grep -E 'opt/mdf-stu/MDF-Stu$|applications/|usr/bin/' | tr '\n' '|' | cut -c1-320)"
           cp "$DEB" release/MDF-Stu-linux.deb
           ls -la release/
           echo "::notice title=PKG-1::AppImage=$(stat -c %s release/MDF-Stu-linux.AppImage)  deb=$(stat -c %s release/MDF-Stu-linux.deb)"

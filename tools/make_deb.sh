@@ -171,8 +171,11 @@ else
   echo "  ❌ 缺 .desktop，装了也没有图标"; fail=1
 fi
 # ③ Linux 用不到的图标不该被打进去
-if dpkg-deb --contents "$OUT" | grep -qE "icon\.(icns|ico)"; then
-  echo "  ❌ 包里还有 icon.icns / icon.ico（白占 3.26 MB）"; fail=1
+BADICON="$(dpkg-deb --contents "$OUT" | grep -E "icon\.(icns|ico)$" || true)"
+if [ -n "$BADICON" ]; then
+  echo "  ❌ 包里还有 icon.icns / icon.ico（白占 3.26 MB）:"
+  echo "$BADICON" | sed -n '1,3p'
+  fail=1
 else
   echo "  ✅ 无多余图标"
 fi
