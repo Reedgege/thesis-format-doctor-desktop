@@ -325,6 +325,48 @@ jobs:
           sudo dpkg -r mdf-stu
           test ! -e /opt/mdf-stu && echo "OK 卸载干净"
 
+      # AppImage 与 deb 是两条独立的打包链路（另一个打包器、AppDir 里还有软链、底下是
+      # squashfs）。海外版 v2.3.121 就栽在这条链路上：主程序本体被一条自指软链覆盖，
+      # 包小了 33 MB、双击根本起不来，而「magic 对、体积达标、glibc 达标」全绿。
+      # 所以这里拆开包验「主程序是普通文件且体积正常」，再真跑一次。
+      - name: Smoke test (AppImage: 主程序在位且能启动)
+        if: matrix.os == 'linux'
+        shell: bash
+        run: |
+          command -v xvfb-run >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq xvfb >/dev/null 2>&1) || true
+          IMG="$(realpath release/MDF-Stu-linux.AppImage)"
+          chmod +x "$IMG"
+          rm -rf /tmp/aiextract && mkdir -p /tmp/aiextract
+          ( cd /tmp/aiextract && "$IMG" --appimage-extract >/dev/null )
+          BIN=/tmp/aiextract/squashfs-root/usr/bin/mdf-stu/MDF-Stu
+          if [ -L "$BIN" ]; then
+            echo "::error::主程序是软链 —— AppDir 组装时被覆盖了（见 tools/build_linux_manylinux.sh）"
+            ls -la "$BIN" || true
+            exit 1
+          fi
+          if [ ! -f "$BIN" ]; then
+            echo "::error::AppImage 里没有主程序本体"
+            ls -la /tmp/aiextract/squashfs-root/usr/bin/ || true
+            exit 1
+          fi
+          SZ="$(stat -c %s "$BIN")"
+          echo "主程序大小 = $SZ 字节"
+          if [ "$SZ" -lt 5000000 ]; then
+            echo "::error::主程序只有 $SZ 字节，包不完整"
+            exit 1
+          fi
+          set +e
+          timeout 25 xvfb-run -a "$IMG" > /tmp/ai.log 2>&1
+          rc=$?
+          set -e
+          echo "AppImage 启动退出码 = $rc（124 = 活着被超时杀掉 = 启动成功）"
+          if [ "$rc" -ne 124 ]; then
+            echo "::error::AppImage 启动失败 rc=$rc"
+            tail -20 /tmp/ai.log || true
+            exit 1
+          fi
+          echo "OK AppImage 能正常启动"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
