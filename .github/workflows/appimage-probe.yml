@@ -89,10 +89,11 @@ jobs:
           BIN="$(find squashfs-root/usr/bin -maxdepth 2 -type f -perm -u+x ! -name '*.so*' | sed -n '1p')"
           echo "BIN=$BIN"
           echo "::notice title=EX-4::BIN=$BIN  size=$(stat -c %s "$BIN" 2>/dev/null)"
-          MISS="$(ldd "$BIN" 2>&1 | grep -i 'not found' | tr '\n' ' ')"
+          # 注意末尾的 || true：grep 无匹配时退出码 1，在 set -e 下整个赋值会失败
+          MISS="$(ldd "$BIN" 2>&1 | grep -i 'not found' | tr '\n' ' ' || true)"
           echo "missing=$MISS"
           echo "::notice title=EX-5::ldd_missing=${MISS:-无}"
-          RES="$(find squashfs-root \( -name 'icon.icns' -o -name 'icon.ico' \) -print | tr '\n' ' ')"
+          RES="$(find squashfs-root \( -name 'icon.icns' -o -name 'icon.ico' \) -print | tr '\n' ' ' || true)"
           echo "residual_icons=$RES"
           echo "::notice title=EX-6::残留图标=${RES:-无（已清干净）}"
           echo "::notice title=EX-7::payload_files=$(find squashfs-root/usr/bin -type f | wc -l)  payload_du=$(du -sh squashfs-root/usr/bin | cut -f1)"
