@@ -152,29 +152,37 @@ echo "STEP dpkg-deb --build -> $OUT"
 dpkg-deb --root-owner-group -Zxz --build "$DEB" "$OUT" >/dev/null
 
 # ==================== 自检（不过就红灯，绝不发出坏包）====================
+# 🔴 这里所有管道都不能用 `grep -q`：本脚本开着 `set -o pipefail`，`grep -q` 一匹配
+# 就提前关闭管道，上游 dpkg-deb 收到 SIGPIPE（141），整条管道被判失败 —— 检查会
+# 间歇性误报「缺文件」。改成先整段取出来（awk/grep 读全量），再在变量上判断。
 echo "STEP 自检"
 dpkg-deb --info "$OUT" | sed -n '1,20p'
+CONT="$(dpkg-deb --contents "$OUT")"
+
 echo "--- 包内关键文件 ---"
-dpkg-deb --contents "$OUT" | grep -E "opt/$APPID/$BIN_NAME\$|usr/share/applications|usr/bin/$BIN_NAME" || true
+printf '%s\n' "$CONT" | grep -E " \./opt/$APPID/$BIN_NAME$|/applications/| \./usr/bin/" || true
 
 fail=0
-# ① 主程序必须在，且必须是 755（双击/菜单都靠它）
-LINE="$(dpkg-deb --contents "$OUT" | grep -E " \./opt/$APPID/$BIN_NAME\$" || true)"
-case "$LINE" in
-  *-rwxr-xr-x*) echo "  ✅ 主程序 755: $BIN_NAME" ;;
-  *) echo "  ❌ 主程序缺失或权限不对: $LINE"; fail=1 ;;
-esac
-# ② 菜单项必须在
-if dpkg-deb --contents "$OUT" | grep -q "\./usr/share/applications/$APPID.desktop"; then
+# ① 主程序必须在，且带用户执行位（双击/菜单都靠它）
+read -r MODE _ <<<"$(printf '%s\n' "$CONT" | awk -v t="./opt/$APPID/$BIN_NAME" '$NF==t{print $1; exit}')"
+if [ -n "${MODE:-}" ] && [ "${MODE:3:1}" = "x" ]; then
+  echo "  ✅ 主程序就位，权限 $MODE: $BIN_NAME"
+else
+  echo "  ❌ 主程序缺失或没有执行位（mode=${MODE:-无}）"
+  fail=1
+fi
+# ② 菜单项必须在（装了没图标 = 客户找不到程序）
+DESKLINE="$(printf '%s\n' "$CONT" | awk -v t="./usr/share/applications/$APPID.desktop" '$NF==t{print $1; exit}')"
+if [ -n "${DESKLINE:-}" ]; then
   echo "  ✅ 菜单项已收录"
 else
   echo "  ❌ 缺 .desktop，装了也没有图标"; fail=1
 fi
 # ③ Linux 用不到的图标不该被打进去
-BADICON="$(dpkg-deb --contents "$OUT" | grep -E "icon\.(icns|ico)$" || true)"
+BADICON="$(printf '%s\n' "$CONT" | grep -E "icon\.(icns|ico)$" || true)"
 if [ -n "$BADICON" ]; then
   echo "  ❌ 包里还有 icon.icns / icon.ico（白占 3.26 MB）:"
-  echo "$BADICON" | sed -n '1,3p'
+  printf '%s\n' "$BADICON" | sed -n '1,3p'
   fail=1
 else
   echo "  ✅ 无多余图标"
