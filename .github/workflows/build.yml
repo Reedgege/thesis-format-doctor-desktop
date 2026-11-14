@@ -329,7 +329,7 @@ jobs:
       # squashfs）。海外版 v2.3.121 就栽在这条链路上：主程序本体被一条自指软链覆盖，
       # 包小了 33 MB、双击根本起不来，而「magic 对、体积达标、glibc 达标」全绿。
       # 所以这里拆开包验「主程序是普通文件且体积正常」，再真跑一次。
-      - name: Smoke test (AppImage: 主程序在位且能启动)
+      - name: "Smoke test (AppImage — 主程序在位且能启动)"
         if: matrix.os == 'linux'
         shell: bash
         run: |
