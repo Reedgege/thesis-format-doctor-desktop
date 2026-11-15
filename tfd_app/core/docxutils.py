@@ -195,6 +195,42 @@ def _ppr_to_dict(ppr):
     return pinfo
 
 
+def _style_chain_rpr(style_id, styles):
+    """沿 basedOn 链把样式定义的 rPr 合并起来（近的覆盖远的）。"""
+    out = {}
+    seen = set()
+    sid = style_id
+    while sid and sid not in seen:
+        seen.add(sid)
+        info = styles.get(sid) or {}
+        for k, v in (info.get("rPr") or {}).items():
+            if v not in (None, "") and k not in out:
+                out[k] = v
+        sid = info.get("basedOn")
+    return out
+
+
+def effective_text_props(paras, styles):
+    """给每个段落补上「有效字体/字号」：段落 rPr → 样式链 → Normal 兜底。
+
+    为什么要它（这是检查能力的硬伤，不是优化）：
+    绝大多数论文的正文根本不写 run 级字号 —— 字号由 Normal 样式给（客户在 Word 里
+    设好样式，正文一段段敲下来就完了）。检查器若只在「段落有显式 run 字号」时才比对，
+    最常见的写法就永远查不出来：客户正文全是五号，报告却说正文没问题。
+
+    结果写进 para["eff_sz"] / para["eff_font"]，**不动** rpr 里的原始键 ——
+    报告里"字号分布"那张统计表的口径是"文档里实际写死的值"，掺进有效值会失真。
+
+    读不到就留空，让调用方跳过比对（宁可不说，也不能瞎判）。
+    """
+    for p in paras:
+        rpr = p.get("rpr") or {}
+        chain = _style_chain_rpr(p.get("style") or "Normal", styles)
+        p["eff_sz"] = rpr.get("sz") or chain.get("sz") or ""
+        p["eff_font"] = (rpr.get("eastAsia") or chain.get("eastAsia")
+                         or chain.get("ascii") or "")
+
+
 def paragraphs(root):
     """遍历正文段落，返回 [{text, style, rpr, pPr, in_table}]。style 为 w:pStyle 的 val。"""
     # 预先收集所有表格内段落元素 id（表格单元格里的 <w:p> 也要算段落）

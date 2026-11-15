@@ -24,6 +24,19 @@ def _show_error_win(msg):
 
 
 def main():
+    # 命令行入口优先：只有第一个参数是已知子命令（check / fix / selfcheck）时才走它。
+    # 不带参数仍然直接进 GUI —— 客户双击打开的行为一个字节都没变。
+    # 存在的意义：让打包后的产物可以被自动化验收（CI 三平台跑「检查→修正→复检」），
+    # 也让客户报「改了没用」时有一条命令能把现场打出来。见 tfd_app/cli.py。
+    try:
+        from tfd_app import cli
+        if cli.wants_cli(sys.argv[1:]):
+            sys.exit(cli.main(sys.argv[1:]))
+    except SystemExit:
+        raise
+    except Exception:
+        pass          # CLI 起不来不许影响 GUI 启动
+
     try:
         import tkinter  # noqa: F401  尽早发现 tkinter 是否可用
     except ImportError:

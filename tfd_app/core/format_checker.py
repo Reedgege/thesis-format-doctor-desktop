@@ -355,6 +355,20 @@ def _cm_to_twips(cm):
         return None
 
 
+def _sz_disp(sz):
+    """半磅字号转人类可读写法（24 → "12pt"），非数字原样返回。
+
+    报告里直接写 cs.get("size") 是错的：per-level 要素字典只有半磅键 "sz"，
+    没有 "size"，于是客户会看到「字号应为 None（sz=30，模板）」这种半句话。
+    同理实为 sz=20 也该显示成 10pt，不能让客户自己去除 2。
+    """
+    try:
+        v = int(sz)
+    except (TypeError, ValueError):
+        return str(sz) if sz not in (None, "") else "未设置"
+    return "%gpt" % (v / 2.0)
+
+
 def _eff_level_spec(profile, key, cat_key):
     """取 per-level 要素规范：优先 profile.levels（样式定义+批注合并），回退旧 spec.cats。"""
     levels = profile.get("levels") or {}
@@ -385,6 +399,32 @@ def _want_line(cs):
 # 避免对概述段误报"应为黑体/小三/居中"。K 取段落索引间隔，与 fix 的 root.iter 顺序一致。
 CHAP_CAND = re.compile(r"^第[一二三四五六七八九十百千\d]+[章篇编节]")
 K_CLUSTER = 3
+
+# 表题/图题/表注图注的编号模式。与修正器 headings_fix._CAP_TABLE_RE / _CAP_FIGURE_RE
+# 同一口径（跨校通用：表1、表1-1、表 3－1、续表3-1、Table 1、Tab.1-1、图1、Figure 1-1）。
+# 题注不是正文：学术规范里题注常用五号/小五、居中、无首行缩进，拿正文标准去判它，
+# 客户会看到「表1-1 格式要素示例 未设置首行缩进，模板要求首行缩进 2 字符」这种
+# 既改不掉、也不该改的报错（修正器只在模板给出题注规范时才动题注）。
+_CAPTION_PARA_RE = re.compile(
+    r"^\s*(?:续\s*)?(?:表\s*\d|Table\s+\d|Tab\.?\s*\d|图\s*\d|Figure\s+\d|Fig\.?\s*\d)",
+    re.IGNORECASE,
+)
+# 表注/图注特征词（资料来源/注：/Source: …），与 headings_fix._NOTE_KEYWORDS 同源
+_CAPTION_NOTE_RE = re.compile(
+    r"^\s*(?:资料来源|数据来源|来源|注|Source|Note)\s*[:：]", re.IGNORECASE)
+
+
+def _is_caption_para(text):
+    """段落是否为表题/图题/表注图注（题注不该按正文格式核查）。
+
+    叠一道「短段落」守卫：正文里引用表格的长句也常以「表1-1 显示了…」开头，
+    那不是题注，是正文散文，必须照常核查。真实题注极少超过 60 字
+    （与修正器识别图题时的短段落保守守卫同一思路）。
+    """
+    t = (text or "").strip()
+    if not t or len(t) > 60:
+        return False
+    return bool(_CAPTION_PARA_RE.match(t) or _CAPTION_NOTE_RE.match(t))
 
 
 def _demoted_chapter_indices(paras):
@@ -469,14 +509,19 @@ def template_driven_checks(paras, stats, profile):
         #  (c) 正文区之外（首个一级标题之前 / 参考文献之后）：修正器不套标题样式。
         if p.get("in_table"):
             continue
-        if docxutils._looks_like_body_despite_heading_style(t):
-            continue
+        # (b) 正文特征明显的段落（长句/句末标点/论证短语/数字编号列举项）：
+        #     修正器会把它们从标题降级为正文，检查器也不该按标题核查 ——
+        #     但**必须照常按正文核查**。这里原本写的是 `continue`，等于把所有
+        #     正文段落整段跳过：客户论文 42 段正文全都字号不对、行距不对、
+        #     没有首行缩进，报告只列出标题的 4 条问题，正文一个字都没提。
+        #     降级只影响「走哪条核查分支」，不影响「要不要核查」。
+        _demoted_to_body = docxutils._looks_like_body_despite_heading_style(t)
         _in_body_heading = (first_chap is not None and idx >= first_chap
                             and (ref_start is None or idx < ref_start))
         if not _in_body_heading:
             continue
 
-        if lvl in (1, 2, 3):
+        if lvl in (1, 2, 3) and not _demoted_to_body:
             hs = (profile.get("headingStyles") or {}).get(str(lvl)) or {}
             exp_sid = hs.get("styleId")
             exp_name = hs.get("name") or exp_sid
@@ -486,13 +531,16 @@ def template_driven_checks(paras, stats, profile):
                                       f'当前样式 {cur}。'))
             cs = _eff_level_spec(profile, str(lvl), "h%d" % lvl)
             lab = "一二三"[lvl - 1] + "级标题"
-            # 字体/字号仅在段落有显式 run 设置时才比对，避免对继承值误判
-            if cs.get("zh_font") and rpr.get("eastAsia") and rpr.get("eastAsia") != cs["zh_font"]:
+            # 字体/字号用「有效值」（段落 rPr → 样式链 → Normal）：标题常常是
+            # 靠 Heading 样式定的字体字号，只看 run 级显式设置会全都漏过去。
+            _efont = p.get("eff_font") or rpr.get("eastAsia")
+            if cs.get("zh_font") and _efont and _efont != cs["zh_font"]:
                 issues.append(("低", f'{lab}「{t[:24]}」中文字体应为 {cs["zh_font"]}（模板），'
-                                      f'实为 {rpr.get("eastAsia")}。'))
-            if cs.get("sz") and rpr.get("sz") and str(rpr.get("sz")) != str(cs["sz"]):
-                issues.append(("低", f'{lab}「{t[:24]}」字号应为 {cs.get("size")}'
-                                      f'（sz={cs["sz"]}，模板），实为 sz={rpr.get("sz")}。'))
+                                      f'实为 {_efont}。'))
+            _esize = p.get("eff_sz") or rpr.get("sz")
+            if cs.get("sz") and _esize and str(_esize) != str(cs["sz"]):
+                issues.append(("低", f'{lab}「{t[:24]}」字号应为 {_sz_disp(cs["sz"])}（模板），'
+                                      f'实为 {_sz_disp(_esize)}。'))
             # 对齐方式
             if cs.get("align") and ppr.get("jc") and ppr.get("jc") != cs["align"]:
                 issues.append(("低", f'{lab}「{t[:24]}」对齐方式应为 {cs["align"]}（模板），'
@@ -514,16 +562,20 @@ def template_driven_checks(paras, stats, profile):
                 if got_line is None or int(got_line) != want_line or got_rule != want_rule:
                     issues.append(("低", f'{lab}「{t[:24]}」行距应为 {cs["line_rule"]} '
                                           f'{cs.get("line_val")}（模板）。'))
-        elif in_body and (not in_ref) and (not p.get("in_table")) and lvl is None \
-                and not docxutils.is_structural_title(t):
+        elif in_body and (not in_ref) and (not p.get("in_table")) \
+                and (lvl is None or _demoted_to_body) \
+                and not docxutils.is_structural_title(t) and not _is_caption_para(t):
             # 仅对"正文正文区"的散文段落核查（排除封面/目录/摘要/声明/参考文献）
             cs = _eff_level_spec(profile, "body", "body")
-            if cs.get("zh_font") and rpr.get("eastAsia") and rpr.get("eastAsia") != cs["zh_font"]:
+            # 有效值（段落 rPr → 样式链 → Normal）：正文基本都靠 Normal 定字号
+            _efont = p.get("eff_font") or rpr.get("eastAsia")
+            if cs.get("zh_font") and _efont and _efont != cs["zh_font"]:
                 issues.append(("低", f'正文「{t[:24]}…」中文字体应为 {cs["zh_font"]}（模板），'
-                                      f'实为 {rpr.get("eastAsia")}。'))
-            if cs.get("sz") and rpr.get("sz") and str(rpr.get("sz")) != str(cs["sz"]):
-                issues.append(("低", f'正文「{t[:24]}…」字号应为 {cs.get("size")}'
-                                      f'（sz={cs["sz"]}，模板），实为 sz={rpr.get("sz")}。'))
+                                      f'实为 {_efont}。'))
+            _esize = p.get("eff_sz") or rpr.get("sz")
+            if cs.get("sz") and _esize and str(_esize) != str(cs["sz"]):
+                issues.append(("低", f'正文「{t[:24]}…」字号应为 {_sz_disp(cs["sz"])}（模板），'
+                                      f'实为 {_sz_disp(_esize)}。'))
             # 首行缩进（2 字符 = firstLineChars 200）
             if cs.get("indent_chars"):
                 want_chars = cs["indent_chars"] * 100
@@ -688,6 +740,12 @@ def _diagnose(path, profile):
     内部复用，供 main / collect_manual_items 共用，保证同一份口径。"""
     z, root = docxutils.load(path)
     paras = docxutils.paragraphs(root)
+    # 补「有效字体/字号」（段落 → 样式链 → Normal）。不给这一层，靠 Normal 定字号的
+    # 正文就永远查不出字号问题 —— 而客户论文基本都是这么写的。
+    try:
+        docxutils.effective_text_props(paras, docxutils.load_styles(path))
+    except Exception:
+        pass
     st = collect_stats(z, root, paras)
     all_issues = []
     all_issues += check_headings(paras)
@@ -706,8 +764,53 @@ def _diagnose(path, profile):
     struct_issues = check_structural_pages(paras, st)
     if profile:
         all_issues += template_driven_checks(paras, st, profile)
+    all_issues = _merge_similar_issues(all_issues)
     all_issues.sort(key=lambda x: SEV_ORDER.get(x[0], 3))
     return all_issues, struct_issues, st
+
+
+# 文案里「…」包住的是被引用的原文（段落摘要）
+_PARA_QUOTE_RE = re.compile(r"「([^」]*)」")
+
+
+def _merge_similar_issues(issues, examples=3):
+    """把同类问题合并成一条，别让同一个毛病把报告刷成几十条。
+
+    为什么必须合并：一段正文的毛病（字号/行距/缩进）在 42 段正文里就重复 42 次，
+    报告清单会变成一屏一模一样的话，客户根本读不出「我的正文到底哪儿不对」。
+    导师版一直是分组呈现的（grp.add 聚合），学生版逐段罗列 —— 同一份引擎、
+    两种可读性，这个差距不该存在。
+
+    合并键 = 严重度 + 抹掉段落摘要后的文案。例：
+        正文「毕业论文是本科培养方案…」未设置首行缩进，模板要求首行缩进 2 字符。
+      → 正文未设置首行缩进，模板要求首行缩进 2 字符。：共 12 处（例如「…」）
+    只有一处时保留原文案（带段落摘要更便于定位）。
+    """
+    bucket, order = {}, []
+    for sev, msg in issues:
+        base = _PARA_QUOTE_RE.sub("", msg).strip()
+        key = (sev, base)
+        if key not in bucket:
+            bucket[key] = {"first": msg, "count": 0, "ex": []}
+            order.append(key)
+        slot = bucket[key]
+        slot["count"] += 1
+        for m in _PARA_QUOTE_RE.finditer(msg):
+            e = m.group(1)
+            if e and e not in slot["ex"]:
+                slot["ex"].append(e)
+    out = []
+    for key in order:
+        slot = bucket[key]
+        if slot["count"] <= 1:
+            out.append((key[0], slot["first"]))
+            continue
+        # 去掉原文案末尾的句号再接冒号，否则会出现「… 2 字符。：共 12 处」这种双标点
+        msg = "%s：共 %d 处" % (key[1].rstrip("。.；;"), slot["count"])
+        if slot["ex"]:
+            msg += "（例如 %s）" % "、".join("「%s」" % e for e in slot["ex"][:examples])
+        out.append((key[0], msg))
+    return out
 
 
 def _split_issues(all_issues):

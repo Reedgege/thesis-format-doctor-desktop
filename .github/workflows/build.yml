@@ -367,6 +367,45 @@ jobs:
           fi
           echo "OK AppImage 能正常启动"
 
+      # 客户视角功能验收：不看「进程能起来」，看「传一份论文进去，出来的文档真的改好了」。
+      # 前面那些 smoke test 全在验外壳（装得上、能启动），而真正卖钱的那一层
+      # ——检查、修正、复检——从来没在三个平台上被自动验过。
+      #
+      # 找主程序不能写死路径：Windows 的 exe 叫「1.文档格式先生（免安装版）/1.文档格式先生.exe」，
+      # macOS 的藏在 .app/Contents/MacOS 里，Linux 是个同名二进制。所以按平台扫。
+      - name: "Functional check (real document — check / fix / recheck)"
+        shell: bash
+        run: |
+          set -euo pipefail
+          PY=python3; command -v python3 >/dev/null 2>&1 || PY=python
+          "$PY" -m pip install --quiet --disable-pip-version-check python-docx
+
+          EXE=""
+          case "$(uname -s)" in
+            Darwin)
+              if [ -d "dist/MDF-Stu.app/Contents/MacOS" ]; then
+                EXE="$(find "dist/MDF-Stu.app/Contents/MacOS" -maxdepth 1 -type f -perm -u+x | head -1)"
+              fi
+              ;;
+            Linux)
+              if [ -f "dist/MDF-Stu" ]; then EXE="dist/MDF-Stu"; fi
+              ;;
+            *)
+              EXE="$(find dist -maxdepth 2 -type f -name '*.exe' ! -name '*setup*' | head -1)"
+              ;;
+          esac
+
+          if [ -z "$EXE" ]; then
+            echo "::error::找不到打包产物主程序，无法做功能验收"
+            find dist -maxdepth 3 | head -40 || true
+            exit 1
+          fi
+          echo "受测产物 = $EXE"
+          # 素材现场生成：不把 docx 二进制入库，避免素材与生成脚本各自漂移
+          # （素材不自洽会让验收得出误导性结论，这轮就吃过亏）。
+          "$PY" tools/crossplat/make_fixtures.py
+          "$PY" tools/crossplat/verify_product.py --exe "$EXE" --label "${{ matrix.os }}"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

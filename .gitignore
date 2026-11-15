@@ -41,3 +41,6 @@ public_key.pem
 
 # UI 改造参考包（临时，绝不入库）
 _ui_ref/
+
+# 验收素材由 tools/crossplat/make_fixtures.py 现场生成，不入库
+tools/crossplat/fixtures/

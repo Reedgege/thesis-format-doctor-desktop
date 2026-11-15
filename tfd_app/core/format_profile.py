@@ -56,7 +56,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from docxutils import (load_styles, load, margins, WR, detect_heading,
                        is_toc_residue, style_xml, comments, extract_comment_specs,
                        is_body_style_name, is_reference_heading, is_structural_title,
-                       classify_structural_title, normalize_en_font, DEFAULT_EN_FONT)
+                       classify_structural_title, normalize_en_font, DEFAULT_EN_FONT,
+                       BODY_STYLE_NAMES)
 
 __author__ = "芦苇"
 __copyright__ = "Copyright (c) 2026 芦苇（山东大学 MBA）"
@@ -317,7 +318,7 @@ def _extract_structural_dual_specs(root, cats, styles=None):
     产出：cats["abstract_title"]/cats["abstract"]、cats["ack_title"]/cats["ack"]、
     cats["appendix_title"]/cats["appendix"] 等，随后被 levels 构建自动纳入画像。
     """
-    if not root:
+    if root is None:      # ElementTree 的 Element 布尔值未来版本恒为 True，别用 `not root`
         return
     paras = [p for p in root.iter(WR + "p")]
     _seen_en_abstract = False
@@ -375,6 +376,57 @@ def _extract_structural_dual_specs(root, cats, styles=None):
                 break
 
 
+_BODY_EXACT = set(re.sub(r"\s+", "", k.lower()) for k in BODY_STYLE_NAMES)
+
+
+def _is_exact_body_name(sid, name):
+    """styleId / 样式名是否为正文样式的**完整**名称（不含前缀命中）。"""
+    for v in (sid, name):
+        t = re.sub(r"\s+", "", (v or "").strip().lower())
+        if t and t in _BODY_EXACT:
+            return True
+    return False
+
+
+def _body_style_usage(root):
+    """统计文档里每个样式 ID 被多少段落实际使用（未标 pStyle 的段落按 Normal 计）。"""
+    use = {}
+    for p in root.iter(WR + "p"):
+        sid = "Normal"
+        ppr = p.find(WR + "pPr")
+        if ppr is not None:
+            ps = ppr.find(WR + "pStyle")
+            if ps is not None and ps.get(WR + "val"):
+                sid = ps.get(WR + "val")
+        use[sid] = use.get(sid, 0) + 1
+    return use
+
+
+def _pick_body_style(cands, root):
+    """从正文样式候选里挑出文档真正在用的那一个。
+
+    为什么不能取遍历到的最后一个：Word 内置样式表里 "Body Text 2/3"、
+    "Body Text 3 Char" 这类引用块/附录块样式名都以 "Body Text" 开头，在
+    styles.xml 里的顺序又排在 "Normal" 之后，前缀命中就会把真正的正文样式覆盖掉。
+    实测事故：模板 Normal=宋体 12pt / 固定 20 磅 / 首行缩进，画像却取到
+    Body Text 3 Char（8pt），导致后续按 8pt 去检查客户论文。
+
+    挑选顺序（模板驱动，不写死任何学校）：
+      1) 完整名精确命中优先于前缀命中；
+      2) 同档内按文档实际使用段落数降序——客户真在用的才算法定正文；
+      3) 平票按 styles.xml 顺序取先出现的（"Normal"/"正文" 通常在最前）。
+    """
+    if not cands:
+        return None
+    use = _body_style_usage(root)
+
+    def _rank(c):
+        return (1 if _is_exact_body_name(c.get("styleId"), c.get("name")) else 0,
+                use.get(c.get("styleId"), 0))
+
+    return max(cands, key=_rank)
+
+
 def _merge_specs(base, override):
     """批注(override)优先、样式定义(base)兜底，合并为完整 per-level 要素字典。"""
     out = dict(base or {})
@@ -386,8 +438,9 @@ def _merge_specs(base, override):
 
 def extract(path):
     styles = load_styles(path)
+    _, root = load(path)
     headings = {}
-    body = None
+    body_cands = []
     for sid, info in styles.items():
         nm = info.get("name") or ""
         # 标题层级
@@ -402,18 +455,21 @@ def extract(path):
                     "firstLineChars": (info.get("pPr") or {}).get("firstLineChars") or "",
                     "line": (info.get("pPr") or {}).get("line") or "",
                 }
-        # 正文（跨校：用 is_body_style_name 识别中英文/异校正文样式名，不写死"正文"）
+        # 正文候选（跨校：用 is_body_style_name 识别中英文/异校正文样式名，不写死"正文"）
+        # 注意：这里只收集候选，真正的挑选交给 _pick_body_style 统一裁决 ——
+        # 前缀命中会把 "Body Text 3 Char"(8pt) 这类引用块样式也算进来，直接
+        # 按遍历顺序覆盖会让正文画像取到错误的样式（详见 _pick_body_style 文档）。
         if is_body_style_name(sid) or is_body_style_name(nm):
-            body = {
+            body_cands.append({
                 "styleId": sid,
                 "name": nm,
                 "font": (info.get("rPr") or {}).get("eastAsia") or (info.get("rPr") or {}).get("ascii") or "",
                 "size": (info.get("rPr") or {}).get("sz") or "",
                 "firstLineChars": (info.get("pPr") or {}).get("firstLineChars") or "",
                 "line": (info.get("pPr") or {}).get("line") or "",
-            }
+            })
+    body = _pick_body_style(body_cands, root)
     # 页边距
-    _, root = load(path)
     pg = margins(root)
     # 三线表规范：三层边框解析（单元格 > 表格 > 表格样式），与修正器/检查器同一口径。
     # 取模板里所有数据表（rows≥2）的边框现状：
