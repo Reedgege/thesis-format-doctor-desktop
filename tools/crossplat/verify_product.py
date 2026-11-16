@@ -233,7 +233,12 @@ def main(argv=None) -> int:
         error(tag + "受测程序不存在：" + exe)
         return 2
 
-    work = args.workdir or tempfile.mkdtemp(prefix="cn_verify_")
+    # 必须转绝对路径：产物是以 cwd=<workdir> 调起的，若 workdir 是相对路径
+    # （CI 里传 --workdir evidence），参数里的 evidence/xxx.docx 会被解析成
+    # evidence/evidence/xxx.docx，产物报「not found」——看着像素材没生成，
+    # 实际是路径叠了一层。本地跑默认用 tmpdir 恰好是绝对的，所以只有 CI 会暴露。
+    work = (os.path.abspath(args.workdir) if args.workdir
+            else tempfile.mkdtemp(prefix="cn_verify_"))
     os.makedirs(work, exist_ok=True)
     src = os.path.join(work, "thesis.docx")
     tpl = os.path.join(work, "template.docx")
