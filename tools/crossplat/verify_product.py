@@ -213,7 +213,8 @@ def _metrics(payload) -> dict:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--exe", required=True)
+    ap.add_argument("--exe", default=None,
+                    help="受测产物；本地调试时可省略，改用 --entry 跑源码")
     ap.add_argument("--label", default="unknown")
     ap.add_argument("--workdir", default=None)
     ap.add_argument("--fixtures", default=os.path.join(HERE, "fixtures"))
@@ -228,9 +229,12 @@ def main(argv=None) -> int:
 
     tag = "[%s] " % args.label
     failures, soft = [], []
-    exe = os.path.abspath(args.exe)
-    if not os.path.isfile(exe):
+    exe = os.path.abspath(args.exe) if args.exe else ""
+    if exe and not os.path.isfile(exe):
         error(tag + "受测程序不存在：" + exe)
+        return 2
+    if not exe and not _ENTRY:
+        error(tag + "必须给 --exe，或本地调试用 --entry 指定源码入口")
         return 2
 
     # 必须转绝对路径：产物是以 cwd=<workdir> 调起的，若 workdir 是相对路径
