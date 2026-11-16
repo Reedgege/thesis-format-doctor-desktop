@@ -396,7 +396,15 @@ jobs:
               fi
               ;;
             Linux)
-              if [ -f "dist/MDF-Stu" ]; then EXE="dist/MDF-Stu"; fi
+              # 🔴 Linux 产物是 Nuitka standalone **目录** dist/MDF-Stu/（外面再打 AppImage）。
+              # `dist/MDF-Stu` 是目录不是文件，旧写法 `[ -f ]` 永远判假 —— v1.3.163 首跑
+              # 就是「找不到打包产物主程序」红的。直接跑目录里的主程序：客户拿到的
+              # AppImage 解开后就是这一批文件，验它等价于验产物。
+              if [ -x "dist/MDF-Stu/MDF-Stu" ]; then
+                EXE="dist/MDF-Stu/MDF-Stu"
+              elif [ -f "dist/MDF-Stu" ]; then
+                EXE="dist/MDF-Stu"
+              fi
               ;;
             *)
               EXE="$(find dist -maxdepth 2 -type f -name '*.exe' ! -name '*setup*' | head -1)"

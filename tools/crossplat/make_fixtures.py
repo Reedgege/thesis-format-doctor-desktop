@@ -36,6 +36,15 @@ from docx.enum.text import WD_LINE_SPACING
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 
+# 本脚本会打印中文（如「手写兜底」）。Windows runner 的 stdout 默认是 cp1252，
+# 直接 print 会在**打包全部成功之后**炸在最后一行，把发版卡在这里 —— v1.3.163
+# 首次跑 Functional check 就是这么挂的（UnicodeEncodeError: 'charmap'）。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "fixtures")
 
