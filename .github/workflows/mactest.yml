@@ -1,0 +1,120 @@
+name: macOS functional test (real app + evidence)
+run-name: macOS 实例测试 ${{ inputs.note }}
+
+# 为什么单独一条流水线
+# --------------------
+# `build.yml` 只在打 tag 时跑，而且要出三个平台的安装包。老板要的是「mac 版到底
+# 能不能把论文改对」这一件事的证据：输入文件 + 输出文件 + 验收日志。
+# 所以这里只跑 macOS、只打包不上架、把 docx 全传成 artifact 给人看。
+#
+# 用的是真产物（Nuitka 编出来的 .app），不是源码 —— 打包才会暴露路径/资源类问题
+# （海外版就栽过：macOS 打包后 python-docx 读不到自带模板，建页眉静默失败）。
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "备注（显示在 run 名里，方便回头找）"
+        required: false
+        default: ""
+
+jobs:
+  mactest:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install nuitka python-docx pillow
+
+      # macOS 的 app 图标要 .icns（PNG→ICNS 用 Pillow），与 build.yml 保持一致
+      - name: Generate icon.icns
+        run: |
+          python -c "from PIL import Image; Image.open('tfd_app/assets/icon.png').save('tfd_app/assets/icon.icns', format='ICNS', sizes=[(16,16),(32,32),(64,64),(128,128),(256,256),(512,512),(1024,1024)])"
+          ls -la tfd_app/assets/icon.icns
+
+      - name: Build (Nuitka standalone)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python build.py
+          ls -la dist/
+
+      # 先自检：产物里的 python-docx 能不能定位到自带模板、能不能真建页眉。
+      # 这一关过不了，后面所有验收都是白跑。
+      - name: Selfcheck (bundled runtime inside the .app)
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="dist/APPNAME.app/Contents/MacOS/APPNAME"
+          if [ ! -f "$BIN" ]; then
+            BIN="$(find "dist/APPNAME.app/Contents/MacOS" -maxdepth 1 -type f -perm -u+x | head -1)"
+          fi
+          echo "主程序 = $BIN"
+          file "$BIN"
+          ls -la "$(dirname "$BIN")" | head -20
+          "$BIN" selfcheck --json-out selfcheck.json
+          cat selfcheck.json
+          python - <<'PY'
+          import json, sys
+          d = json.load(open("selfcheck.json", encoding="utf-8"))
+          bad = {k: d.get(k) for k in ("header_create", "engine_import")
+                 if str(d.get(k)) != "ok"}
+          if bad:
+              print("::error::产物自检未通过：%s" % bad)
+              sys.exit(1)
+          print("产物自检通过：python-docx 模板就位、页眉可建、引擎可导入")
+          PY
+
+      # 客户视角全链路：画像 → 体检 → 修正 → 输出属性 → 复检 → 幂等。
+      # --workdir 直接用证据目录，输入/输出 docx 全落在里面。
+      - name: Functional check (check / fix / recheck on a real document)
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="dist/APPNAME.app/Contents/MacOS/APPNAME"
+          if [ ! -f "$BIN" ]; then
+            BIN="$(find "dist/APPNAME.app/Contents/MacOS" -maxdepth 1 -type f -perm -u+x | head -1)"
+          fi
+          mkdir -p evidence
+          python tools/crossplat/make_fixtures.py
+          python tools/crossplat/verify_product.py --exe "$BIN" --label macOS --workdir evidence
+
+      # 把验收 JSON 里的报告正文抽成 md，人眼能直接读
+      - name: Extract human-readable reports
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import glob, json, os
+          for f in sorted(glob.glob("evidence/_cli_*.json")):
+              try:
+                  d = json.load(open(f, encoding="utf-8"))
+              except Exception:
+                  continue
+              rep = d.get("report")
+              if not rep:
+                  continue
+              out = os.path.splitext(f)[0] + "_report.md"
+              open(out, "w", encoding="utf-8").write(rep)
+              print("写出", out, len(rep), "字节")
+          PY
+          ls -la evidence/ || true
+
+      - name: Upload evidence (input + output docx + reports)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PRODUCTNAME-macos-evidence
+          path: |
+            evidence/
+            selfcheck.json
+          if-no-files-found: warn
+          retention-days: 14
