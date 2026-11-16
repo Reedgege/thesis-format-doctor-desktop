@@ -83,7 +83,13 @@ echo
 echo "==================== 安装 Nuitka 与依赖 ===================="
 "$PY" -m ensurepip --upgrade >/dev/null 2>&1 || true
 pinstall --upgrade pip setuptools wheel
-pinstall --upgrade nuitka ordered-set zstandard
+# 🔴 python-docx 必须在这里装：Linux 是在 manylinux 容器内构建，宿主机（runner）
+# 那条 `pip install nuitka python-docx` 进不到容器里。Nuitka 只在「构建环境 import
+# 得到」时才会把 package data（docx/templates/*.xml）打进产物 —— 漏了它，产物
+# selfcheck 的 header_create 就是 null（v1.3.163 第二轮 CI 正是栽在这）。
+# 客户 GUI 走自研 docxutils，不依赖 python-docx；这一条是为了让产物内的诊断/
+# 功能验收真正可用。
+pinstall --upgrade nuitka ordered-set zstandard python-docx
 if [ -f requirements.txt ]; then
   echo "  发现 requirements.txt，安装"
   pinstall -r requirements.txt
