@@ -270,6 +270,13 @@ def cmd_selfcheck(argv: list) -> int:
         "cwd": os.getcwd(),
         "frozen": bool(getattr(sys, "frozen", False)),
     }
+    # python-docx 自带模板在产物里的落点与接管情况（mac/Linux 崩这里时一眼可见）
+    try:
+        from . import docx_boot
+
+        info["docx_boot"] = docx_boot.report()
+    except Exception:
+        info["docx_boot"] = traceback.format_exc(limit=4)
     try:
         import docx
 

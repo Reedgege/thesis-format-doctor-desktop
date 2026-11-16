@@ -53,9 +53,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BIN="dist/APPNAME.app/Contents/MacOS/APPNAME"
+          BIN="dist/MDF-Stu.app/Contents/MacOS/MDF-Stu"
           if [ ! -f "$BIN" ]; then
-            BIN="$(find "dist/APPNAME.app/Contents/MacOS" -maxdepth 1 -type f -perm -u+x | head -1)"
+            BIN="$(find "dist/MDF-Stu.app/Contents/MacOS" -maxdepth 1 -type f -perm -u+x | head -1)"
           fi
           echo "主程序 = $BIN"
           file "$BIN"
@@ -79,9 +79,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BIN="dist/APPNAME.app/Contents/MacOS/APPNAME"
+          BIN="dist/MDF-Stu.app/Contents/MacOS/MDF-Stu"
           if [ ! -f "$BIN" ]; then
-            BIN="$(find "dist/APPNAME.app/Contents/MacOS" -maxdepth 1 -type f -perm -u+x | head -1)"
+            BIN="$(find "dist/MDF-Stu.app/Contents/MacOS" -maxdepth 1 -type f -perm -u+x | head -1)"
           fi
           mkdir -p evidence
           python tools/crossplat/make_fixtures.py
@@ -112,7 +112,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: PRODUCTNAME-macos-evidence
+          name: MDF-Stu-macos-evidence
           path: |
             evidence/
             selfcheck.json
