@@ -64,7 +64,6 @@ def health_payload():
                 "refs_reformat": False,
                 "add_comments": True,
                 "batch": SUPPORTS_BATCH,
-                "watermark_on_trial": True,
                 "purchase_block": True,
                 "max_file_mb": 200,
             },

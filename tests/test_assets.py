@@ -2,15 +2,15 @@
 """运行时资源回归（学生版）
 ==================================================================
 背景：build.py 若没把 ``tfd_app/assets`` 带进产物，而读取方都写了
-``if os.path.isfile(...)`` 守卫 → 打包版会「**二维码不显示、水印图丢失、
+``if os.path.isfile(...)`` 守卫 → 打包版会「**二维码不显示、
 主界面背景图缺失**」，而且**全程静默**。本测试在**打包前**就把这类缺件钉住：
 
   1. ``REQUIRED_ASSETS`` 每个文件在源码树里真实存在（缺一个 = 会打个缺件的包）；
   2. ``assetpath.find_asset`` 能定位到它们（多候选路径逻辑没写坏）；
   3. ``build.py`` 以 ``REQUIRED_ASSETS`` 为唯一事实来源、真的生成
      ``--include-data-files=``，且缺件时红灯退出（BRIEF 第七节第 3 条）；
-  4. gui 的 ICON / QRCODE / MINIAPP_QRCODE 与 watermark 的两张水印图路径，
-     都指向真实文件（导入即求值，等于校验了资源接线）；
+  4. gui 的 ICON / QRCODE / MINIAPP_QRCODE 路径，都指向真实文件
+     （导入即求值，等于校验了资源接线）；
   5. 学生版专属：主界面唯一背景层 = ``student_background.png``（与装修包
      ``STUDENT_BACKGROUND.png`` 逐字节一致），且导师版专属的
      ``advisor_background.png`` **不在本仓库**。
@@ -77,10 +77,9 @@ if bg:
     else:
         print("  skip 装修包原图不在本仓库，跳过「未还原」比对")
 
-print("=== 4. gui / watermark / backdrop 的资源接线 ===")
+print("=== 4. gui / backdrop 的资源接线 ===")
 try:
     from tfd_app import gui as gui_mod          # 需要 tkinter
-    from tfd_app import watermark as wm_mod
 except ImportError as e:                        # pragma: no cover - 无 tkinter 的环境
     print("  skip 本机无 tkinter，跳过资源接线检查：%s" % e)
 else:
@@ -88,9 +87,6 @@ else:
     check(os.path.isfile(gui_mod.QRCODE), "gui.QRCODE -> %s" % gui_mod.QRCODE)
     check(os.path.isfile(gui_mod.MINIAPP_QRCODE),
           "gui.MINIAPP_QRCODE -> %s" % gui_mod.MINIAPP_QRCODE)
-    check(os.path.isfile(wm_mod._IMG_SRC), "watermark 水印图 -> %s" % wm_mod._IMG_SRC)
-    check(os.path.isfile(wm_mod._BG_IMG_SRC),
-          "watermark 背景水印图 -> %s" % wm_mod._BG_IMG_SRC)
     # backdrop（旧界面背景模块）已随新界面下线一并删除；
     # 这里改成「缺了只 skip」，否则 module 级 ImportError 会让整份测试收不起来，
     # 连带把后面的版本号一致性断言一起废掉（2026-11-01 发版时发现）。

@@ -2,7 +2,7 @@
 """运行时资源路径解析 · 学生版
 ==================================================================
 
-gui.py 要读窗口图标/二维码，watermark.py 要读水印图，backdrop.py 要读主界面
+gui.py 要读窗口图标/二维码，backdrop.py 要读主界面
 背景图，它们都放在 ``tfd_app/assets/``。但**打包后布局会变**（Nuitka 把包编进
 exe、数据目录被拷到别处），写死一条 ``<模块目录>/assets/xxx`` 就会在打包版里
 静默读不到。
@@ -31,8 +31,6 @@ REQUIRED_ASSETS = (
     "gz_qrcode.png",  # 官方公众号二维码（关注入口浮层）
     "kf_qrcode.png",  # 客服微信二维码（真人客服号）
     "miniapp_qrcode.png",       # 小程序二维码
-    "watermark.png",            # 试用水印图（正文穿插）
-    "watermark_bg.png",         # 试用水印背景图（页眉 VML）—— 业务资源，非界面背景
     "student_background.png",   # 学生版主界面背景层（Backdrop 铺底，唯一背景层）
     "seal_student.png",         # 学生版朱砂印章（做旧传统风，PNG 贴图）
 )

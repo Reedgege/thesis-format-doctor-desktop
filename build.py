@@ -86,9 +86,9 @@ def _nuitka_options():
     for m in CORE_MODULES:
         opt += ["--include-module=" + m]
     opt += ["--include-package=tfd_app"]
-    # 运行时资源（窗口图标 / 二维码 / 水印图 / 主界面背景图）必须显式带进产物 ——
-    # gui / watermark / backdrop 都会在运行时按 <包目录>/assets/<name> 读取，而读取方
-    # 普遍带 isfile 守卫 → 漏带就会「二维码不显示、水印丢失、背景图缺失」且全程静默。
+    # 运行时资源（窗口图标 / 二维码 / 主界面背景图）必须显式带进产物 ——
+    # gui / backdrop 都会在运行时按 <包目录>/assets/<name> 读取，而读取方
+    # 普遍带 isfile 守卫 → 漏带就会「二维码不显示、背景图缺失」且全程静默。
     # 清单以 tfd_app/assetpath.py 的 REQUIRED_ASSETS 为唯一事实来源；缺文件直接构建
     # 失败（fail-closed），宁可构建红灯，也不发出一个"看着正常、功能缺件"的包。
     sys.path.insert(0, HERE)

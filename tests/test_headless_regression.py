@@ -9,7 +9,6 @@
   - engine.run_reformat_refs（参考文献 GB/T 7714 重排）
   - engine.run_build_profile（学校模板画像提取）
   - engine.cleanup_conv_dirs（转换临时目录清理）
-  - watermark.apply_watermark（试用输出水印）
   - trial / license 激活边界（全部指向临时目录，不碰真实 ~/.tfd_license）
 
 用法：python tests/test_headless_regression.py
@@ -32,7 +31,6 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from tfd_app import engine
-from tfd_app import watermark
 from tfd_app import trial
 from tfd_app import license as lic
 
@@ -233,17 +231,7 @@ def run_all():
         except Exception:
             ck("cleanup_conv_dirs 幂等不抛", False, traceback.format_exc().splitlines()[-1])
 
-        # 8) 水印（作用在副本上，不破坏原文件）
-        wm_src = os.path.join(tmp, "wm_src.docx")
-        shutil.copy(src, wm_src)
-        try:
-            watermark.apply_watermark(wm_src)
-            ck("watermark.apply_watermark 不崩且产出合法 docx", _is_valid_docx(wm_src))
-        except Exception:
-            ck("watermark.apply_watermark 不崩且产出合法 docx", False,
-               traceback.format_exc().splitlines()[-1])
-
-        # 9) trial / license 边界（指向临时目录，不影响真实授权）
+        # 8) trial / license 边界（指向临时目录，不影响真实授权）
         lic.LICENSE_DIR = tmp
         lic.LICENSE_FILE = os.path.join(tmp, "license.json")
         trial.TRIAL_FILE = os.path.join(tmp, "trial.json")
