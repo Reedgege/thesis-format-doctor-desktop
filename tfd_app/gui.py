@@ -146,6 +146,21 @@ def _wheel_steps(delta):
     return WHEEL_UNITS * n if d < 0 else -WHEEL_UNITS * n
 
 
+def _wheel_steps_event(e):
+    """滚轮事件 → units（向下为正）。
+
+    🔴 2026-11-17 同步修复：手动录入 / 确认页两个弹窗虽然绑了 Button-4/5，
+    但处理函数只读 ``event.delta``；X11 这两个事件没有 delta（恒 0），旧写法
+    ``-3 if d>0 else 3`` 会把「向上」也滚成「向下」。这里统一按 num 判方向。
+    """
+    num = getattr(e, "num", None)
+    if num == 4:
+        return -WHEEL_UNITS
+    if num == 5:
+        return WHEEL_UNITS
+    return _wheel_steps(getattr(e, "delta", 0))
+
+
 def _is_frozen_exe():
     """打包后的主程序才显示“桌面图标”入口 / 首启询问；
     开发态（python.exe/pythonw.exe）与 mac/Linux 一律不建 Windows 快捷方式。"""
@@ -1317,8 +1332,9 @@ class App:
         vbar.pack(side="right", fill="y")
 
         def _wheel(e):
-            d = getattr(e, "delta", 0) or 0
-            canvas.yview_scroll(-3 if d > 0 else 3, "units")
+            steps = _wheel_steps_event(e)
+            if steps:
+                canvas.yview_scroll(steps, "units")
         for w in (canvas, form):
             w.bind("<MouseWheel>", _wheel)
             w.bind("<Button-4>", _wheel)
@@ -1988,11 +2004,9 @@ class App:
 
         # v1.3.76：确认页表单滚动区同样支持滚轮（15 个字段，鼠标翻页更顺手）
         def _form_wheel(e):
-            d = getattr(e, "delta", 0) or 0
-            step = -3 if d > 0 else 3
-            if abs(d) >= 120:
-                step = -int(d / 120) * 3
-            canvas.yview_scroll(step, "units")
+            steps = _wheel_steps_event(e)
+            if steps:
+                canvas.yview_scroll(steps, "units")
         for w in (canvas, form):
             w.bind("<MouseWheel>", _form_wheel)
             w.bind("<Button-4>", _form_wheel)
