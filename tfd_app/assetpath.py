@@ -31,6 +31,7 @@ REQUIRED_ASSETS = (
     "gz_qrcode.png",  # 官方公众号二维码（关注入口浮层）
     "kf_qrcode.png",  # 客服微信二维码（真人客服号）
     "miniapp_qrcode.png",       # 小程序二维码
+    "cacert.pem",               # 自带 CA 根证书（在线激活/心跳的 SSL 验证，修 Linux 缺新根证书）
     "student_background.png",   # 学生版主界面背景层（Backdrop 铺底，唯一背景层）
     "seal_student.png",         # 学生版朱砂印章（做旧传统风，PNG 贴图）
 )

@@ -145,6 +145,22 @@ def get_machine_code():
 # ---------------------------------------------------------------------------
 # 网络底层：直连（绕过系统代理）+ 超时兜底（防线程永久悬挂）
 # ---------------------------------------------------------------------------
+def _ssl_context():
+    """用随程序打包的 CA 证书建 SSL context，解决老 Linux 缺新根证书导致
+    在线激活报 `unable to get local issuer certificate`（中台用 GTS Root R4，
+    老发行版 ca-certificates 不含它）。找不到自带证书则回退系统默认，
+    绝不降低验证强度（不用 _create_unverified_context）。"""
+    try:
+        import ssl
+        from .assetpath import find_asset
+        cafile = find_asset("cacert.pem")
+        if cafile and os.path.isfile(cafile):
+            return ssl.create_default_context(cafile=cafile)
+    except Exception:
+        pass
+    return None
+
+
 def _http_json(path, payload, timeout):
     """POST JSON，返回 (resp_dict_or_None, error_or_None)。网络错误返回 error。"""
     data = json.dumps(payload).encode("utf-8")
@@ -157,8 +173,13 @@ def _http_json(path, payload, timeout):
             headers={"Content-Type": "application/json", "User-Agent": "tfd-desktop/1.0"},
             method="POST",
         )
-        # 无代理直连（无视环境变量 HTTP(S)_PROXY / 系统代理设置）
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        # 无代理直连（无视环境变量 HTTP(S)_PROXY / 系统代理设置）+
+        # 自带 CA 证书验证（修 Linux 缺新根证书；None 时回退系统默认）
+        handlers = [urllib.request.ProxyHandler({})]
+        ctx = _ssl_context()
+        if ctx is not None:
+            handlers.append(urllib.request.HTTPSHandler(context=ctx))
+        opener = urllib.request.build_opener(*handlers)
         with opener.open(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8", "ignore")), None
     except urllib.error.HTTPError as e:
@@ -740,7 +761,11 @@ def _http_get_json(path, timeout=4):
     try:
         req = urllib.request.Request(
             url, method="GET", headers={"User-Agent": "tfd-desktop/1.0"})
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        handlers = [urllib.request.ProxyHandler({})]
+        ctx = _ssl_context()
+        if ctx is not None:
+            handlers.append(urllib.request.HTTPSHandler(context=ctx))
+        opener = urllib.request.build_opener(*handlers)
         with opener.open(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8", "ignore")), None
     except urllib.error.HTTPError as e:
