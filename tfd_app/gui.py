@@ -71,6 +71,10 @@ def _apply_app_icon(win, as_default=False):
 QRCODE = os.path.join(HERE, "assets", "qrcode.png")
 MINIAPP_QRCODE = os.path.join(HERE, "assets", "miniapp_qrcode.png")
 MINIAPP_NAME = "文档格式先生"
+# SmartScreen 是 Windows 独有的拦截提示，Linux/macOS 不存在。
+# 相关说明（激活窗 / 关于页 / 帮助 FAQ）只在 Windows 显示，其余平台不显示，
+# 免得给 Mac/Linux 客户讲一个他们永远遇不到的问题。
+_IS_WINDOWS = sys.platform.startswith("win")
 # 品牌 / 客服（文案统一来源，避免散落硬编码）
 WECHAT_NAME = "芦苇不熬夜"
 WECHAT_ID = "reedskill"
@@ -116,7 +120,7 @@ _FONT_BASE = {
     "F_DIALOG_TITLE": ("KaiTi", 14, "bold"),    # 弹窗标题（楷体）
     "F_ICON":       ("KaiTi", 12, "bold"),      # 印章图标（论 / 模，楷体朱砂）
 }
-APP_VERSION = "1.3.166"   # 与 VERSION 文件保持同步（状态栏显示用）
+APP_VERSION = "1.3.167"   # 与 VERSION 文件保持同步（状态栏显示用）
 
 # v1.3.108：绿色 zip 版由软件自建桌面快捷方式（win32com 已内置，客户零依赖、零黑框）。
 APP_SHORTCUT_NAME = "文档格式先生"       # 桌面快捷方式显示名
@@ -3270,8 +3274,9 @@ def show_activation(root, show_trial=True):
               command=lambda: show_help(top)).pack(side="left", padx=14)
     _site_label(hl).pack(side="left", padx=14)
 
-    tk.Label(top, text="未签名程序提示：Windows 可能弹出 SmartScreen 拦截，点击「详细信息」→「仍要运行」即可打开（官网激活教程有图文演示）。",
-             bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(2, 6))
+    if _IS_WINDOWS:
+        tk.Label(top, text="未签名程序提示：Windows 可能弹出 SmartScreen 拦截，点击「详细信息」→「仍要运行」即可打开（官网激活教程有图文演示）。",
+                 bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(2, 6))
     tk.Label(top, text="© 2026 文档格式先生 · 公众号【芦苇不熬夜】 ID：reedskill · 合作联系：hi@reedskill.com",
              bg=PAPER, fg=MUTED, font=F_FOOT, wraplength=560).pack(pady=(8, 10))
 
@@ -3437,8 +3442,9 @@ def show_about(parent):
          BODY, F_SMALL, (0, 4))
     wlbl("模板驱动 · 格式要求取自学校模板，批注说明为先，样式定义次之。",
          BODY, F_SMALL, (0, 12))
-    wlbl("未签名程序 · 首次打开时 Windows 可能弹出 SmartScreen 拦截，点击「详细信息」→「仍要运行」即可（官网激活教程有图文演示）。",
-         MUTED, F_SMALL, (0, 12))
+    if _IS_WINDOWS:
+        wlbl("未签名程序 · 首次打开时 Windows 可能弹出 SmartScreen 拦截，点击「详细信息」→「仍要运行」即可（官网激活教程有图文演示）。",
+             MUTED, F_SMALL, (0, 12))
 
     tk.Label(inner, text="© 2026 芦苇不熬夜", bg=PAPER, fg=MUTED,
              font=F_FOOT).pack(padx=padx, pady=(0, 18))
@@ -3531,10 +3537,12 @@ def show_help(parent):
          "永久卡 / 周卡 / 月卡激活后可断网使用；次卡仅在扣减次数时联网，且只传输激活码与机器码，不含论文内容。"),
         ("Q6 · 学校模板特殊，或修正结果不尽如人意？",
          "欢迎关注公众号【%s】留言，告知贵校情况，我们协助处理。" % WECHAT_NAME),
-        ("Q7 · 打开软件时 Windows 弹出“已保护你的电脑 / 已拦截”提示？",
-         "本软件为未签名程序（省去每年数百元代码签名证书费用，让价格更亲民），Windows SmartScreen 会拦截提示，属正常现象，不代表软件有害。\n"
-         "处理方式：在拦截框点击【详细信息】→ 再点击【仍要运行】即可正常打开；官网 reedskill.com 的“激活教程”页有图文演示。"),
     ]
+    if _IS_WINDOWS:
+        faqs.append(
+            ("Q7 · 打开软件时 Windows 弹出“已保护你的电脑 / 已拦截”提示？",
+             "本软件为未签名程序（省去每年数百元代码签名证书费用，让价格更亲民），Windows SmartScreen 会拦截提示，属正常现象，不代表软件有害。\n"
+             "处理方式：在拦截框点击【详细信息】→ 再点击【仍要运行】即可正常打开；官网 reedskill.com 的“激活教程”页有图文演示。"))
     for title, body in faqs:
         item(title, body)
 
