@@ -195,6 +195,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # 🔴 ditto 打中文文件名必须在 UTF-8 locale 下跑：否则 zip 里文件名
+          #    字节虽是 UTF-8、却没写 UTF-8 标志位（bit 11），Python/部分解压
+          #    工具按 CP437 解码就成了乱码（v1.3.168 首跑踩过，CI 红灯）。
+          export LC_ALL=en_US.UTF-8
+          export LANG=en_US.UTF-8
           # v1.3.168：免安装版 .app 目录名中文化（客户解压 zip / 挂载 dmg 第一眼见到）。
           # 注意只改 dist 里的目录名；release/ 下的资产文件名仍是英文（R2 / 下载页依赖）。
           APP="dist/文档格式先生.app"
@@ -223,7 +228,9 @@ jobs:
           mkdir -p release
           # zip：--keepParent 保住「文档格式先生.app」这一层
           ditto -c -k --keepParent -v "$APP" "release/MDF-Stu-macos.zip"
-          # 自检：zip 顶层必须恰好是中文 .app 名，否则客户解压出来还是废的
+          # 自检：zip 顶层必须恰好是中文 .app 名，否则客户解压出来还是废的。
+          # 保留 Python zipfile 的严格检查——它要求 zip 写了 UTF-8 标志位，
+          # 上面的 LC_ALL/LANG 生效这步才会过；若 locale 没生效则继续红灯暴露问题。
           python3 - <<'PY'
           import sys, zipfile
           z = zipfile.ZipFile("release/MDF-Stu-macos.zip")
