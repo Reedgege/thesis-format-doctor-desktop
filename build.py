@@ -6,7 +6,7 @@
 彻底规避 PyInstaller 单文件（onefile）运行时自解压导致的杀软误报。
 
   Windows -> dist/文档格式先生（免安装版）/  + installer.nsi -> MDF-Stu-setup.exe
-  macOS   -> dist/MDF-Stu.app  (--macos-create-app-bundle)
+  macOS   -> dist/文档格式先生.app  (--macos-create-app-bundle)
   Linux   -> dist/MDF-Stu/
 
 原理：Nuita 把 Python 编译成 C -> 原生机器码。产物在 Windows Defender 眼里等同
@@ -136,11 +136,15 @@ def _nuitka_options():
 
 def _normalize_output():
     """Nuitka 的 standalone 产物目录名固定为 <入口Basename>.dist / .app，
-    重命名为发布用目录名方便 NSIS / 压缩与发布。Windows 用中文目录名（zip 顶层
-    直接就是中文文件夹，客户解压即见 exe）；macOS/Linux 保持英文 APP_NAME。"""
+    重命名为发布用目录名方便 NSIS / 压缩与发布。Windows 与 macOS 免安装版均用
+    中文目录名（客户解压 zip / 挂载 dmg 即见）；Linux 保持英文 APP_NAME
+    （AppImage 是单文件、无「解压文件夹名」这一说）。"""
     dist = os.path.join(HERE, "dist")
     if DARWIN:
-        src, dst = os.path.join(dist, "main.app"), os.path.join(dist, APP_NAME + ".app")
+        # v1.3.168：macOS 免安装版目录名中文化——客户解压 zip / 挂载 dmg 后
+        # 第一眼看到的就是这个名字。发布资产文件名（MDF-Stu-macos.zip 等）保持
+        # 英文不动（R2 / 下载页链接依赖它）。
+        src, dst = os.path.join(dist, "main.app"), os.path.join(dist, "文档格式先生.app")
     elif WIN:
         src, dst = os.path.join(dist, "main.dist"), os.path.join(dist, WIN_DIR_NAME)
     else:
