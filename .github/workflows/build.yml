@@ -229,15 +229,28 @@ jobs:
           # zip：--keepParent 保住「文档格式先生.app」这一层
           ditto -c -k --keepParent -v "$APP" "release/MDF-Stu-macos.zip"
           # 自检：zip 顶层必须恰好是中文 .app 名，否则客户解压出来还是废的。
-          # 保留 Python zipfile 的严格检查——它要求 zip 写了 UTF-8 标志位，
-          # 上面的 LC_ALL/LANG 生效这步才会过；若 locale 没生效则继续红灯暴露问题。
+          # 🔴 ditto 打中文名时写的是 UTF-8 字节、但不设 zip 的 UTF-8 标志位，
+          #    Python zipfile 会按 CP437 误读成乱码（µûçµí...）。macOS Finder /
+          #    Archive Utility 解压时按 UTF-8 解读、客户看到的是正常中文。
+          #    所以校验要还原真实字节：乱码时用 cp437 编码回原字节再按 utf-8 解，
+          #    能对上中文名就算过（既验了客户所见，又不冤枉 ditto 的合法 zip）。
           python3 - <<'PY'
           import sys, zipfile
+          WANT = "文档格式先生.app"
           z = zipfile.ZipFile("release/MDF-Stu-macos.zip")
           tops = sorted({n.split("/")[0] for n in z.namelist()})
-          print("zip 顶层条目:", tops)
-          if tops != ["文档格式先生.app"]:
-              print("!! zip 顶层不是 文档格式先生.app，客户解压后双击无效")
+          print("zip 顶层条目(原始):", tops)
+          def real(name):
+              if name == WANT:
+                  return name
+              try:
+                  return name.encode("cp437").decode("utf-8")
+              except (UnicodeEncodeError, UnicodeDecodeError):
+                  return name
+          got = [real(t) for t in tops]
+          print("zip 顶层条目(还原):", got)
+          if got != [WANT]:
+              print("!! zip 顶层不是 %s，客户解压后双击无效" % WANT)
               sys.exit(1)
           print("OK 顶层正确")
           PY
