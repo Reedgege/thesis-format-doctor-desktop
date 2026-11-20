@@ -36,7 +36,16 @@
     "description": "模板驱动的论文格式检查与一键修正工具。",
     "lang": "zh-cn",
     "executable": "1.文档格式先生.exe",
-    "pfn": "Reedskill.630551E4884DA_v279h4yy6sm7g"
+    "pfn": "Reedskill.630551E4884DA_v279h4yy6sm7g",
+    "deb": {
+      "synopsis": "模板驱动的论文格式检查与一键修正工具",
+      "extended": "按你学校的 Word 模板逐项检查论文格式，一键修正并保留原文件。全部在本机离线运行，论文内容不上传。",
+      "maintainer": "ReedSkill <hi@reedskill.com>",
+      "homepage": "https://reedskill.com",
+      "copyright": "Copyright (c) ReedSkill · 芦苇不熬夜",
+      "support": "hi@reedskill.com",
+      "appstream_id": "com.reedskill.mdfstu"
+    }
   },
   "mdf-advisor": {
     "label": "导师版 文档格式先生·导师版",
@@ -48,6 +57,15 @@
     "description": "导师用：批量检查学生论文格式，生成带批注的副本与检查报告。",
     "lang": "zh-cn",
     "executable": "1.文档格式先生·导师版.exe",
-    "pfn": "Reedskill.361659863A1F_v279h4yy6sm7g"
+    "pfn": "Reedskill.361659863A1F_v279h4yy6sm7g",
+    "deb": {
+      "synopsis": "导师用批量论文格式检查与一键修正工具",
+      "extended": "一次批量检查多篇学生论文的 Word 格式，按本校模板逐项核对，导出带批注的副本与检查报告。全部在本机离线运行，论文内容不上传。",
+      "maintainer": "ReedSkill <hi@reedskill.com>",
+      "homepage": "https://reedskill.com",
+      "copyright": "Copyright (c) ReedSkill · 芦苇不熬夜",
+      "support": "hi@reedskill.com",
+      "appstream_id": "com.reedskill.mdfadvisor"
+    }
   }
 }

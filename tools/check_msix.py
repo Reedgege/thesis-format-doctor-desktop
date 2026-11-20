@@ -13,6 +13,14 @@ import re
 import sys
 import zipfile
 
+# 🔴 Windows CI 的 stdout 走管道时是 cp1252，打印任何中文都会 UnicodeEncodeError
+# （报错点落在 print 行上，极难猜）。与 make_msix.py 一样统一改 UTF-8 兜底。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
