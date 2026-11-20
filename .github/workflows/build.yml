@@ -179,6 +179,30 @@ jobs:
           Compress-Archive -Path "dist\文档格式先生（免安装版）\*" -DestinationPath "release\MDF-Stu-windows.zip" -Force
           ls release
 
+      # 商店包：MSIX（微软商店上架用）。只在 windows 上打；商店上传要**未签名**包
+      # （微软收件时自己签），所以这里不签名、不碰任何证书。makeappx.exe 由
+      # windows-latest runner 自带的 Windows SDK 提供。 payload 直接取上面编好的
+      # 免安装版目录（含 1.文档格式先生.exe），程序行为与 zip 版完全一致。
+      - name: Pack MSIX (Windows only)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $kits = @("${env:ProgramFiles(x86)}\Windows Kits\10\bin", "$env:ProgramFiles\Windows Kits\10\bin")
+          $ma = Get-ChildItem -Path $kits -Filter makeappx.exe -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $ma) { Write-Host "::error::runner 上找不到 makeappx.exe"; exit 1 }
+          Write-Host "makeappx: $($ma.FullName)"
+          python tools/make_msix.py --product mdf-stu --payload "dist/文档格式先生（免安装版）" `
+            --makeappx "$($ma.FullName)" --out "release/MDF-Stu.msix"
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::MSIX 打包失败"; exit 1 }
+          $f = Get-Item release/MDF-Stu.msix
+          Write-Host ("::notice::MSIX 打好了 {0:N2} MiB" -f ($f.Length / 1MB))
+          # 解包自检：清单里的身份/exe/版本与 products.json + VERSION 一致，防打错产品。
+          # 版本从 VERSION 动态读，升级不用改 CI。
+          python tools/check_msix.py release/MDF-Stu.msix mdf-stu
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::MSIX 清单自检失败"; exit 1 }
+
       # macOS 分发：修正 .app 元数据 → 重新 ad-hoc 签名 → zip（必须带 .app 这一层）+ dmg。
       #
       # 🔴 2026-11-14 修的两个致命问题（v1.3.158 及以前所有 macOS 包都中招）：
@@ -451,6 +475,7 @@ jobs:
           path: |
             MDF-Stu-setup.exe
             release/MDF-Stu-windows.zip
+            release/MDF-Stu.msix
             release/MDF-Stu-macos.zip
             release/MDF-Stu-macos.dmg
             release/MDF-Stu-linux.AppImage
@@ -485,6 +510,23 @@ jobs:
             done
           done
           ls -la release
+          # 产物清单校验：7 个资产缺一即失败，确保 MSIX 一定随版进 Release。
+          # .msix 只用于商店上架（未签名），不进官网下载页/R2。
+          EXPECTED="MDF-Stu-setup.exe
+          MDF-Stu-windows.zip
+          MDF-Stu.msix
+          MDF-Stu-macos.zip
+          MDF-Stu-macos.dmg
+          MDF-Stu-linux.AppImage
+          MDF-Stu-linux.deb"
+          missing=""
+          for f in $EXPECTED; do
+            if [ ! -f "release/$f" ]; then missing="$missing $f"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Release assets missing:$missing"
+            exit 1
+          fi
 
       - name: Determine version
         id: ver
